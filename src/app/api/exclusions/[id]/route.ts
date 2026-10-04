@@ -12,6 +12,7 @@ export async function PUT(_req: NextRequest, { params }: { params: Promise<{ id:
   if (!(await one(db, "SELECT 1 AS x FROM transactions WHERE id = ?", [id]))) {
     return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
   }
+  // Any assignment stays: the exclusion overrides it, and deleting the exclusion restores it.
   await run(db, "INSERT OR IGNORE INTO tx_exclusions (tx_id) VALUES (?)", [id]);
   return NextResponse.json({ ok: true });
 }

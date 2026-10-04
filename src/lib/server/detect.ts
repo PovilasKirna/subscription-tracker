@@ -57,7 +57,7 @@ export function fitCadence(dates: string[]): Fit | null {
 }
 
 /** Amounts equal within 1% (or 5 cents) — rounding and FX noise, not a price change. */
-const sameAmount = (a: number, b: number) => Math.abs(a - b) <= Math.max(5, Math.abs(a) * 0.01);
+export const sameAmount = (a: number, b: number) => Math.abs(a - b) <= Math.max(5, Math.abs(a) * 0.01);
 
 /** Share of consecutive charges with (nearly) the same amount. Tolerates a one-off price change. */
 export function amountStability(amounts: number[]): number {
@@ -107,10 +107,11 @@ function clusterByAmount(txs: TxRow[]): TxRow[][] {
   return clusters.map((c) => c.sort((a, b) => a.date.localeCompare(b.date)));
 }
 
-function score(c: Candidate, today: string, override: Override | undefined): Subscription | null {
+/** `pinned`: the user assigned these charges by hand, so they always form a subscription. */
+function score(c: Candidate, today: string, override: Override | undefined, pinned = false): Subscription | null {
   const charges = toCharges(c.txs);
   const fit = fitCadence(charges.map((ch) => ch.date));
-  const confirmed = override?.status === "confirmed";
+  const confirmed = pinned || override?.status === "confirmed";
   if (!fit && !confirmed) return null;
 
   const known = isKnownSubscription(c.merchantKey);
@@ -155,6 +156,7 @@ function score(c: Candidate, today: string, override: Override | undefined): Sub
     status,
     confidence: round2(confidence),
     confirmed,
+    pinned,
     known,
     colorSlot: override?.color_slot ?? null,
     colorChosen: override?.color_slot != null,
@@ -189,6 +191,106 @@ export function assignColorSlots(subs: Subscription[], baseCurrency: string): vo
   });
 }
 
+type Found = { sub: Subscription; txs: TxRow[] };
+
+/** Automatic detection over charges nobody assigned by hand, one merchant + currency at a time. */
+function autoDetect(pool: TxRow[], overrides: Map<string, Override>, today: string): Found[] {
+  const groups = new Map<string, TxRow[]>();
+  for (const t of pool) {
+    const key = `${t.merchant_key}|${t.currency}`;
+    const g = groups.get(key);
+    if (g) g.push(t);
+    else groups.set(key, [t]);
+  }
+
+  const found: Found[] = [];
+  for (const [groupKey, group] of groups) {
+    group.sort((a, b) => a.date.localeCompare(b.date));
+    const [merchantKey, currency] = groupKey.split("|");
+
+    // 1) The whole merchant as one subscription (handles price changes well). A merchant the
+    //    user confirmed stays whole even when its charges would also split into price points.
+    const whole = score({ key: groupKey, merchantKey, currency, txs: group }, today, overrides.get(groupKey));
+    const charges = whole ? whole.chargeCount : 0;
+    const manySameDayish = group.length > charges + 1;
+    if (whole && (!manySameDayish || whole.confirmed)) {
+      found.push({ sub: whole, txs: group });
+      continue;
+    }
+    // 2) Otherwise look for several plans at different price points.
+    const parts: Found[] = [];
+    for (const cluster of clusterByAmount(group)) {
+      if (cluster.length < 2) continue;
+      const mid = Math.round(-median(cluster.map((t) => t.amount_minor)));
+      const key = `${groupKey}|${mid}`;
+      const sub = score({ key, merchantKey, currency, txs: cluster }, today, overrides.get(key));
+      if (sub) parts.push({ sub, txs: cluster });
+    }
+    if (parts.length) {
+      if (parts.length > 1) for (const p of parts) p.sub.name = `${p.sub.name} · ${p.sub.amount.toFixed(2)}`;
+      found.push(...parts);
+    } else if (whole) {
+      found.push({ sub: whole, txs: group });
+    }
+  }
+  return found;
+}
+
+/** `merchant|currency[|…]` → its merchant key and currency. */
+export function parseSubKey(key: string): { merchantKey: string; currency: string } {
+  const [merchantKey = "", currency = ""] = key.split("|");
+  return { merchantKey, currency };
+}
+
+/**
+ * New charges keep flowing into a pinned subscription: an unassigned payment day from one of its
+ * merchants, dated after its latest charge and at the same price, continues it. Prices compare
+ * per day (like `toCharges`), so a renewal split over two same-day rows still matches; failing
+ * that, single rows priced like the subscription join on their own. A charge that would fit
+ * several pinned subscriptions is left alone rather than guessed. Returns the unclaimed rows.
+ */
+function followPinned(pinned: Map<string, TxRow[]>, pool: TxRow[]): TxRow[] {
+  const dayTotal = (rows: TxRow[], date: string) => rows.reduce((s, t) => s + (t.date === date ? t.amount_minor : 0), 0);
+  const heads = [...pinned].map(([key, list]) => {
+    const { merchantKey, currency } = parseSubKey(key);
+    const date = list.reduce((d, t) => (t.date > d ? t.date : d), "");
+    return { list, currency, merchants: new Set([merchantKey, ...list.map((t) => t.merchant_key)]), date, amount: dayTotal(list, date) };
+  });
+  if (!heads.length) return pool;
+
+  // One payment day per merchant + currency, oldest first.
+  const days = new Map<string, TxRow[]>();
+  for (const t of pool) {
+    const k = `${t.date}|${t.merchant_key}|${t.currency}`;
+    const day = days.get(k);
+    if (day) day.push(t);
+    else days.set(k, [t]);
+  }
+  const rest: TxRow[] = [];
+  for (const k of [...days.keys()].sort()) {
+    const rows = days.get(k) as TxRow[];
+    const { date, merchant_key, currency } = rows[0];
+    const open = heads.filter((h) => h.currency === currency && h.merchants.has(merchant_key) && date > h.date);
+    const only = <T>(xs: T[]) => (xs.length === 1 ? xs[0] : undefined);
+    const total = rows.reduce((s, t) => s + t.amount_minor, 0);
+    const whole = only(open.filter((h) => sameAmount(total, h.amount)));
+    if (whole) {
+      whole.list.push(...rows);
+      whole.date = date;
+      whole.amount = total;
+      continue;
+    }
+    // The day also holds other purchases: take just the rows priced like a subscription.
+    for (const t of rows) {
+      const head = only(open.filter((h) => sameAmount(t.amount_minor, h.amount)));
+      if (head) head.list.push(t);
+      else rest.push(t);
+    }
+    for (const h of open) if (h.list.at(-1)?.date === date) h.date = date;
+  }
+  return rest;
+}
+
 export function detectSubscriptions(
   txs: TxRow[],
   overrides: Map<string, Override>,
@@ -196,50 +298,47 @@ export function detectSubscriptions(
   baseCurrency = "EUR",
   /** Transaction ids the user removed from subscriptions; never counted as charges. */
   excluded: ReadonlySet<string> = new Set(),
+  /**
+   * Transaction id → the subscription key the user put it in. Beats detection; an exclusion still
+   * wins, and keeping the assignment underneath is what lets "Include again" restore it.
+   */
+  assigned: ReadonlyMap<string, string> = new Map(),
 ): Detection {
-  const groups = new Map<string, TxRow[]>();
+  // Assigned charges form "pinned" subscriptions whatever their type (a direct debit can come
+  // through as a transfer) and whether or not they fit a pattern.
+  const pinned = new Map<string, TxRow[]>();
   for (const t of txs) {
-    if (!isSpend(t) || excluded.has(t.id)) continue;
-    const key = `${t.merchant_key}|${t.currency}`;
-    const g = groups.get(key);
-    if (g) g.push(t);
-    else groups.set(key, [t]);
+    const key = assigned.get(t.id);
+    if (key === undefined || t.amount_minor >= 0 || excluded.has(t.id)) continue;
+    const list = pinned.get(key);
+    if (list) list.push(t);
+    else pinned.set(key, [t]);
   }
+  // Renewals continue a pinned subscription before type rules apply (its direct debits are
+  // transfers too); only what's left goes through automatic detection.
+  const pool = followPinned(
+    pinned,
+    txs.filter((t) => t.amount_minor < 0 && !excluded.has(t.id) && !assigned.has(t.id)),
+  ).filter(isSpend);
 
   const found: Subscription[] = [];
   const txToSub = new Map<string, string>();
-  for (const [groupKey, group] of groups) {
-    group.sort((a, b) => a.date.localeCompare(b.date));
-    const [merchantKey, currency] = groupKey.split("|");
-
-    // 1) The whole merchant as one subscription (handles price changes well).
-    const whole = score({ key: groupKey, merchantKey, currency, txs: group }, today, overrides.get(groupKey));
-    const charges = whole ? whole.chargeCount : 0;
-    const manySameDayish = group.length > charges + 1;
-    if (whole && !manySameDayish) {
-      found.push(whole);
-      for (const t of group) txToSub.set(t.id, whole.key);
+  for (const f of autoDetect(pool, overrides, today)) {
+    // Detection landed on a pinned key (e.g. new charges at a new price): fold them in.
+    const into = pinned.get(f.sub.key);
+    if (into) {
+      into.push(...f.txs);
       continue;
     }
-    // 2) Otherwise look for several plans at different price points.
-    const parts: Subscription[] = [];
-    for (const cluster of clusterByAmount(group)) {
-      if (cluster.length < 2) continue;
-      const mid = Math.round(-median(cluster.map((t) => t.amount_minor)));
-      const key = `${groupKey}|${mid}`;
-      const sub = score({ key, merchantKey, currency, txs: cluster }, today, overrides.get(key));
-      if (sub) {
-        parts.push(sub);
-        for (const t of cluster) txToSub.set(t.id, sub.key);
-      }
-    }
-    if (parts.length) {
-      if (parts.length > 1) for (const p of parts) p.name = `${p.name} · ${p.amount.toFixed(2)}`;
-      found.push(...parts);
-    } else if (whole) {
-      found.push(whole);
-      for (const t of group) txToSub.set(t.id, whole.key);
-    }
+    found.push(f.sub);
+    for (const t of f.txs) txToSub.set(t.id, f.sub.key);
+  }
+  for (const [key, list] of pinned) {
+    list.sort((a, b) => a.date.localeCompare(b.date));
+    const sub = score({ key, ...parseSubKey(key), txs: list }, today, overrides.get(key), true);
+    if (!sub) continue;
+    found.push(sub);
+    for (const t of list) txToSub.set(t.id, key);
   }
 
   const order: Record<SubStatus, number> = { active: 0, late: 1, inactive: 2, cancelled: 3 };
@@ -260,11 +359,12 @@ export function buildHistory(txs: TxRow[], detection: Detection, baseCurrency: s
   const perSub = new Map(subs.map((s) => [s.key, new Array<number>(months.length).fill(0)]));
   const allSpending = new Array<number>(months.length).fill(0);
   for (const t of txs) {
-    if (t.currency !== baseCurrency || !isSpend(t)) continue;
+    const subKey = detection.txToSub.get(t.id);
+    // A charge the user assigned counts even if its type is normally excluded (e.g. a transfer).
+    if (t.currency !== baseCurrency || !(isSpend(t) || subKey)) continue;
     const i = idx.get(t.date.slice(0, 7));
     if (i === undefined) continue;
     allSpending[i] += -t.amount_minor / 100;
-    const subKey = detection.txToSub.get(t.id);
     const row = subKey ? perSub.get(subKey) : undefined;
     if (row) row[i] += -t.amount_minor / 100;
   }

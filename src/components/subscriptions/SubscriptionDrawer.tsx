@@ -22,10 +22,10 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CADENCE_LABEL, fullDate, money, monthYearLabel, relativeDays } from "@/lib/format";
-import { useExclusion, useOverride } from "@/lib/query/mutations";
+import { useAssign, useExclusion, useOverride } from "@/lib/query/mutations";
 import { subscriptionDetailQuery } from "@/lib/query/options";
 import { subscriptionDrawerParams } from "@/lib/search-params";
-import type { TransactionItem } from "@/lib/types";
+import type { RelatedTransaction, TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "./StatusBadge";
 import { SubscriptionActions } from "./SubscriptionActions";
@@ -153,6 +153,7 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
           items={data.transactions}
           action="exclude"
         />
+        {s && data.related.length > 0 && <RelatedList subKey={subKey} name={s.name} items={data.related} />}
         {data.excluded.length > 0 && (
           <ChargeList title={`Removed from this subscription (${data.excluded.length})`} items={data.excluded} action="include" muted />
         )}
@@ -222,6 +223,59 @@ function ChargeList({
           </li>
         ))}
         {!items.length && <li className="px-3 py-4 text-center text-sm text-muted-foreground">No charges.</li>}
+      </ul>
+    </section>
+  );
+}
+
+/** Same-merchant payments that aren't counted here, each one click away from being added. */
+function RelatedList({ subKey, name, items }: { subKey: string; name: string; items: RelatedTransaction[] }) {
+  const assign = useAssign();
+  const add = (txs: RelatedTransaction[]) =>
+    assign.mutate(
+      { subKey, txIds: txs.map((t) => t.id) },
+      { onSuccess: () => toast.success(txs.length === 1 ? `Added to ${name}` : `Added ${txs.length} payments to ${name}`) },
+    );
+  return (
+    <section>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-medium">Other payments to this merchant ({items.length})</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Not counted here. Add the ones that belong to this subscription, like charges after a plan change.
+          </p>
+        </div>
+        {items.length > 1 && (
+          <Button variant="outline" size="xs" className="shrink-0" disabled={assign.isPending} onClick={() => add(items)}>
+            <PlusCircleIcon /> Add all
+          </Button>
+        )}
+      </div>
+      <ul className="mt-2 divide-y rounded-lg border">
+        {items.map((tx) => (
+          <li key={tx.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+            <span className="tabular w-24 shrink-0 text-muted-foreground">{fullDate(tx.date)}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{tx.description}</span>
+              {(tx.similar || tx.subscriptionName) && (
+                <span className="block truncate text-xs text-muted-foreground">
+                  {[tx.similar && "Same price", tx.subscriptionName && `Now in ${tx.subscriptionName}`].filter(Boolean).join(" · ")}
+                </span>
+              )}
+            </span>
+            <span className="tabular shrink-0 font-medium">{money(Math.abs(tx.amount), tx.currency)}</span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0"
+              disabled={assign.isPending}
+              onClick={() => add([tx])}
+              aria-label={`Add charge on ${fullDate(tx.date)} to ${name}`}
+            >
+              <PlusCircleIcon />
+            </Button>
+          </li>
+        ))}
       </ul>
     </section>
   );

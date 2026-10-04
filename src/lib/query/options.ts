@@ -6,6 +6,7 @@ import {
   type TransactionFilters,
 } from "../search-params";
 import type {
+  AssignOptionsPayload,
   DataStatusPayload,
   HistoryPayload,
   SubscriptionDetailPayload,
@@ -41,6 +42,7 @@ export const keys = {
   transactions: (filters: TransactionFilters) => ["transactions", filters] as const,
   status: ["status"] as const,
   subscriptionDetail: (key: string) => ["subscription-detail", key] as const,
+  assignOptions: (txId: string) => ["assign-options", txId] as const,
 };
 
 export const subscriptionsQuery = () =>
@@ -67,6 +69,13 @@ export const subscriptionDetailQuery = (key: string) =>
   queryOptions({
     queryKey: keys.subscriptionDetail(key),
     queryFn: () => api<SubscriptionDetailPayload>(`/api/subscriptions/detail?${new URLSearchParams({ key })}`),
+  });
+
+/** Targets and related payments for the "Add to subscription" dialog. */
+export const assignOptionsQuery = (txId: string) =>
+  queryOptions({
+    queryKey: keys.assignOptions(txId),
+    queryFn: () => api<AssignOptionsPayload>(`/api/assignments?${new URLSearchParams({ tx: txId })}`),
   });
 
 export const statusQuery = () => queryOptions({ queryKey: keys.status, queryFn: () => api<DataStatusPayload>("/api/status") });

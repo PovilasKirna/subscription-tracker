@@ -106,6 +106,80 @@ test("colour slots follow first-seen order, not rank", () => {
   );
 });
 
+// A plan upgrade: four months of Pro, a prorated upgrade charge, then Max, with irregular API
+// usage from the same merchant. Detection splits it into two price points and drops the upgrade.
+const claudeUpgrade = () => [
+  ...["2026-01-10", "2026-02-10", "2026-03-10", "2026-04-10"].map((d) => tx(d, -18, "CLAUDE.AI SUBSCRIPTION")),
+  tx("2026-04-22", -72.6, "CLAUDE.AI SUBSCRIPTION"),
+  ...["2026-05-22", "2026-06-22", "2026-07-22"].map((d) => tx(d, -90, "CLAUDE.AI SUBSCRIPTION")),
+  ...[
+    ["2026-02-14", 5],
+    ["2026-02-15", 5],
+    ["2026-03-02", 10],
+    ["2026-05-03", 5],
+    ["2026-05-04", 5],
+  ].map(([d, a]) => tx(d as string, -(a as number), "Anthropic API")),
+];
+
+test("a plan upgrade is detected as separate price points, missing the upgrade charge", () => {
+  const txs = claudeUpgrade();
+  const det = detectSubscriptions(txs, none, "2026-08-10");
+  assert.deepEqual(det.subscriptions.map((s) => s.key).sort(), ["anthropic|EUR|1800", "anthropic|EUR|9000"]);
+  assert.equal(det.txToSub.get(txs[4].id), undefined);
+});
+
+test("assigned charges form one pinned subscription and new charges at its price follow", () => {
+  const txs = claudeUpgrade();
+  const key = "anthropic|EUR|1800";
+  const assigned = new Map(txs.slice(0, 8).map((t) => [t.id, key]));
+  const later = tx("2026-08-22", -90, "CLAUDE.AI SUBSCRIPTION");
+  const det = detectSubscriptions([...txs, later], none, "2026-08-25", "EUR", new Set(), assigned);
+  assert.equal(det.subscriptions.length, 1);
+  const s = det.subscriptions[0];
+  assert.equal(s.key, key);
+  assert.ok(s.pinned && s.confirmed);
+  assert.equal(s.chargeCount, 9);
+  assert.equal(s.amount, 90);
+  assert.equal(s.status, "active");
+  assert.equal(det.txToSub.get(later.id), key, "the next renewal joins without another assignment");
+  for (const api of txs.slice(8)) assert.equal(det.txToSub.get(api.id), undefined, "API usage stays out");
+});
+
+test("an assigned payment counts even when its type is normally excluded", () => {
+  const debits = monthly("Telia Lietuva", 25, 4).map((t) => ({ ...t, type: "TRANSFER" }));
+  assert.equal(detectSubscriptions(debits, none, "2025-04-20").subscriptions.length, 0);
+  const assigned = new Map(debits.map((t) => [t.id, "telia|EUR"]));
+  const det = detectSubscriptions(debits, none, "2025-04-20", "EUR", new Set(), assigned);
+  assert.equal(det.subscriptions.length, 1);
+  assert.equal(det.subscriptions[0].chargeCount, 4);
+  const history = buildHistory(debits, det, "EUR", "2025-04-20", 4);
+  assert.deepEqual(history.totals, [25, 25, 25, 25]);
+});
+
+test("a confirmed merchant stays one subscription even if its charges split by price", () => {
+  // Same-day pairs make detection look for several plans; the user said it's one.
+  const txs = [...monthly("Apple.com/Bill", 2.99, 6, 3), ...monthly("Apple.com/Bill", 9.99, 6, 3)];
+  assert.equal(detectSubscriptions(txs, none, "2025-06-10").subscriptions.length, 2);
+  const key = "apple|EUR";
+  const confirmed = new Map([[key, { key, display_name: null, category: null, status: "confirmed" as const, color_slot: null }]]);
+  const det = detectSubscriptions(txs, confirmed, "2025-06-10");
+  assert.deepEqual(
+    det.subscriptions.map((s) => s.key),
+    [key],
+  );
+  for (const t of txs) assert.equal(det.txToSub.get(t.id), key);
+});
+
+test("charges detected under a pinned key fold into it", () => {
+  const old = monthly("Spotify", 9.99, 3);
+  const later = monthly("Spotify", 11.99, 3, 7, 2025).map((t, i) => ({ ...t, date: `2025-${String(i + 5).padStart(2, "0")}-07` }));
+  const assigned = new Map(old.map((t) => [t.id, "spotify|EUR"]));
+  const det = detectSubscriptions([...old, ...later], none, "2025-07-20", "EUR", new Set(), assigned);
+  assert.equal(det.subscriptions.length, 1);
+  assert.equal(det.subscriptions[0].chargeCount, 6);
+  assert.equal(det.subscriptions[0].amount, 11.99);
+});
+
 test("a user-picked colour sticks and automatic slots skip it", () => {
   const txs = [
     ...monthly("Spotify", 11.99, 10, 14),
@@ -120,4 +194,51 @@ test("a user-picked colour sticks and automatic slots skip it", () => {
   assert.equal(by["Lemon Gym"].colorChosen, true);
   assert.equal(by.Spotify.colorSlot, 2); // slot 1 is taken, so the next free one
   assert.equal(by.Spotify.colorChosen, false);
+});
+
+test("an exclusion overrides an assignment, and lifting it restores the subscription", () => {
+  const one = tx("2025-03-10", -4.5, "Caif Cafe");
+  const assigned = new Map([[one.id, "caif-cafe|EUR"]]);
+  const removed = detectSubscriptions([one], none, "2025-03-20", "EUR", new Set([one.id]), assigned);
+  assert.equal(removed.subscriptions.length, 0);
+  const restored = detectSubscriptions([one], none, "2025-03-20", "EUR", new Set(), assigned);
+  assert.deepEqual(
+    restored.subscriptions.map((s) => s.key),
+    ["caif-cafe|EUR"],
+  );
+});
+
+test("a renewal split over same-day rows joins its pinned subscription whole", () => {
+  // Assigned history bills €20 in one row; the renewal arrives as two €10 rows.
+  const history = monthly("Lemon Gym", 20, 3);
+  const split = [tx("2025-04-07", -10, "Lemon Gym"), tx("2025-04-07", -10, "Lemon Gym")];
+  const assigned = new Map(history.map((t) => [t.id, "lemon-gym|EUR"]));
+  const det = detectSubscriptions([...history, ...split], none, "2025-04-10", "EUR", new Set(), assigned);
+  for (const t of split) assert.equal(det.txToSub.get(t.id), "lemon-gym|EUR");
+  assert.equal(det.subscriptions[0].amount, 20);
+});
+
+test("equal rows on one renewal date both join a pinned subscription", () => {
+  const history = monthly("Lemon Gym", 10, 3);
+  const pair = [tx("2025-04-07", -10, "Lemon Gym"), tx("2025-04-07", -10, "Lemon Gym")];
+  const assigned = new Map(history.map((t) => [t.id, "lemon-gym|EUR"]));
+  const det = detectSubscriptions([...history, ...pair], none, "2025-04-10", "EUR", new Set(), assigned);
+  for (const t of pair) assert.equal(det.txToSub.get(t.id), "lemon-gym|EUR");
+});
+
+test("a renewal that fits two pinned subscriptions joins neither", () => {
+  const a = monthly("Apple.com/Bill", 2.99, 3, 3);
+  const b = monthly("Apple.com/Bill", 2.99, 3, 20);
+  const next = tx("2025-04-03", -2.99, "Apple.com/Bill");
+  const assigned = new Map([...a.map((t) => [t.id, "apple|EUR|a"] as const), ...b.map((t) => [t.id, "apple|EUR|b"] as const)]);
+  const det = detectSubscriptions([...a, ...b, next], none, "2025-04-10", "EUR", new Set(), assigned);
+  assert.equal(det.txToSub.get(next.id), undefined);
+});
+
+test("a direct-debit renewal continues a pinned subscription despite its transfer type", () => {
+  const debits = monthly("Telia Lietuva", 25, 5).map((t) => ({ ...t, type: "TRANSFER" }));
+  const assigned = new Map(debits.slice(0, 4).map((t) => [t.id, "telia|EUR"]));
+  const det = detectSubscriptions(debits, none, "2025-05-10", "EUR", new Set(), assigned);
+  assert.equal(det.txToSub.get(debits[4].id), "telia|EUR");
+  assert.equal(det.subscriptions[0].lastCharge, debits[4].date);
 });

@@ -78,6 +78,15 @@ const SCHEMA = `
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  -- Charges the user put into a specific subscription by hand. A subscription with any
+  -- assigned charge is "pinned": its membership no longer depends on automatic detection.
+  CREATE TABLE IF NOT EXISTS tx_assignments (
+    tx_id       TEXT PRIMARY KEY,
+    sub_key     TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS tx_assignments_sub ON tx_assignments(sub_key);
+
   CREATE TABLE IF NOT EXISTS import_log (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     at        TEXT NOT NULL DEFAULT (datetime('now')),
@@ -95,7 +104,7 @@ const SCHEMA = `
     value  INTEGER NOT NULL
   );
   INSERT OR IGNORE INTO meta (key, value) VALUES ('data_version', 0);
-${["transactions", "overrides", "tx_exclusions"]
+${["transactions", "overrides", "tx_exclusions", "tx_assignments"]
   .flatMap((table) =>
     ["INSERT", "UPDATE", "DELETE"].map(
       (op) => `
@@ -137,7 +146,7 @@ export async function openDb(url = config.databaseUrl, authToken = config.databa
 
 // One client per process (survives dev hot reloads and warm serverless invocations).
 // Bump SCHEMA_VERSION when SCHEMA/COLUMNS change so a cached client gets migrated too.
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const g = globalThis as unknown as { __trackerDb?: Promise<Client>; __trackerDbVersion?: number };
 export function getDb(): Promise<Client> {
   if (!g.__trackerDb || g.__trackerDbVersion !== SCHEMA_VERSION) {
@@ -269,7 +278,7 @@ export async function logImport(db: Db, source: string, s: InsertStats, message?
   ]);
 }
 
-/** Changes whenever transactions, overrides or exclusions change (see the triggers in SCHEMA). */
+/** Changes whenever transactions, overrides, exclusions or assignments change (see the triggers in SCHEMA). */
 export async function dataVersion(db: Db): Promise<number> {
   return Number((await one<{ value: number }>(db, "SELECT value FROM meta WHERE key = 'data_version'"))?.value ?? 0);
 }
@@ -283,6 +292,12 @@ export async function allTransactions(db: Db): Promise<TxRow[]> {
 
 export async function allExclusions(db: Db): Promise<Set<string>> {
   return new Set((await all<{ tx_id: string }>(db, "SELECT tx_id FROM tx_exclusions")).map((r) => r.tx_id));
+}
+
+/** Transaction id → the subscription key the user assigned it to. */
+export async function allAssignments(db: Db): Promise<Map<string, string>> {
+  const rows = await all<{ tx_id: string; sub_key: string }>(db, "SELECT tx_id, sub_key FROM tx_assignments");
+  return new Map(rows.map((r) => [r.tx_id, r.sub_key]));
 }
 
 const OVERRIDE_FIELDS = ["display_name", "category", "status", "color_slot"] as const;

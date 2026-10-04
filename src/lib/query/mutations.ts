@@ -53,6 +53,17 @@ export function useResetOverride() {
   });
 }
 
+/** Put payments into a subscription (`subKey` null starts a new one). Resolves to its key. */
+export function useAssign() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (input: { subKey: string | null; txIds: string[] }) =>
+      api<{ key: string }>("/api/assignments", { method: "PUT", body: JSON.stringify(input) }),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(e.message),
+  });
+}
+
 /** Remove one charge from its subscription (or put it back). Detection recalculates server-side. */
 export function useExclusion() {
   const invalidate = useInvalidateAll();
