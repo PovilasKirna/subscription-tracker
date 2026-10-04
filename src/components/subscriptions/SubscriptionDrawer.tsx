@@ -8,6 +8,7 @@ import {
   MoreHorizontalIcon,
   PencilIcon,
   PlusCircleIcon,
+  RotateCcwIcon,
   SparklesIcon,
   TrendingUpIcon,
   XIcon,
@@ -16,6 +17,7 @@ import { useQueryState } from "nuqs";
 import { type ReactNode, Suspense, useState } from "react";
 import { toast } from "sonner";
 import { ChargeHistory } from "@/charts";
+import { MerchantIcon } from "@/components/MerchantIcon";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import {
@@ -30,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CADENCE_LABEL, fullDate, money, monthYearLabel, relativeDays } from "@/lib/format";
 import { useAssign, useExclusion, useOverride } from "@/lib/query/mutations";
@@ -71,6 +74,7 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
         <div className="min-w-0">
           {s ? (
             <div className="flex items-center gap-2">
+              <LogoPicker subKey={subKey} name={s.name} website={s.website} chosen={s.websiteChosen} />
               <ColorPicker subKey={subKey} name={s.name} color={s.color} chosen={s.colorChosen} />
               <div className="min-w-0 flex-1">
                 <EditableName subKey={subKey} name={s.name} />
@@ -341,6 +345,78 @@ function CadencePicker({ sub }: { sub: Pick<Subscription, "key" | "name" | "cade
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** The logo beside the name; click it to set the website the logo comes from (or go back to the built-in one). */
+function LogoPicker({ subKey, name, website, chosen }: { subKey: string; name: string; website: string | null; chosen: boolean }) {
+  const override = useOverride();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const save = (next: string) =>
+    override.mutate(
+      { key: subKey, website: next },
+      {
+        onSuccess: () => {
+          setOpen(false);
+          toast.success(next ? "Logo updated" : "Logo reset");
+        },
+      },
+    );
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setValue(chosen ? (website ?? "") : "");
+      }}
+    >
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            className="shrink-0 rounded-lg outline-none ring-offset-2 ring-offset-background transition-shadow hover:ring-2 hover:ring-ring/40 focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`Logo for ${name}${website ? ` from ${website}` : ""}. Change logo`}
+            title="Change logo"
+          />
+        }
+      >
+        <MerchantIcon name={name} website={website} size="lg" />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72">
+        <PopoverHeader>
+          <PopoverTitle>Logo</PopoverTitle>
+          <PopoverDescription className="text-xs">The service&apos;s website. Its icon is used as the logo.</PopoverDescription>
+        </PopoverHeader>
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save(value.trim());
+          }}
+        >
+          <Input
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={(!chosen && website) || "example.com"}
+            className="h-8"
+            aria-label="Website"
+            inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <Button type="submit" size="icon-sm" disabled={override.isPending || !value.trim()} aria-label="Save website">
+            <CheckIcon />
+          </Button>
+        </form>
+        {chosen && (
+          <Button variant="outline" size="sm" disabled={override.isPending} onClick={() => save("")}>
+            <RotateCcwIcon /> Reset logo
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 

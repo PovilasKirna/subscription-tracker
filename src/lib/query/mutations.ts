@@ -16,6 +16,8 @@ export type OverrideInput = {
   color?: ColorChoice | null;
   /** Renewal cadence; null = detected from the charges. */
   cadence?: Cadence | null;
+  /** Website for the logo, e.g. "hostinger.com"; "" or null = back to the built-in one. */
+  website?: string | null;
 };
 
 /** Every server-side derived view depends on transactions + overrides, so refresh them all. */

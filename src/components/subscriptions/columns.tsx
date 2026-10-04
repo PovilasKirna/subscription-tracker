@@ -4,6 +4,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { BadgeCheckIcon } from "lucide-react";
 import { ChargeSparkline } from "@/charts";
 import { DataTableColumnHeader } from "@/components/data-table";
+import { MerchantIcon } from "@/components/MerchantIcon";
 import { Badge } from "@/components/ui/badge";
 import { CADENCE_LABEL, fullDate, money, relativeDays } from "@/lib/format";
 import { isLive } from "@/lib/insights";
@@ -22,8 +23,9 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       meta: { label: "Subscription" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Subscription" />,
       cell: ({ row: { original: s } }) => (
-        <div className="flex max-w-[16rem] items-center gap-3">
+        <div className="flex max-w-[18rem] items-center gap-2.5">
           <ColorSwatch color={s.color} none={s.colorChosen && s.color === null} className="size-2.5" />
+          <MerchantIcon name={s.name} website={s.website} />
           <div className="min-w-0">
             <div className="truncate font-medium">{s.name}</div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">

@@ -42,6 +42,10 @@ export type Subscription = {
   color: SeriesColor;
   /** True when the user picked `color` themselves (including "none") rather than leaving it automatic. */
   colorChosen: boolean;
+  /** Website the logo comes from (e.g. "netflix.com"): the user's, else the built-in one; null = initials. */
+  website: string | null;
+  /** True when the user set `website` themselves. */
+  websiteChosen: boolean;
   priceChanges: PriceChange[];
   charges: Charge[];
 };
@@ -93,6 +97,8 @@ export type TransactionItem = {
   date: string;
   description: string;
   merchantKey: string;
+  /** Website the logo comes from (see Subscription.website); null = initials. */
+  website: string | null;
   amount: number;
   currency: string;
   type: string | null;

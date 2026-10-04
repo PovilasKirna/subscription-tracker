@@ -66,6 +66,11 @@ export default function PrivacyPage() {
           </li>
         </ul>
         <p>These providers process data on the app&apos;s behalf, under their own security and data protection terms.</p>
+        <p>
+          Service logos (for well-known services like Netflix and Spotify, or a website the owner enters) are fetched by the server from
+          Google&apos;s and DuckDuckGo&apos;s public favicon services, using only the service&apos;s website address. No transaction data or
+          anything identifying the owner is sent, and the browser never contacts these services directly.
+        </p>
       </Section>
 
       <Section title="How long data is kept">

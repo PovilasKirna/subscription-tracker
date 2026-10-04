@@ -3,6 +3,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { RepeatIcon } from "lucide-react";
 import { DataTableColumnHeader } from "@/components/data-table";
+import { MerchantIcon } from "@/components/MerchantIcon";
 import { Badge } from "@/components/ui/badge";
 import { fullDate, money } from "@/lib/format";
 import type { TX_TYPES } from "@/lib/search-params";
@@ -29,6 +30,7 @@ export function transactionColumns(onShowMerchant: (merchantKey: string) => void
       header: ({ column }) => <DataTableColumnHeader column={column} title="Description" />,
       cell: ({ row }) => (
         <div className="flex max-w-[22rem] items-center gap-2">
+          <MerchantIcon name={row.original.merchantKey.replace(/-/g, " ")} website={row.original.website} size="sm" />
           <span className="truncate font-medium">{row.original.description}</span>
           {row.original.subscriptionKey && (
             <Badge variant="secondary" className="shrink-0 gap-1">
