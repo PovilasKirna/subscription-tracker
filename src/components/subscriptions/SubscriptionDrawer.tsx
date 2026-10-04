@@ -40,11 +40,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CADENCE_LABEL, fullDate, money, monthYearLabel, relativeDays } from "@/lib/format";
 import { useAssign, useExclusion, useOverride, useReimbursement } from "@/lib/query/mutations";
 import { subscriptionDetailQuery } from "@/lib/query/options";
+import { expectedFor } from "@/lib/reimbursement";
 import { CADENCES, subscriptionDrawerParams } from "@/lib/search-params";
 import type { Cadence, RelatedTransaction, Subscription, TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ColorPicker } from "./ColorPicker";
-import { expectedFor, ReimbursedNote, ReimbursementAmountDialog, ReimbursementSection, reimbursementToast } from "./Reimbursement";
+import { ReimbursedNote, ReimbursementAmountDialog, ReimbursementSection, reimbursementToast } from "./Reimbursement";
 import { StatusBadge } from "./StatusBadge";
 import { SubscriptionActions } from "./SubscriptionActions";
 
@@ -128,9 +129,10 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
                 )}
               </Stat>
               <Stat label="Spent so far">
-                {fmt(s.totalSpent)}
+                {/* Net of what came back (recorded + assumed); the gross underneath when they differ. */}
+                {fmt(s.totalSpent - s.totalReimbursed)}
                 {s.totalReimbursed > 0 && (
-                  <span className="block text-xs font-normal text-muted-foreground">{fmt(s.totalReimbursed)} reimbursed</span>
+                  <span className="block text-xs font-normal text-muted-foreground">{fmt(s.totalSpent)} before reimbursement</span>
                 )}
               </Stat>
               <Stat label="Since">

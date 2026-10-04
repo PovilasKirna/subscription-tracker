@@ -31,7 +31,7 @@ import {
 } from "./db";
 import { buildHistory, type Detection, detectSubscriptions, parseSubKey, sameAmount, websiteResolver } from "./detect";
 import { merchantName } from "./merchant";
-import { applyReimbursements, summarizeSources } from "./reimburse";
+import { applyReimbursements, chargeTotalMinor, summarizeSources } from "./reimburse";
 import { memoByVersion } from "./snapshot";
 import { querySubscriptions } from "./subscriptionTable";
 import { isSyncing, syncCutoff } from "./sync";
@@ -81,8 +81,15 @@ export const detection = cache(
 
 type WebsiteOf = ReturnType<typeof websiteResolver>;
 
-const toItem = (t: TxRow, subscriptionKey: string | null, websiteOf: WebsiteOf, reimbursement?: ChargeReimbursement): TransactionItem => ({
+const toItem = (
+  t: TxRow,
+  subscriptionKey: string | null,
+  websiteOf: WebsiteOf,
+  reimbursement?: ChargeReimbursement,
+  chargeMinor?: number,
+): TransactionItem => ({
   ...(reimbursement && { reimbursement }),
+  ...(chargeMinor !== undefined && chargeMinor !== -t.amount_minor && { chargeTotal: chargeMinor / 100 }),
   id: t.id,
   date: t.date,
   description: t.description,
@@ -154,7 +161,11 @@ export async function getSubscriptionDetail(key: string): Promise<SubscriptionDe
           (ignored && t.merchant_key === merchantKey && t.currency === currency && !excluded.has(t.id) && t.amount_minor < 0),
       )
       .sort(newestFirst)
-      .map((t) => (active ? toItem(t, key, websiteOf, reimbursedTx.get(t.id)) : toItem(t, null, websiteOf))),
+      .map((t) => {
+        if (!active) return toItem(t, null, websiteOf);
+        const r = reimbursedTx.get(t.id);
+        return toItem(t, key, websiteOf, r, r && chargeTotalMinor(t, counted, det.txToSub));
+      }),
     excluded: txs
       .filter((t) => excluded.has(t.id) && ((t.merchant_key === merchantKey && t.currency === currency) || assigned.get(t.id) === key))
       .sort(newestFirst)

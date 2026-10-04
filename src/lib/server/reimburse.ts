@@ -38,6 +38,23 @@ export function resolveCharge(
   return { status: paidBy.mode === "automatic" ? "assumed" : "pending", amount: expectedMinor / 100, ...base };
 }
 
+/**
+ * What the charge a payment belongs to cost (minor units, positive): like detection's charges, all
+ * of its subscription's payments that day (e.g. €18 + a €0.50 fee). A payment outside any
+ * subscription is a charge on its own.
+ */
+export function chargeTotalMinor(
+  tx: Pick<TxRow, "id" | "date" | "amount_minor">,
+  txs: readonly TxRow[],
+  txToSub: ReadonlyMap<string, string>,
+): number {
+  const key = txToSub.get(tx.id);
+  if (key === undefined) return -tx.amount_minor;
+  let total = 0;
+  for (const t of txs) if (t.date === tx.date && txToSub.get(t.id) === key) total -= t.amount_minor;
+  return total;
+}
+
 function toPeriod(p: PeriodRow, sources: ReadonlyMap<number, SourceRow>): ReimbursementPeriod {
   const source = p.source_id === null ? undefined : sources.get(p.source_id);
   return {

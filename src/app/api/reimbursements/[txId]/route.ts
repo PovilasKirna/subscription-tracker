@@ -1,5 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, one, run } from "@/lib/server/db";
+import { detection } from "@/lib/server/queries";
+import { chargeTotalMinor } from "@/lib/server/reimburse";
 import { toMinor } from "@/lib/server/reimbursementInput";
 import { guard } from "@/lib/server/session";
 
@@ -12,10 +14,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ txId
   const { txId } = await params;
   const body = (await req.json().catch(() => ({}))) as { amount?: unknown };
   const db = await getDb();
-  const tx = await one<{ amount_minor: number }>(db, "SELECT amount_minor FROM transactions WHERE id = ?", [txId]);
-  if (!tx) return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
-  const charged = -Number(tx.amount_minor);
-  if (charged <= 0) return NextResponse.json({ error: "Only outgoing payments can be reimbursed" }, { status: 400 });
+  const row = await one<{ date: string; amount_minor: number }>(db, "SELECT date, amount_minor FROM transactions WHERE id = ?", [txId]);
+  if (!row) return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
+  const tx = { id: txId, date: String(row.date), amount_minor: Number(row.amount_minor) };
+  if (tx.amount_minor >= 0) return NextResponse.json({ error: "Only outgoing payments can be reimbursed" }, { status: 400 });
+  // Capped at the whole charge it stands for: a charge is all of its subscription's payments that
+  // day (as reimbursement resolution counts it), so €18 + a €0.50 fee can get €18.50 back.
+  const { txs, det } = await detection();
+  const charged = chargeTotalMinor(tx, txs, det.txToSub);
   const amount = toMinor(body.amount, { allowZero: true });
   if (amount === null || amount > charged) {
     return NextResponse.json({ error: "The reimbursement must be between 0 and the amount charged" }, { status: 400 });

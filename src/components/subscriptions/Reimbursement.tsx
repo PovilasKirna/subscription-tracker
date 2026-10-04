@@ -24,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { fullDate, money } from "@/lib/format";
 import { type SourceInput, useDeleteReimbursementPeriod, useReimbursement, useReimbursementPeriod } from "@/lib/query/mutations";
 import { reimbursementSourcesQuery } from "@/lib/query/options";
-import { MODE_LABEL, parseAmount, periodStartLabel, startOptions } from "@/lib/reimbursement";
+import { charged, expectedFor, MODE_LABEL, parseAmount, periodStartLabel, startOptions } from "@/lib/reimbursement";
 import type { ReimbursementPeriod, Subscription, TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -32,17 +32,15 @@ import { cn } from "@/lib/utils";
 // each charge then shows what came back (recorded), what's assumed (automatic sources) or that a
 // request is still pending.
 
-/** What a charge can be reimbursed at most: never more than it cost. */
-export const charged = (tx: TransactionItem) => Math.abs(tx.amount);
-/** The expected amount for this payment, capped at what it cost; null = not reimbursable. */
-export const expectedFor = (tx: TransactionItem) =>
-  tx.reimbursement?.expected != null ? Math.min(tx.reimbursement.expected, charged(tx)) : null;
-
 /** The first period that starts after `date` (periods are newest first), if any. */
 const periodAfter = (sub: Subscription, date: string) => sub.reimbursementPeriods.findLast((p) => p.startsOn > date);
 
 export const reimbursementToast = (amount: number | null, currency: string) =>
-  amount === null ? "Back to automatic" : amount ? `Marked ${money(amount, currency)} as reimbursed` : "Marked as not reimbursed";
+  amount === null
+    ? "Reimbursement record cleared"
+    : amount
+      ? `Marked ${money(amount, currency)} as reimbursed`
+      : "Marked as not reimbursed";
 
 /**
  * The drawer's reimbursement section: current period, pending charges and period history. For an

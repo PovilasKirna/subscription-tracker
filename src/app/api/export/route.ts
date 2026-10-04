@@ -16,6 +16,8 @@ export async function GET() {
     reimbursementSources: await all(db, "SELECT * FROM reimbursement_sources"),
     reimbursementPeriods: await all(db, "SELECT * FROM reimbursement_periods"),
     reimbursements: await all(db, "SELECT * FROM reimbursements"),
+    // Which bank accounts are switched off (their transactions are kept but hidden).
+    bankAccounts: await all(db, "SELECT * FROM bank_accounts"),
   };
   return new NextResponse(JSON.stringify(body, null, 2), {
     headers: {
