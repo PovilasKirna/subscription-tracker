@@ -72,59 +72,65 @@ async function doSync(opts: SyncOptions): Promise<SyncResult> {
     run(db, `UPDATE bank_sessions SET last_error = ?${extra} WHERE session_id = ?`, [message, id]);
 
   let attempted = 0;
-  for (const s of sessions) {
-    if (s.status === "needs_reconnect") continue;
-    if (s.valid_until && Date.parse(s.valid_until) < Date.now()) {
-      await setError(s.session_id, "Consent expired — reconnect Revolut to keep syncing.", ", status = 'needs_reconnect'");
-      result.errors.push(`${s.aspsp_name}: consent expired`);
-      continue;
-    }
-    if (opts.background && !opts.psu) {
-      if (s.next_retry_at && Date.parse(s.next_retry_at) > Date.now()) continue;
-      const due = (opts.minIntervalHours ?? 0) * 3_600_000 - 5 * 60_000; // small slack for timer drift
-      if (s.last_sync_at && Date.now() - Date.parse(s.last_sync_at) < due) continue;
-    }
+  try {
+    for (const s of sessions) {
+      if (s.status === "needs_reconnect") continue;
+      if (s.valid_until && Date.parse(s.valid_until) < Date.now()) {
+        await setError(s.session_id, "Consent expired — reconnect Revolut to keep syncing.", ", status = 'needs_reconnect'");
+        result.errors.push(`${s.aspsp_name}: consent expired`);
+        continue;
+      }
+      if (opts.background && !opts.psu) {
+        if (s.next_retry_at && Date.parse(s.next_retry_at) > Date.now()) continue;
+        const due = (opts.minIntervalHours ?? 0) * 3_600_000 - 5 * 60_000; // small slack for timer drift
+        if (s.last_sync_at && Date.now() - Date.parse(s.last_sync_at) < due) continue;
+      }
 
-    attempted++;
-    const markSyncing = (at: string | null) =>
-      run(db, "UPDATE bank_sessions SET sync_started_at = ? WHERE session_id = ?", [at, s.session_id]);
-    await markSyncing(new Date().toISOString());
-    try {
-      for (const account of JSON.parse(s.accounts_json) as EbAccount[]) {
-        const st = await insertTransactions(db, await fetchAccount(account, s, opts));
-        result.inserted += st.inserted;
-        result.updated += st.updated;
-        result.skipped += st.skipped;
-      }
-      await run(
-        db,
-        "UPDATE bank_sessions SET last_sync_at = ?, last_error = NULL, next_retry_at = NULL, status = 'active' WHERE session_id = ?",
-        [new Date().toISOString(), s.session_id],
-      );
-    } catch (e) {
-      const err = e instanceof BankApiError ? e : null;
-      if (err?.rateLimited) {
-        const retry = new Date(Date.now() + RATE_LIMIT_BACKOFF);
-        await setError(
-          s.session_id,
-          `Revolut's daily limit for background syncs was reached. Next automatic try after ${retry.toISOString().slice(11, 16)} UTC — "Sync now" still works.`,
-          `, next_retry_at = '${retry.toISOString()}'`,
+      attempted++;
+      await run(db, "UPDATE bank_sessions SET sync_started_at = ? WHERE session_id = ?", [new Date().toISOString(), s.session_id]);
+      try {
+        for (const account of JSON.parse(s.accounts_json) as EbAccount[]) {
+          const st = await insertTransactions(db, await fetchAccount(account, s, opts));
+          result.inserted += st.inserted;
+          result.updated += st.updated;
+          result.skipped += st.skipped;
+        }
+        await run(
+          db,
+          "UPDATE bank_sessions SET last_sync_at = ?, last_error = NULL, next_retry_at = NULL, status = 'active' WHERE session_id = ?",
+          [new Date().toISOString(), s.session_id],
         );
-      } else if (err?.consentLost || (err && (await sessionGone(s.session_id)))) {
-        await setError(
-          s.session_id,
-          "Access was revoked or has expired — reconnect Revolut to keep syncing.",
-          ", status = 'needs_reconnect'",
-        );
-      } else {
-        await setError(s.session_id, (e as Error).message);
+      } catch (e) {
+        const err = e instanceof BankApiError ? e : null;
+        if (err?.rateLimited) {
+          const retry = new Date(Date.now() + RATE_LIMIT_BACKOFF);
+          await setError(
+            s.session_id,
+            `Revolut's daily limit for background syncs was reached. Next automatic try after ${retry.toISOString().slice(11, 16)} UTC — "Sync now" still works.`,
+            `, next_retry_at = '${retry.toISOString()}'`,
+          );
+        } else if (err?.consentLost || (err && (await sessionGone(s.session_id)))) {
+          await setError(
+            s.session_id,
+            "Access was revoked or has expired — reconnect Revolut to keep syncing.",
+            ", status = 'needs_reconnect'",
+          );
+        } else {
+          await setError(s.session_id, (e as Error).message);
+        }
+        result.errors.push(`${s.aspsp_name}: ${(e as Error).message}`);
       }
-      result.errors.push(`${s.aspsp_name}: ${(e as Error).message}`);
-    } finally {
-      await markSyncing(null);
+    }
+    if (attempted) await logImport(db, "bank", result, result.errors.length ? result.errors.join("; ").slice(0, 300) : undefined);
+  } finally {
+    // Clear the "syncing" markers only once the whole run is logged — never between sessions —
+    // so a status poll can't see the run as finished before its import entry exists. Covers every
+    // session in scope, including one the bank callback marked but this run skipped.
+    if (sessions.length) {
+      const ids = sessions.map((s) => s.session_id);
+      await run(db, `UPDATE bank_sessions SET sync_started_at = NULL WHERE session_id IN (${ids.map(() => "?").join(", ")})`, ids);
     }
   }
-  if (attempted) await logImport(db, "bank", result, result.errors.length ? result.errors.join("; ").slice(0, 300) : undefined);
   return result;
 }
 

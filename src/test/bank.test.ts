@@ -16,15 +16,18 @@ Object.assign(process.env, {
   ENABLE_BANKING_API_URL: "http://eb.test",
 });
 const eb = await import("../lib/server/enableBanking");
-const { getDb, insertTransactions, one, run, sameMerchant } = await import("../lib/server/db");
-const { syncAll } = await import("../lib/server/sync");
+const { all, getDb, insertTransactions, one, run, sameMerchant } = await import("../lib/server/db");
+const { isSyncing, syncAll } = await import("../lib/server/sync");
 const { merchantKey } = await import("../lib/server/merchant");
 
 type Call = { url: URL; headers: Record<string, string> };
 const calls: Call[] = [];
 let respond: (url: URL) => { status?: number; body: unknown } = () => ({ body: {} });
+/** Runs before each mocked response, e.g. to inspect the DB mid-sync. */
+let onFetch: ((url: URL) => Promise<void>) | null = null;
 globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
   const url = new URL(String(input));
+  await onFetch?.(url);
   calls.push({
     url,
     headers: Object.fromEntries(Object.entries((init?.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v])),
@@ -205,6 +208,36 @@ test("background runs skip sessions that synced recently", async () => {
   calls.length = 0;
   await syncAll({ background: true, minIntervalHours: 12 });
   assert.equal(calls.length, 0);
+});
+
+test("a run reads as syncing until its import is logged, with no gap between sessions", async () => {
+  await addSession("s5");
+  const db = await getDb();
+  await run(
+    db,
+    "INSERT INTO bank_sessions (session_id, aspsp_name, aspsp_country, accounts_json, status) VALUES ('s6', 'Other', 'LT', ?, 'active')",
+    [JSON.stringify([{ uid: "uid-8", identification_hash: "other-eur" }])],
+  );
+  const logged = async () => Number((await one<{ n: number }>(db, "SELECT COUNT(*) AS n FROM import_log WHERE source = 'bank'"))?.n);
+  const before = await logged();
+  const markers: string[][] = [];
+  onFetch = async () => {
+    const rows = await all<{ session_id: string }>(
+      db,
+      "SELECT session_id FROM bank_sessions WHERE sync_started_at IS NOT NULL ORDER BY session_id",
+    );
+    markers.push(rows.map((r) => r.session_id));
+  };
+  respond = () => ({ body: { transactions: [], continuation_key: null } });
+  try {
+    await syncAll({ psu: { ipAddress: "1.1.1.1" } });
+  } finally {
+    onFetch = null;
+  }
+  // While the second session fetches, the first still counts as syncing (no "finished" gap).
+  assert.deepEqual(markers.at(-1), ["s5", "s6"]);
+  assert.equal(await isSyncing(), false);
+  assert.equal(await logged(), before + 1, "one import entry for the whole run");
 });
 
 test("revoked consent flags the session for reconnect", async () => {

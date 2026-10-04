@@ -81,7 +81,11 @@ test("marks a stopped subscription inactive and honours user overrides", () => {
   const det = detectSubscriptions(txs, none, "2025-12-01");
   assert.equal(det.subscriptions[0].status, "inactive");
   const key = det.subscriptions[0].key;
-  const ignored = detectSubscriptions(txs, new Map([[key, { key, display_name: null, category: null, status: "ignored" }]]), "2025-12-01");
+  const ignored = detectSubscriptions(
+    txs,
+    new Map([[key, { key, display_name: null, category: null, status: "ignored", color_slot: null }]]),
+    "2025-12-01",
+  );
   assert.equal(ignored.subscriptions.length, 0);
   assert.equal(ignored.ignored.length, 1);
 });
@@ -157,7 +161,7 @@ test("a confirmed merchant stays one subscription even if its charges split by p
   const txs = [...monthly("Apple.com/Bill", 2.99, 6, 3), ...monthly("Apple.com/Bill", 9.99, 6, 3)];
   assert.equal(detectSubscriptions(txs, none, "2025-06-10").subscriptions.length, 2);
   const key = "apple|EUR";
-  const confirmed = new Map([[key, { key, display_name: null, category: null, status: "confirmed" as const }]]);
+  const confirmed = new Map([[key, { key, display_name: null, category: null, status: "confirmed" as const, color_slot: null }]]);
   const det = detectSubscriptions(txs, confirmed, "2025-06-10");
   assert.deepEqual(
     det.subscriptions.map((s) => s.key),
@@ -174,4 +178,20 @@ test("charges detected under a pinned key fold into it", () => {
   assert.equal(det.subscriptions.length, 1);
   assert.equal(det.subscriptions[0].chargeCount, 6);
   assert.equal(det.subscriptions[0].amount, 11.99);
+});
+
+test("a user-picked colour sticks and automatic slots skip it", () => {
+  const txs = [
+    ...monthly("Spotify", 11.99, 10, 14),
+    ...monthly("Lemon Gym", 34.99, 6, 1, 2025).map((t, i) => ({ ...t, date: `2025-${String(i + 5).padStart(2, "0")}-01` })),
+  ];
+  const gym = detectSubscriptions(txs, none, "2025-11-01").subscriptions.find((s) => s.name === "Lemon Gym");
+  assert.ok(gym);
+  const picked = new Map([[gym.key, { key: gym.key, display_name: null, category: null, status: null, color_slot: 1 }]]);
+  const det = detectSubscriptions(txs, picked, "2025-11-01");
+  const by = Object.fromEntries(det.subscriptions.map((s) => [s.name, s]));
+  assert.equal(by["Lemon Gym"].colorSlot, 1);
+  assert.equal(by["Lemon Gym"].colorChosen, true);
+  assert.equal(by.Spotify.colorSlot, 2); // slot 1 is taken, so the next free one
+  assert.equal(by.Spotify.colorChosen, false);
 });

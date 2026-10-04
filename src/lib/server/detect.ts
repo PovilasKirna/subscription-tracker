@@ -158,7 +158,8 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
     confirmed,
     pinned,
     known,
-    colorSlot: null,
+    colorSlot: override?.color_slot ?? null,
+    colorChosen: override?.color_slot != null,
     priceChanges: priceChanges(charges),
     charges,
   };
@@ -167,20 +168,26 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
 export type Detection = { subscriptions: Subscription[]; ignored: Subscription[]; txToSub: Map<string, string> };
 
 export const MAX_SERIES = 7;
+/** Preset colours a user can pick from (`--series-1` … `--series-8`). */
+export const COLOR_SLOTS = 8;
 
 /**
- * Give the 7 biggest (all-time spend) subscriptions a fixed colour slot, numbered by
- * first-seen date. Neither depends on a chart's date filter, so survivors never repaint.
+ * Subscriptions the user picked a colour for keep it. The biggest (all-time spend) of the rest
+ * fill the remaining slots 1–7, numbered by first-seen date. Neither depends on a chart's date
+ * filter, so survivors never repaint.
  */
 export function assignColorSlots(subs: Subscription[], baseCurrency: string): void {
-  const top = subs
+  const taken = new Set(subs.filter((s) => s.colorChosen).map((s) => s.colorSlot));
+  const free = Array.from({ length: MAX_SERIES }, (_, i) => i + 1).filter((slot) => !taken.has(slot));
+  const auto = subs.filter((s) => !s.colorChosen);
+  const top = auto
     .filter((s) => s.currency === baseCurrency)
     .sort((a, b) => b.totalSpent - a.totalSpent || a.key.localeCompare(b.key))
-    .slice(0, MAX_SERIES)
+    .slice(0, free.length)
     .sort((a, b) => a.firstCharge.localeCompare(b.firstCharge) || a.key.localeCompare(b.key));
-  for (const s of subs) s.colorSlot = null;
+  for (const s of auto) s.colorSlot = null;
   top.forEach((s, i) => {
-    s.colorSlot = i + 1;
+    s.colorSlot = free[i];
   });
 }
 

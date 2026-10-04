@@ -3,7 +3,7 @@ export { ChargeHistory } from "./ChargeHistory";
 export { ChargeSparkline } from "./ChargeSparkline";
 export { ChartCard } from "./ChartCard";
 export { Legend, type LegendItem } from "./Legend";
-export { slotColor } from "./palette";
+export { PRESET_COLORS, slotColor } from "./palette";
 export { RenewalCalendar, RenewalCalendarTable } from "./RenewalCalendar";
 export { SpendByMerchant, SpendByMerchantTable } from "./SpendByMerchant";
 export { SpendColumns, SpendColumnsTable } from "./SpendColumns";
