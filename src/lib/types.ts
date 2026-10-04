@@ -30,9 +30,12 @@ export type Subscription = {
   known: boolean;
   /**
    * Fixed categorical colour slot (1–7) for the 7 biggest subscriptions, ordered by first-seen
-   * date so it never changes with filters. `null` = folded into "Other".
+   * date so it never changes with filters, or the one the user picked (1–8, see `colorChosen`).
+   * `null` = folded into "Other".
    */
   colorSlot: number | null;
+  /** True when the user picked `colorSlot` themselves rather than leaving it automatic. */
+  colorChosen: boolean;
   priceChanges: PriceChange[];
   charges: Charge[];
 };
@@ -145,5 +148,5 @@ export type DataStatusPayload = {
   /** A bank sync is running right now (e.g. the first full-history sync after connecting). */
   syncing: boolean;
   sessions: BankSession[];
-  imports: { at: string; source: string; inserted: number; updated: number; skipped: number; message: string | null }[];
+  imports: { id: number; at: string; source: string; inserted: number; updated: number; skipped: number; message: string | null }[];
 };
