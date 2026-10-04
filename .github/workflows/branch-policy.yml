@@ -1,0 +1,28 @@
+# main only accepts pull requests from this repository's dev branch. The "main" ruleset on
+# GitHub requires this check, blocks direct pushes and force-pushes, and allows merge commits
+# only, so dev and main never drift apart.
+name: Branch policy
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  dev-only:
+    name: dev-only
+    runs-on: ubuntu-latest
+    steps:
+      - name: Source branch must be dev
+        env:
+          # Passed via env, never interpolated into the script (branch names are user input).
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$HEAD_REF" != "dev" ] || [ "$HEAD_REPO" != "$REPO" ]; then
+            echo "::error::Only $REPO:dev can be merged into main (this PR is from $HEAD_REPO:$HEAD_REF)."
+            exit 1
+          fi
+          echo "OK: $HEAD_REPO:$HEAD_REF -> main"
