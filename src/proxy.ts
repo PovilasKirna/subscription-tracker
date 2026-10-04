@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/server/auth";
 
 // Gate everything behind the login. Route handlers and the app layout re-check too.
-const PUBLIC = ["/login", "/api/auth/login", "/api/bank/callback", "/api/health", "/api/cron/sync", "/privacy", "/terms"];
+const PUBLIC = ["/login", "/api/auth/login", "/api/bank/callback", "/api/health", "/api/cron/sync", "/api/cron/tick", "/privacy", "/terms"];
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

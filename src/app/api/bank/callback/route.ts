@@ -2,6 +2,7 @@ import { after, type NextRequest, NextResponse } from "next/server";
 import { reconcileBankAccounts } from "@/lib/server/bankAccounts";
 import { all, getDb, one, run } from "@/lib/server/db";
 import { createSession, deleteSession, psuFromRequest } from "@/lib/server/enableBanking";
+import { runNotificationsQuietly } from "@/lib/server/notifications/run";
 import { syncAll } from "@/lib/server/sync";
 
 type Pending = { aspsp_name: string; aspsp_country: string; required_psu_headers: string | null };
@@ -69,6 +70,7 @@ export async function GET(req: NextRequest) {
   after(async () => {
     await Promise.all(old.map((o) => deleteSession(o.session_id).catch(() => undefined)));
     await syncAll({ psu, sessionId }).catch((e) => console.error("[sync] first sync failed:", e));
+    await runNotificationsQuietly("after connecting a bank"); // also resolves "reconnect" notifications
   });
   return back("bank=connected");
 }
