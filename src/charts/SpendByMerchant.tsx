@@ -9,7 +9,7 @@ import { Bar, BarRounded } from "@visx/shape";
 import { useMemo } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
-import { axisLabel, fitLabel, marks, slotColor, tokens } from "./palette";
+import { axisLabel, fitLabel, marks, seriesColor, tokens } from "./palette";
 import type { Accessor } from "./types";
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
@@ -95,7 +95,7 @@ function Bars<T>({
                   height={BAR}
                   radius={marks.radius}
                   right
-                  fill={slotColor(1)}
+                  fill={seriesColor(1)}
                   opacity={tooltipOpen && !active ? 0.6 : 1}
                 />
                 <text
@@ -138,7 +138,7 @@ function Bars<T>({
       </svg>
       {tooltipOpen && tooltipData !== undefined && (
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
-          <TooltipRow slot={1} label={getLabel(tooltipData)} value={formatValue(getValue(tooltipData))} strong />
+          <TooltipRow color={1} label={getLabel(tooltipData)} value={formatValue(getValue(tooltipData))} strong />
           <div className="mt-1 text-[11.5px] text-[var(--text-muted)]">
             {total > 0 ? `${Math.round((getValue(tooltipData) / total) * 100)}% of subscription spend` : ""}
           </div>

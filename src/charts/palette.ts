@@ -1,7 +1,9 @@
-import type { ColorSlot } from "./types";
+import type { SeriesColor } from "./types";
 
-// Colours are CSS custom properties (light + dark live in globals.css), never raw hex here.
-export const slotColor = (slot: ColorSlot): string => (slot ? `var(--series-${slot})` : "var(--series-other)");
+// Palette colours are CSS custom properties (light + dark live in globals.css), never raw hex here.
+// Only a colour the user picked themselves arrives as hex, and is used as-is in both themes.
+export const seriesColor = (color: SeriesColor): string =>
+  typeof color === "string" ? color : color ? `var(--series-${color})` : "var(--series-other)";
 
 /** The preset colours a user can pick for a subscription, in slot order (`--series-1` … `--series-8`). */
 export const PRESET_COLORS = [

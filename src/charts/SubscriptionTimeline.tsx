@@ -10,7 +10,7 @@ import { Bar, Circle, Line } from "@visx/shape";
 import { type MouseEvent, useMemo } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
-import { axisLabel, fitLabel, marks, slotColor, tokens } from "./palette";
+import { axisLabel, fitLabel, marks, seriesColor, tokens } from "./palette";
 import type { Accessor, TimelineCharge, TimelineRow, Today } from "./types";
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
@@ -84,7 +84,7 @@ function Timeline<T extends TimelineRow>({
           <GridColumns scale={xScale} height={yMax} numTicks={numTicks} stroke={tokens.grid} strokeWidth={1} />
           {data.map((row) => {
             const y = (yScale(row.key) ?? 0) + yScale.bandwidth() / 2;
-            const color = slotColor(row.colorSlot);
+            const color = seriesColor(row.color);
             const faded = row.status === "inactive" || row.status === "cancelled";
             const hovered = tooltipOpen && tooltipData?.row.key === row.key;
             return (
@@ -157,7 +157,7 @@ function Timeline<T extends TimelineRow>({
       </svg>
       {tooltipOpen && tooltipData && (
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
-          <TooltipRow slot={tooltipData.row.colorSlot} label={tooltipData.row.name} value="" strong />
+          <TooltipRow color={tooltipData.row.color} label={tooltipData.row.name} value="" strong />
           <TooltipRow
             label={formatDate(tooltipData.charge.date)}
             value={formatMoney(tooltipData.charge.amount, tooltipData.row.currency)}

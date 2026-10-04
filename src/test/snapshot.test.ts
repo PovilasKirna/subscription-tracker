@@ -3,7 +3,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { dataVersion, type Override, one, openDb, run, saveOverride } from "../lib/server/db";
+import { isColorChoice } from "../lib/color";
+import { colorColumns, dataVersion, NO_COLOR_SLOT, type Override, one, openDb, run, saveOverride } from "../lib/server/db";
 import { memoByVersion } from "../lib/server/snapshot";
 
 const dir = mkdtempSync(join(tmpdir(), "subtracker-snapshot-"));
@@ -86,4 +87,22 @@ test("saveOverride changes only the fields it is given", async () => {
   assert.deepEqual({ ...(await row()) }, { key, display_name: "Spotify Family", category: null, status: null, color_slot: 5 });
   await saveOverride(db, key, { color_slot: null }); // explicit null resets just that field
   assert.deepEqual({ ...(await row()) }, { key, display_name: "Spotify Family", category: null, status: null, color_slot: null });
+});
+
+test("a colour choice maps to exactly one of the colour columns", async () => {
+  const key = "netflix|EUR";
+  const colour = () => one<Override>(db, "SELECT color_slot, color_hex FROM overrides WHERE key = ?", [key]);
+  await saveOverride(db, key, colorColumns(3));
+  assert.deepEqual({ ...(await colour()) }, { color_slot: 3, color_hex: null });
+  await saveOverride(db, key, colorColumns("#ABCDEF"));
+  assert.deepEqual({ ...(await colour()) }, { color_slot: null, color_hex: "#abcdef" });
+  await saveOverride(db, key, colorColumns("none"));
+  assert.deepEqual({ ...(await colour()) }, { color_slot: NO_COLOR_SLOT, color_hex: null });
+  await saveOverride(db, key, colorColumns(null));
+  assert.deepEqual({ ...(await colour()) }, { color_slot: null, color_hex: null });
+});
+
+test("colour choices are validated", () => {
+  for (const ok of [1, 8, "none", "#a1b2c3", "#ABCDEF"]) assert.ok(isColorChoice(ok), String(ok));
+  for (const bad of [0, 9, 1.5, "#abc", "#abcdeg", "red", "", null, {}]) assert.ok(!isColorChoice(bad), String(bad));
 });

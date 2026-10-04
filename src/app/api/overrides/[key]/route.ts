@@ -1,11 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb, type OverrideStatus, run, saveOverride } from "@/lib/server/db";
-import { COLOR_SLOTS } from "@/lib/server/detect";
+import { isColorChoice } from "@/lib/color";
+import { colorColumns, getDb, type OverrideStatus, run, saveOverride } from "@/lib/server/db";
 import { guard } from "@/lib/server/session";
 
 const STATUSES = new Set(["confirmed", "ignored", "cancelled"]);
 
-type Body = { displayName?: string | null; category?: string | null; status?: string | null; colorSlot?: number | null };
+type Body = { displayName?: string | null; category?: string | null; status?: string | null; color?: unknown };
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ key: string }> }) {
   const denied = await guard();
@@ -15,7 +15,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ key:
   if (body.status != null && !STATUSES.has(body.status)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
-  if (body.colorSlot != null && !(Number.isInteger(body.colorSlot) && body.colorSlot >= 1 && body.colorSlot <= COLOR_SLOTS)) {
+  const { color } = body;
+  if (!(color == null || isColorChoice(color))) {
     return NextResponse.json({ error: "Invalid colour" }, { status: 400 });
   }
   // Only the fields sent are written; omitted ones keep their stored value.
@@ -23,7 +24,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ key:
     display_name: body.displayName !== undefined ? body.displayName?.trim() || null : undefined,
     category: body.category !== undefined ? body.category || null : undefined,
     status: body.status as OverrideStatus | null | undefined,
-    color_slot: body.colorSlot,
+    ...(color !== undefined ? colorColumns(color) : {}),
   });
   return NextResponse.json({ ok: true });
 }

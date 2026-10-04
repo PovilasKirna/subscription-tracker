@@ -30,7 +30,7 @@ export function projectCharges(subs: readonly Subscription[], today: string, day
     let d = s.nextCharge;
     while (d < today) d = advance(s, d);
     for (; d < end; d = advance(s, d)) {
-      out.push({ date: d, key: s.key, name: s.name, amount: s.amount, currency: s.currency, slot: s.colorSlot });
+      out.push({ date: d, key: s.key, name: s.name, amount: s.amount, currency: s.currency, color: s.color });
     }
   }
   return out.sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount);

@@ -36,7 +36,7 @@ const sub = (
     confirmed: false,
     pinned: false,
     known: true,
-    colorSlot: null,
+    color: null,
     colorChosen: false,
     priceChanges: [],
     charges: Array.from({ length: 18 }, (_, i) => ({ date: `2025-${String((i % 12) + 1).padStart(2, "0")}-01`, amount })),

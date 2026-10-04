@@ -4,12 +4,12 @@ import { Group } from "@visx/group";
 import { scaleBand, scaleLinear } from "@visx/scale";
 import { Bar, BarRounded } from "@visx/shape";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
-import { slotColor } from "./palette";
-import type { Accessor, ColorSlot, TimelineCharge } from "./types";
+import { seriesColor } from "./palette";
+import type { Accessor, SeriesColor, TimelineCharge } from "./types";
 
 type Props = {
   charges: readonly TimelineCharge[];
-  slot: ColorSlot;
+  color: SeriesColor;
   muted?: boolean;
   formatValue: (n: number) => string;
   formatDate: (d: string) => string;
@@ -21,7 +21,7 @@ const getDate: Accessor<TimelineCharge, string> = (c) => c.date;
 const getAmount: Accessor<TimelineCharge, number> = (c) => c.amount;
 
 /** Tiny column sparkline of recent charges (fixed size: it lives in a table cell). */
-export function ChargeSparkline({ charges, slot, muted, formatValue, formatDate, width = 96, height = 26 }: Props) {
+export function ChargeSparkline({ charges, color, muted, formatValue, formatDate, width = 96, height = 26 }: Props) {
   const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip, containerRef, TooltipInPortal } =
     useChartTooltip<TimelineCharge>();
   const x = scaleBand<string>({ domain: charges.map(getDate), range: [0, width], padding: 0.25 });
@@ -44,7 +44,7 @@ export function ChargeSparkline({ charges, slot, muted, formatValue, formatDate,
                   height={height - by}
                   radius={2}
                   top
-                  fill={slotColor(slot)}
+                  fill={seriesColor(color)}
                   opacity={tooltipOpen && !active ? 0.5 : 1}
                 />
                 <Bar
@@ -63,7 +63,7 @@ export function ChargeSparkline({ charges, slot, muted, formatValue, formatDate,
       </svg>
       {tooltipOpen && tooltipData && (
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
-          <TooltipRow slot={slot} label={formatDate(tooltipData.date)} value={formatValue(tooltipData.amount)} />
+          <TooltipRow color={color} label={formatDate(tooltipData.date)} value={formatValue(tooltipData.amount)} />
         </ChartTooltip>
       )}
     </div>

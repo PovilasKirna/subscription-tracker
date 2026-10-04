@@ -1,5 +1,7 @@
 // Shapes shared between route handlers, server prefetching and client components.
 
+import type { SeriesColor } from "./color";
+
 export type Cadence = "weekly" | "monthly" | "quarterly" | "semiannual" | "yearly";
 export type SubStatus = "active" | "late" | "inactive" | "cancelled";
 
@@ -32,11 +34,11 @@ export type Subscription = {
   known: boolean;
   /**
    * Fixed categorical colour slot (1–7) for the 7 biggest subscriptions, ordered by first-seen
-   * date so it never changes with filters, or the one the user picked (1–8, see `colorChosen`).
-   * `null` = folded into "Other".
+   * date so it never changes with filters, or the colour the user picked (a slot 1–8 or a custom
+   * hex, see `colorChosen`). `null` = neutral grey, folded into "Other".
    */
-  colorSlot: number | null;
-  /** True when the user picked `colorSlot` themselves rather than leaving it automatic. */
+  color: SeriesColor;
+  /** True when the user picked `color` themselves (including "none") rather than leaving it automatic. */
   colorChosen: boolean;
   priceChanges: PriceChange[];
   charges: Charge[];
@@ -77,8 +79,8 @@ export type SubscriptionsTablePayload = {
 export type HistoryPayload = {
   baseCurrency: string;
   months: string[]; // YYYY-MM
-  /** Ordered by colour slot; the "Other" fold (slot null) is last. */
-  series: { key: string; name: string; slot: number | null; values: number[] }[];
+  /** Ordered by colour slot, then custom colours; the "Other" fold (colour null) is last. */
+  series: { key: string; name: string; color: SeriesColor; values: number[] }[];
   totals: number[];
   /** All money out per month (excl. transfers/exchanges), for context. */
   allSpending: number[];

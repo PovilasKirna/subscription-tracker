@@ -1,4 +1,5 @@
 import { type Client, createClient, type InStatement, type InValue } from "@libsql/client";
+import type { ColorChoice, HexColor } from "../color";
 import { config } from "./config";
 
 // libSQL (open-source SQLite fork): a local file for dev/Docker (`file:./data/tracker.db`),
@@ -25,9 +26,22 @@ export type Override = {
   display_name: string | null;
   category: string | null;
   status: OverrideStatus | null;
-  /** Preset colour slot (1–8) the user picked; null = automatic. */
+  /** Preset colour slot (1–8) the user picked, or `NO_COLOR_SLOT` for "none"; null = automatic. */
   color_slot: number | null;
+  /** Custom `#rrggbb` colour the user picked; only set while `color_slot` is null. */
+  color_hex: HexColor | null;
 };
+
+/** `color_slot` for a subscription the user explicitly left uncoloured. */
+export const NO_COLOR_SLOT = 0;
+
+/** The override columns for a colour choice (null = back to automatic). */
+export function colorColumns(choice: ColorChoice | null): Pick<Override, "color_slot" | "color_hex"> {
+  if (choice === null) return { color_slot: null, color_hex: null };
+  if (choice === "none") return { color_slot: NO_COLOR_SLOT, color_hex: null };
+  if (typeof choice === "number") return { color_slot: choice, color_hex: null };
+  return { color_slot: null, color_hex: choice.toLowerCase() as HexColor };
+}
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS transactions (
@@ -124,7 +138,10 @@ const COLUMNS: Record<string, Record<string, string>> = {
     sync_started_at: "TEXT", // set while a sync runs (visible across server instances)
   },
   pending_auth: { required_psu_headers: "TEXT" },
-  overrides: { color_slot: "INTEGER" }, // user-picked preset colour; null = automatic
+  overrides: {
+    color_slot: "INTEGER", // user-picked preset colour (0 = none); null = automatic
+    color_hex: "TEXT", // user-picked custom colour
+  },
 };
 
 async function migrate(db: Client) {
@@ -300,7 +317,7 @@ export async function allAssignments(db: Db): Promise<Map<string, string>> {
   return new Map(rows.map((r) => [r.tx_id, r.sub_key]));
 }
 
-const OVERRIDE_FIELDS = ["display_name", "category", "status", "color_slot"] as const;
+const OVERRIDE_FIELDS = ["display_name", "category", "status", "color_slot", "color_hex"] as const;
 
 /**
  * Upsert one override, changing only the fields present in `patch` (null clears a field).
@@ -310,13 +327,14 @@ export async function saveOverride(db: Db, key: string, patch: Partial<Omit<Over
   const supplied = OVERRIDE_FIELDS.filter((f) => patch[f] !== undefined);
   if (!supplied.length) return;
   const set = supplied.map((f) => `${f} = excluded.${f}`).join(", ");
-  await run(db, `INSERT INTO overrides (key, ${OVERRIDE_FIELDS.join(", ")}) VALUES (?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET ${set}`, [
-    key,
-    ...OVERRIDE_FIELDS.map((f) => patch[f] ?? null),
-  ]);
+  await run(
+    db,
+    `INSERT INTO overrides (key, ${OVERRIDE_FIELDS.join(", ")}) VALUES (?${", ?".repeat(OVERRIDE_FIELDS.length)}) ON CONFLICT(key) DO UPDATE SET ${set}`,
+    [key, ...OVERRIDE_FIELDS.map((f) => patch[f] ?? null)],
+  );
 }
 
 export async function allOverrides(db: Db): Promise<Map<string, Override>> {
-  const rows = await all<Override>(db, "SELECT key, display_name, category, status, color_slot FROM overrides");
+  const rows = await all<Override>(db, `SELECT key, ${OVERRIDE_FIELDS.join(", ")} FROM overrides`);
   return new Map(rows.map((r) => [r.key, r]));
 }
