@@ -24,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { fullDate, money } from "@/lib/format";
 import { type SourceInput, useDeleteReimbursementPeriod, useReimbursement, useReimbursementPeriod } from "@/lib/query/mutations";
 import { reimbursementSourcesQuery } from "@/lib/query/options";
-import { MODE_LABEL, parseAmount, periodStartLabel, startOptions } from "@/lib/reimbursement";
+import { MODE_LABEL, parseAmount, periodStartLabel, reimbursementToast, startOptions } from "@/lib/reimbursement";
 import type { ReimbursementPeriod, Subscription, TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -41,8 +41,7 @@ export const expectedFor = (tx: TransactionItem) =>
 /** The first period that starts after `date` (periods are newest first), if any. */
 const periodAfter = (sub: Subscription, date: string) => sub.reimbursementPeriods.findLast((p) => p.startsOn > date);
 
-export const reimbursementToast = (amount: number | null, currency: string) =>
-  amount === null ? "Back to automatic" : amount ? `Marked ${money(amount, currency)} as reimbursed` : "Marked as not reimbursed";
+export { reimbursementToast } from "@/lib/reimbursement";
 
 /**
  * The drawer's reimbursement section: current period, pending charges and period history. For an

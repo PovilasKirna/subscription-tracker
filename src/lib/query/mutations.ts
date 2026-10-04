@@ -4,7 +4,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { ColorChoice } from "../color";
 import type { OverrideStatus } from "../server/db";
-import type { Cadence, ReimbursementMode } from "../types";
+import type { SettingsPatch } from "../settings";
+import type { Cadence, NotificationsPayload, ReimbursementMode, Settings } from "../types";
 import { api, keys } from "./options";
 
 export type OverrideInput = {
@@ -150,5 +151,60 @@ export function useDeleteSource() {
     mutationFn: (id: number) => api(`/api/reimbursements/sources/${id}`, { method: "DELETE" }),
     onSuccess: invalidate,
     onError: (e) => toast.error(e.message),
+  });
+}
+
+/**
+ * Change preferences (any subset). Applied to the cache at once so switches feel instant, rolled
+ * back if the server refuses.
+ */
+export function useSaveSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: SettingsPatch) => api<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(patch) }),
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: keys.settings });
+      const previous = qc.getQueryData<Settings>(keys.settings);
+      if (previous) {
+        const notifications = { ...previous.notifications };
+        for (const [type, pref] of Object.entries(patch.notifications ?? {}) as [keyof Settings["notifications"], object][]) {
+          notifications[type] = { ...notifications[type], ...pref };
+        }
+        qc.setQueryData<Settings>(keys.settings, { ...previous, ...patch, notifications });
+      }
+      return { previous };
+    },
+    onError: (e, _patch, ctx) => {
+      if (ctx?.previous) qc.setQueryData(keys.settings, ctx.previous);
+      toast.error("Couldn't save the setting", { description: e.message });
+    },
+    onSuccess: (settings) => qc.setQueryData(keys.settings, settings),
+  });
+}
+
+/** Mark notifications read (`ids`), or all of them. Updates the bell immediately. */
+export function useMarkRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[] | "all") =>
+      api("/api/notifications/read", { method: "POST", body: JSON.stringify(ids === "all" ? { all: true } : { ids }) }),
+    onMutate: async (ids) => {
+      await qc.cancelQueries({ queryKey: keys.notifications });
+      const previous = qc.getQueryData<NotificationsPayload>(keys.notifications);
+      if (previous) {
+        const marks = (id: number) => ids === "all" || ids.includes(id);
+        const newlyRead = previous.items.filter((n) => marks(n.id) && !n.read && !n.resolved).length;
+        qc.setQueryData<NotificationsPayload>(keys.notifications, {
+          items: previous.items.map((n) => (marks(n.id) ? { ...n, read: true } : n)),
+          unread: ids === "all" ? 0 : Math.max(0, previous.unread - newlyRead),
+        });
+      }
+      return { previous };
+    },
+    onError: (e, _ids, ctx) => {
+      if (ctx?.previous) qc.setQueryData(keys.notifications, ctx.previous);
+      toast.error(e.message);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.notifications }),
   });
 }

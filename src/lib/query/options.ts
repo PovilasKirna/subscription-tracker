@@ -9,7 +9,10 @@ import type {
   AssignOptionsPayload,
   DataStatusPayload,
   HistoryPayload,
+  NotificationsPayload,
   ReimbursementSourcesPayload,
+  SchedulerStatusPayload,
+  Settings,
   SubscriptionDetailPayload,
   SubscriptionsPayload,
   SubscriptionsTablePayload,
@@ -45,6 +48,9 @@ export const keys = {
   subscriptionDetail: (key: string) => ["subscription-detail", key] as const,
   assignOptions: (txId: string) => ["assign-options", txId] as const,
   reimbursementSources: ["reimbursement-sources"] as const,
+  notifications: ["notifications"] as const,
+  settings: ["settings"] as const,
+  scheduler: ["scheduler"] as const,
 };
 
 export const subscriptionsQuery = () =>
@@ -88,3 +94,19 @@ export const reimbursementSourcesQuery = () =>
     queryKey: keys.reimbursementSources,
     queryFn: () => api<ReimbursementSourcesPayload>("/api/reimbursements/sources"),
   });
+
+/** The bell's feed. Polled every minute and on focus, so reminders show up without a reload. */
+export const notificationsQuery = () =>
+  queryOptions({
+    queryKey: keys.notifications,
+    queryFn: () => api<NotificationsPayload>("/api/notifications"),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    staleTime: 15_000,
+  });
+
+export const settingsQuery = () => queryOptions({ queryKey: keys.settings, queryFn: () => api<Settings>("/api/settings") });
+
+/** Whether something is calling /api/cron/tick, for Settings → Notifications. */
+export const schedulerQuery = () =>
+  queryOptions({ queryKey: keys.scheduler, queryFn: () => api<SchedulerStatusPayload>("/api/notifications/scheduler") });

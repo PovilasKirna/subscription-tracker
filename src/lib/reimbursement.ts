@@ -1,7 +1,11 @@
-import { fullDate, monthYearLabel, shortDate } from "./format";
+import { fullDate, money, monthYearLabel, shortDate } from "./format";
 import type { ReimbursementMode } from "./types";
 
 // Client-safe helpers for the reimbursement UI.
+
+/** Toast after recording what came back for a charge (null = forgot the record). */
+export const reimbursementToast = (amount: number | null, currency: string) =>
+  amount === null ? "Back to automatic" : amount ? `Marked ${money(amount, currency)} as reimbursed` : "Marked as not reimbursed";
 
 export const MODE_LABEL: Record<ReimbursementMode, string> = { request: "You request it", automatic: "Paid automatically" };
 
