@@ -38,6 +38,8 @@ const sub = (
     known: true,
     colorSlot: null,
     colorChosen: false,
+    website: null,
+    websiteChosen: false,
     priceChanges: [],
     charges: Array.from({ length: 18 }, (_, i) => ({ date: `2025-${String((i % 12) + 1).padStart(2, "0")}-01`, amount })),
   };

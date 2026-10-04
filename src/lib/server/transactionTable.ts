@@ -1,6 +1,7 @@
 import { type TransactionFilters, TX_TYPES } from "../search-params";
 import type { TransactionsPayload } from "../types";
 import type { TxRow } from "./db";
+import { merchantDomain } from "./merchant";
 
 // Server-side filtering, sorting, faceting and pagination for the transactions data table.
 
@@ -10,7 +11,12 @@ const KNOWN_TYPES = new Set<string>(TX_TYPES);
 const typeOf = (t: TxRow) => (t.type && KNOWN_TYPES.has(t.type) ? t.type : "UNKNOWN");
 const flowOf = (t: TxRow) => (t.amount_minor >= 0 ? "in" : "out");
 
-export function queryTransactions(txs: TxRow[], txToSub: Map<string, string>, f: TransactionFilters): TransactionsPayload {
+export function queryTransactions(
+  txs: TxRow[],
+  txToSub: Map<string, string>,
+  f: TransactionFilters,
+  websiteOf: (merchantKey: string, subKey: string | null) => string | null = (m) => merchantDomain(m) ?? null,
+): TransactionsPayload {
   const subOf = (t: TxRow) => (txToSub.has(t.id) ? "subscription" : "other");
   const value: Record<Facet, (t: TxRow) => string> = { flow: flowOf, type: typeOf, source: (t) => t.source, sub: subOf };
   const selected: Record<Facet, readonly string[]> = { flow: f.flow, type: f.type, source: f.source, sub: f.sub };
@@ -54,6 +60,7 @@ export function queryTransactions(txs: TxRow[], txToSub: Map<string, string>, f:
       date: t.date,
       description: t.description,
       merchantKey: t.merchant_key,
+      website: websiteOf(t.merchant_key, txToSub.get(t.id) ?? null),
       amount: t.amount_minor / 100,
       currency: t.currency,
       type: typeOf(t),

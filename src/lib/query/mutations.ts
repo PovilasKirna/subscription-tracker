@@ -12,6 +12,8 @@ export type OverrideInput = {
   status?: OverrideStatus | null;
   /** Preset colour slot (1–8); null = automatic. */
   colorSlot?: number | null;
+  /** Website for the logo, e.g. "hostinger.com"; "" or null = back to the built-in one. */
+  website?: string | null;
 };
 
 /** Every server-side derived view depends on transactions + overrides, so refresh them all. */

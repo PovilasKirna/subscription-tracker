@@ -15,7 +15,7 @@ import type {
 } from "../types";
 import { bankConfigured, config } from "./config";
 import { all, allAssignments, allExclusions, allOverrides, allTransactions, dataVersion, getDb, one, type TxRow } from "./db";
-import { buildHistory, type Detection, detectSubscriptions, parseSubKey, sameAmount } from "./detect";
+import { buildHistory, type Detection, detectSubscriptions, parseSubKey, sameAmount, websiteResolver } from "./detect";
 import { merchantName } from "./merchant";
 import { memoByVersion } from "./snapshot";
 import { querySubscriptions } from "./subscriptionTable";
@@ -50,11 +50,14 @@ export const detection = cache(
   ),
 );
 
-const toItem = (t: TxRow, subscriptionKey: string | null): TransactionItem => ({
+type WebsiteOf = ReturnType<typeof websiteResolver>;
+
+const toItem = (t: TxRow, subscriptionKey: string | null, websiteOf: WebsiteOf): TransactionItem => ({
   id: t.id,
   date: t.date,
   description: t.description,
   merchantKey: t.merchant_key,
+  website: websiteOf(t.merchant_key, subscriptionKey),
   amount: t.amount_minor / 100,
   currency: t.currency,
   type: t.type,
@@ -77,6 +80,7 @@ function relatedTransactions(
   match: { merchants: ReadonlySet<string>; currency: string; amounts: number[]; exceptKey?: string; exceptId?: string },
 ): RelatedTransaction[] {
   const names = new Map(det.subscriptions.map((s) => [s.key, s.name]));
+  const websiteOf = websiteResolver(det);
   return txs
     .filter(
       (t) =>
@@ -92,7 +96,7 @@ function relatedTransactions(
     .map((t) => {
       const subscriptionKey = det.txToSub.get(t.id) ?? null;
       return {
-        ...toItem(t, subscriptionKey),
+        ...toItem(t, subscriptionKey, websiteOf),
         similar: match.amounts.some((a) => sameAmount(t.amount_minor, a)),
         subscriptionName: subscriptionKey ? (names.get(subscriptionKey) ?? null) : null,
       };
@@ -107,6 +111,7 @@ export async function getSubscriptionDetail(key: string): Promise<SubscriptionDe
   const subscription = active ?? ignored ?? null;
   const { merchantKey, currency } = parseSubKey(key);
   const counted = txs.filter((t) => det.txToSub.get(t.id) === key);
+  const websiteOf = websiteResolver(det);
   return {
     baseCurrency: config.baseCurrency,
     today: today(),
@@ -119,11 +124,11 @@ export async function getSubscriptionDetail(key: string): Promise<SubscriptionDe
           (ignored && t.merchant_key === merchantKey && t.currency === currency && !excluded.has(t.id) && t.amount_minor < 0),
       )
       .sort(newestFirst)
-      .map((t) => toItem(t, active ? key : null)),
+      .map((t) => toItem(t, active ? key : null, websiteOf)),
     excluded: txs
       .filter((t) => excluded.has(t.id) && ((t.merchant_key === merchantKey && t.currency === currency) || assigned.get(t.id) === key))
       .sort(newestFirst)
-      .map((t) => toItem(t, null)),
+      .map((t) => toItem(t, null, websiteOf)),
     related: active
       ? relatedTransactions(txs, det, excluded, {
           merchants: new Set([merchantKey, ...counted.map((t) => t.merchant_key)]),
@@ -154,7 +159,7 @@ export async function getAssignOptions(txId: string): Promise<AssignOptionsPaylo
     sameMerchant: s.merchantKey === tx.merchant_key,
   });
   return {
-    transaction: toItem(tx, currentKey ?? null),
+    transaction: toItem(tx, currentKey ?? null, websiteResolver(det)),
     newName: nameFor(tx),
     targets: det.subscriptions
       .filter((s) => s.currency === tx.currency && s.key !== currentKey)
@@ -188,7 +193,7 @@ export async function getHistory(months = 12): Promise<HistoryPayload> {
 /** Filtered, sorted, paginated page for the transactions data table (see transactionTable.ts). */
 export async function getTransactions(filters: TransactionFilters): Promise<TransactionsPayload> {
   const { txs, det } = await detection();
-  return queryTransactions(txs, det.txToSub, filters);
+  return queryTransactions(txs, det.txToSub, filters, websiteResolver(det));
 }
 
 export async function getDataStatus(): Promise<DataStatusPayload> {

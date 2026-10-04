@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Override, TxRow } from "../lib/server/db";
-import { amountStability, buildHistory, detectSubscriptions, fitCadence } from "../lib/server/detect";
-import { merchantKey } from "../lib/server/merchant";
+import { amountStability, buildHistory, detectSubscriptions, fitCadence, websiteResolver } from "../lib/server/detect";
+import { merchantKey, normalizeWebsite } from "../lib/server/merchant";
 
 let n = 0;
 function tx(date: string, amount: number, description: string, type = "CARD_PAYMENT"): TxRow {
@@ -83,7 +83,7 @@ test("marks a stopped subscription inactive and honours user overrides", () => {
   const key = det.subscriptions[0].key;
   const ignored = detectSubscriptions(
     txs,
-    new Map([[key, { key, display_name: null, category: null, status: "ignored", color_slot: null }]]),
+    new Map([[key, { key, display_name: null, category: null, status: "ignored", color_slot: null, website: null }]]),
     "2025-12-01",
   );
   assert.equal(ignored.subscriptions.length, 0);
@@ -161,7 +161,9 @@ test("a confirmed merchant stays one subscription even if its charges split by p
   const txs = [...monthly("Apple.com/Bill", 2.99, 6, 3), ...monthly("Apple.com/Bill", 9.99, 6, 3)];
   assert.equal(detectSubscriptions(txs, none, "2025-06-10").subscriptions.length, 2);
   const key = "apple|EUR";
-  const confirmed = new Map([[key, { key, display_name: null, category: null, status: "confirmed" as const, color_slot: null }]]);
+  const confirmed = new Map([
+    [key, { key, display_name: null, category: null, status: "confirmed" as const, color_slot: null, website: null }],
+  ]);
   const det = detectSubscriptions(txs, confirmed, "2025-06-10");
   assert.deepEqual(
     det.subscriptions.map((s) => s.key),
@@ -187,7 +189,7 @@ test("a user-picked colour sticks and automatic slots skip it", () => {
   ];
   const gym = detectSubscriptions(txs, none, "2025-11-01").subscriptions.find((s) => s.name === "Lemon Gym");
   assert.ok(gym);
-  const picked = new Map([[gym.key, { key: gym.key, display_name: null, category: null, status: null, color_slot: 1 }]]);
+  const picked = new Map([[gym.key, { key: gym.key, display_name: null, category: null, status: null, color_slot: 1, website: null }]]);
   const det = detectSubscriptions(txs, picked, "2025-11-01");
   const by = Object.fromEntries(det.subscriptions.map((s) => [s.name, s]));
   assert.equal(by["Lemon Gym"].colorSlot, 1);
@@ -241,4 +243,34 @@ test("a direct-debit renewal continues a pinned subscription despite its transfe
   const det = detectSubscriptions(debits, none, "2025-05-10", "EUR", new Set(), assigned);
   assert.equal(det.txToSub.get(debits[4].id), "telia|EUR");
   assert.equal(det.subscriptions[0].lastCharge, debits[4].date);
+});
+
+test("websites: built-in for known services, the user's wins, and one-off payments to that merchant match", () => {
+  const txs = [...monthly("Netflix.com", 15.99, 4), ...monthly("Hostinger", 3.99, 4), tx("2025-02-20", -10, "Hostinger")];
+  const host = detectSubscriptions(txs, none, "2025-04-20").subscriptions.find((s) => s.merchantKey === "hostinger");
+  assert.ok(host);
+  const set = new Map([
+    [host.key, { key: host.key, display_name: null, category: null, status: null, color_slot: null, website: "hostinger.com" }],
+  ]);
+  const det = detectSubscriptions(txs, set, "2025-04-20");
+  const by = Object.fromEntries(det.subscriptions.map((s) => [s.merchantKey, s]));
+  assert.equal(by.netflix.website, "netflix.com");
+  assert.equal(by.netflix.websiteChosen, false);
+  assert.equal(by.hostinger.website, "hostinger.com");
+  assert.equal(by.hostinger.websiteChosen, true);
+
+  const websiteOf = websiteResolver(det);
+  assert.equal(websiteOf("hostinger", null), "hostinger.com"); // the one-off payment, not in the subscription
+  assert.equal(websiteOf("netflix", null), "netflix.com");
+  assert.equal(websiteOf("maxima", null), null);
+});
+
+test("website input is reduced to a bare domain, junk is rejected", () => {
+  assert.equal(normalizeWebsite("https://www.Hostinger.com/pricing?x=1"), "hostinger.com");
+  assert.equal(normalizeWebsite("tv.apple.com"), "tv.apple.com");
+  assert.equal(normalizeWebsite("  lemongym.lt:443 "), "lemongym.lt");
+  assert.equal(normalizeWebsite("xn--80ak6aa92e.com"), "xn--80ak6aa92e.com");
+  for (const bad of ["", "hostinger", "not a site.com", "localhost", "127.0.0.1", "-bad-.com", "a..com"]) {
+    assert.equal(normalizeWebsite(bad), null, bad);
+  }
 });

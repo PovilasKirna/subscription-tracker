@@ -27,6 +27,8 @@ export type Override = {
   status: OverrideStatus | null;
   /** Preset colour slot (1–8) the user picked; null = automatic. */
   color_slot: number | null;
+  /** Website the logo is looked up from (e.g. "hostinger.com"); null = the built-in one, if any. */
+  website: string | null;
 };
 
 const SCHEMA = `
@@ -124,7 +126,10 @@ const COLUMNS: Record<string, Record<string, string>> = {
     sync_started_at: "TEXT", // set while a sync runs (visible across server instances)
   },
   pending_auth: { required_psu_headers: "TEXT" },
-  overrides: { color_slot: "INTEGER" }, // user-picked preset colour; null = automatic
+  overrides: {
+    color_slot: "INTEGER", // user-picked preset colour; null = automatic
+    website: "TEXT", // user-set website for the logo; null = built-in
+  },
 };
 
 async function migrate(db: Client) {
@@ -146,7 +151,7 @@ export async function openDb(url = config.databaseUrl, authToken = config.databa
 
 // One client per process (survives dev hot reloads and warm serverless invocations).
 // Bump SCHEMA_VERSION when SCHEMA/COLUMNS change so a cached client gets migrated too.
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const g = globalThis as unknown as { __trackerDb?: Promise<Client>; __trackerDbVersion?: number };
 export function getDb(): Promise<Client> {
   if (!g.__trackerDb || g.__trackerDbVersion !== SCHEMA_VERSION) {
@@ -300,7 +305,7 @@ export async function allAssignments(db: Db): Promise<Map<string, string>> {
   return new Map(rows.map((r) => [r.tx_id, r.sub_key]));
 }
 
-const OVERRIDE_FIELDS = ["display_name", "category", "status", "color_slot"] as const;
+const OVERRIDE_FIELDS = ["display_name", "category", "status", "color_slot", "website"] as const;
 
 /**
  * Upsert one override, changing only the fields present in `patch` (null clears a field).
@@ -310,13 +315,14 @@ export async function saveOverride(db: Db, key: string, patch: Partial<Omit<Over
   const supplied = OVERRIDE_FIELDS.filter((f) => patch[f] !== undefined);
   if (!supplied.length) return;
   const set = supplied.map((f) => `${f} = excluded.${f}`).join(", ");
-  await run(db, `INSERT INTO overrides (key, ${OVERRIDE_FIELDS.join(", ")}) VALUES (?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET ${set}`, [
-    key,
-    ...OVERRIDE_FIELDS.map((f) => patch[f] ?? null),
-  ]);
+  await run(
+    db,
+    `INSERT INTO overrides (key, ${OVERRIDE_FIELDS.join(", ")}) VALUES (?, ${OVERRIDE_FIELDS.map(() => "?").join(", ")}) ON CONFLICT(key) DO UPDATE SET ${set}`,
+    [key, ...OVERRIDE_FIELDS.map((f) => patch[f] ?? null)],
+  );
 }
 
 export async function allOverrides(db: Db): Promise<Map<string, Override>> {
-  const rows = await all<Override>(db, "SELECT key, display_name, category, status, color_slot FROM overrides");
+  const rows = await all<Override>(db, "SELECT key, display_name, category, status, color_slot, website FROM overrides");
   return new Map(rows.map((r) => [r.key, r]));
 }

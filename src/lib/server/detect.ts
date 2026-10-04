@@ -1,6 +1,6 @@
 import type { Cadence, Charge, HistoryPayload, PriceChange, SubStatus, Subscription } from "../types";
 import type { Override, TxRow } from "./db";
-import { isKnownSubscription, merchantCategory, merchantName } from "./merchant";
+import { isKnownSubscription, merchantCategory, merchantDomain, merchantName } from "./merchant";
 
 // Statement rows that are never subscriptions (moving your own money around).
 const EXCLUDED_TYPES = new Set(["TOPUP", "EXCHANGE", "TRANSFER", "ATM", "CARD_REFUND", "REFUND", "REWARD", "CASHBACK", "INTEREST"]);
@@ -160,12 +160,28 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
     known,
     colorSlot: override?.color_slot ?? null,
     colorChosen: override?.color_slot != null,
+    website: override?.website || merchantDomain(c.merchantKey) || null,
+    websiteChosen: Boolean(override?.website),
     priceChanges: priceChanges(charges),
     charges,
   };
 }
 
 export type Detection = { subscriptions: Subscription[]; ignored: Subscription[]; txToSub: Map<string, string> };
+
+/**
+ * Which website a payment's logo comes from: its subscription's, else one the user set on any
+ * subscription of the same merchant (so one-off payments match), else the built-in one.
+ */
+export function websiteResolver(det: Detection): (merchantKey: string, subKey: string | null) => string | null {
+  const bySub = new Map<string, string | null>();
+  const byMerchant = new Map<string, string>();
+  for (const s of [...det.subscriptions, ...det.ignored]) {
+    bySub.set(s.key, s.website);
+    if (s.websiteChosen && s.website && !byMerchant.has(s.merchantKey)) byMerchant.set(s.merchantKey, s.website);
+  }
+  return (merchantKey, subKey) => (subKey && bySub.get(subKey)) || byMerchant.get(merchantKey) || merchantDomain(merchantKey) || null;
+}
 
 export const MAX_SERIES = 7;
 /** Preset colours a user can pick from (`--series-1` … `--series-8`). */

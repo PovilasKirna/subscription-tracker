@@ -1,11 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, type OverrideStatus, run, saveOverride } from "@/lib/server/db";
 import { COLOR_SLOTS } from "@/lib/server/detect";
+import { normalizeWebsite } from "@/lib/server/merchant";
 import { guard } from "@/lib/server/session";
 
 const STATUSES = new Set(["confirmed", "ignored", "cancelled"]);
 
-type Body = { displayName?: string | null; category?: string | null; status?: string | null; colorSlot?: number | null };
+type Body = {
+  displayName?: string | null;
+  category?: string | null;
+  status?: string | null;
+  colorSlot?: number | null;
+  website?: string | null;
+};
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ key: string }> }) {
   const denied = await guard();
@@ -18,12 +25,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ key:
   if (body.colorSlot != null && !(Number.isInteger(body.colorSlot) && body.colorSlot >= 1 && body.colorSlot <= COLOR_SLOTS)) {
     return NextResponse.json({ error: "Invalid colour" }, { status: 400 });
   }
+  // An empty website clears it (back to the built-in logo, if any).
+  const websiteInput = typeof body.website === "string" ? body.website.trim() : "";
+  const website = websiteInput ? normalizeWebsite(websiteInput) : null;
+  if (websiteInput && !website) {
+    return NextResponse.json({ error: "That doesn't look like a website address" }, { status: 400 });
+  }
   // Only the fields sent are written; omitted ones keep their stored value.
   await saveOverride(await getDb(), key, {
     display_name: body.displayName !== undefined ? body.displayName?.trim() || null : undefined,
     category: body.category !== undefined ? body.category || null : undefined,
     status: body.status as OverrideStatus | null | undefined,
     color_slot: body.colorSlot,
+    website: body.website !== undefined ? website : undefined,
   });
   return NextResponse.json({ ok: true });
 }
