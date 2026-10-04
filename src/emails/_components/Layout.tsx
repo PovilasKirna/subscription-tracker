@@ -1,5 +1,5 @@
-import { Body, Button, Container, Head, Html, Link, Preview, Section, Text } from "@react-email/components";
 import { type CSSProperties, Fragment, type ReactNode } from "react";
+import { Body, Button, Container, Head, Html, Link, Preview, Section, Text } from "react-email";
 import { APP_NAME, absoluteUrl } from "../types";
 
 // Shared frame for every email: app name, a white card, and a footer linking to the settings.

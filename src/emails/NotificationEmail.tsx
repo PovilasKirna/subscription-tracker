@@ -1,4 +1,4 @@
-import { Heading, Text } from "@react-email/components";
+import { Heading, Text } from "react-email";
 import { Layout, Lines, OpenButton, styles } from "./_components/Layout";
 import { absoluteUrl, type NotificationEmailProps } from "./types";
 

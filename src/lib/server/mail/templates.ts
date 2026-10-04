@@ -1,5 +1,5 @@
-import { render } from "@react-email/components";
 import { createElement } from "react";
+import { render } from "react-email";
 import DigestEmail from "../../../emails/DigestEmail";
 import NotificationEmail from "../../../emails/NotificationEmail";
 import { type DigestEmailProps, digestSubject, type NotificationEmailProps, TEXT_CELL, TEXT_LABEL } from "../../../emails/types";

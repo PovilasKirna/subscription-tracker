@@ -1,5 +1,5 @@
-import { Heading, Hr, Link, Section, Text } from "@react-email/components";
 import type { ReactNode } from "react";
+import { Heading, Hr, Link, Section, Text } from "react-email";
 import { localDate, money, shortDate } from "../lib/format";
 import { colors, Layout, Lines, OpenButton, styles } from "./_components/Layout";
 import { absoluteUrl, type DigestEmailProps, planName, plural, renewalsHeading, TEXT_CELL, TEXT_LABEL } from "./types";
@@ -74,7 +74,7 @@ export default function DigestEmail({ frequency, events, summary, timeZone, appU
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: events are a fixed list (titles can repeat)
             <Section key={i}>
-              {i > 0 && <Hr style={{ borderColor: colors.border, margin: "8px 0" }} />}
+              {i > 0 && <Hr style={{ borderTop: `1px solid ${colors.border}`, margin: "8px 0" }} />}
               <Text style={{ ...styles.body, color: colors.text, fontWeight: 600 }}>
                 {link ? (
                   <Link href={link} style={{ color: colors.text, textDecoration: "none" }}>
