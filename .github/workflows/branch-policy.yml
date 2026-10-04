@@ -1,9 +1,16 @@
 # main only accepts pull requests from this repository's dev branch. The "main" ruleset on
 # GitHub requires this check, blocks direct pushes and force-pushes, and allows merge commits
 # only, so dev and main never drift apart.
+#
+# pull_request_target runs this file as it is on main, so a pull request can't edit the check
+# to pass itself. That's safe here: the job never checks out or runs PR code and has no token
+# permissions. TODO(next PR): remove the pull_request trigger. It is only here so the PR that
+# first adds this file to main still gets the check.
 name: Branch policy
 
 on:
+  pull_request_target:
+    branches: [main]
   pull_request:
     branches: [main]
 
