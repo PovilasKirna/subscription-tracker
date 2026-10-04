@@ -1,0 +1,9 @@
+# Local-only files never ship to Vercel (patterns anchored to the repo root)
+/data/
+/certificates/
+/samples/
+/scripts/
+/.husky/
+/.claude/
+/.env.local
+*.pem

@@ -1,0 +1,103 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { Override, TxRow } from "../lib/server/db";
+import { amountStability, buildHistory, detectSubscriptions, fitCadence } from "../lib/server/detect";
+import { merchantKey } from "../lib/server/merchant";
+
+let n = 0;
+function tx(date: string, amount: number, description: string, type = "CARD_PAYMENT"): TxRow {
+  return {
+    id: `t${n++}`,
+    source: "csv",
+    account: "Current",
+    date,
+    amount_minor: Math.round(amount * 100),
+    currency: "EUR",
+    description,
+    merchant_key: merchantKey(description),
+    type,
+    state: "COMPLETED",
+  };
+}
+const monthly = (desc: string, amount: number, months: number, day = 7, startYear = 2025) =>
+  Array.from({ length: months }, (_, i) => {
+    const d = new Date(Date.UTC(startYear, i, day));
+    return tx(d.toISOString().slice(0, 10), -amount, desc);
+  });
+
+const none = new Map<string, Override>();
+
+test("merchant keys normalise processor prefixes and references", () => {
+  assert.equal(merchantKey("PAYPAL *SPOTIFY P1A2B3"), "spotify");
+  assert.equal(merchantKey("Google *YouTube Premium"), "youtube-premium");
+  assert.equal(merchantKey("Amazon Prime*2K4LD8"), "prime-video");
+  assert.equal(merchantKey("Caif Cafe #1234"), "caif-cafe");
+});
+
+test("fitCadence recognises monthly and yearly rhythms, tolerating a missed month", () => {
+  assert.equal(fitCadence(["2025-01-07", "2025-02-07", "2025-03-07", "2025-05-07"])?.cadence, "monthly");
+  assert.equal(fitCadence(["2024-03-01", "2025-03-02", "2026-03-01"])?.cadence, "yearly");
+  assert.equal(fitCadence(["2025-01-01", "2025-01-04", "2025-01-19"]), null);
+});
+
+test("amountStability tolerates a single price change", () => {
+  assert.equal(amountStability([1299, 1299, 1599, 1599]), 2 / 3);
+});
+
+test("detects a monthly subscription with a price increase", () => {
+  const txs = [
+    ...monthly("Netflix.com", 12.99, 6),
+    ...monthly("Netflix.com", 15.99, 6, 7, 2025).map((t, i) => ({ ...t, date: `2025-${String(i + 7).padStart(2, "0")}-07` })),
+  ];
+  const { subscriptions } = detectSubscriptions(txs, none, "2025-12-20");
+  assert.equal(subscriptions.length, 1);
+  const s = subscriptions[0];
+  assert.equal(s.name, "Netflix");
+  assert.equal(s.cadence, "monthly");
+  assert.equal(s.amount, 15.99);
+  assert.equal(s.status, "active");
+  assert.equal(s.nextCharge, "2026-01-07");
+  assert.deepEqual(s.priceChanges, [{ date: "2025-07-07", from: 12.99, to: 15.99 }]);
+});
+
+test("splits two plans billed under the same merchant", () => {
+  const txs = [...monthly("Apple.com/Bill", 2.99, 8, 3), ...monthly("Apple.com/Bill", 9.99, 8, 19)];
+  const { subscriptions } = detectSubscriptions(txs, none, "2025-08-25");
+  assert.deepEqual(subscriptions.map((s) => s.amount).sort(), [2.99, 9.99]);
+});
+
+test("ignores irregular shopping and transfers", () => {
+  const txs = [
+    tx("2025-01-03", -23.1, "Maxima LT"),
+    tx("2025-01-09", -8.2, "Maxima LT"),
+    tx("2025-02-21", -41.0, "Maxima LT"),
+    ...monthly("To Landlord", 650, 6).map((t) => ({ ...t, type: "TRANSFER" })),
+  ];
+  assert.equal(detectSubscriptions(txs, none, "2025-07-01").subscriptions.length, 0);
+});
+
+test("marks a stopped subscription inactive and honours user overrides", () => {
+  const txs = monthly("Disney Plus", 8.99, 5);
+  const det = detectSubscriptions(txs, none, "2025-12-01");
+  assert.equal(det.subscriptions[0].status, "inactive");
+  const key = det.subscriptions[0].key;
+  const ignored = detectSubscriptions(txs, new Map([[key, { key, display_name: null, category: null, status: "ignored" }]]), "2025-12-01");
+  assert.equal(ignored.subscriptions.length, 0);
+  assert.equal(ignored.ignored.length, 1);
+});
+
+test("colour slots follow first-seen order, not rank", () => {
+  const txs = [
+    ...monthly("Spotify", 11.99, 10, 14),
+    ...monthly("Lemon Gym", 34.99, 6, 1, 2025).map((t, i) => ({ ...t, date: `2025-${String(i + 5).padStart(2, "0")}-01` })),
+  ];
+  const det = detectSubscriptions(txs, none, "2025-11-01");
+  const slot = Object.fromEntries(det.subscriptions.map((s) => [s.name, s.colorSlot]));
+  assert.equal(slot.Spotify, 1); // seen first, even though the gym costs more
+  assert.equal(slot["Lemon Gym"], 2);
+  const history = buildHistory(txs, det, "EUR", "2025-11-01", 6);
+  assert.deepEqual(
+    history.series.map((s) => s.slot),
+    [1, 2],
+  );
+});

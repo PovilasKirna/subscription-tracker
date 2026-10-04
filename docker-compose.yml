@@ -1,0 +1,15 @@
+services:
+  tracker:
+    build: .
+    image: subscription-tracker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      # Inside the container the key lives on the data volume.
+      ENABLE_BANKING_KEY_PATH: /data/enablebanking.pem
+    volumes:
+      - ./data:/data
+    # Bind to localhost only; put a TLS reverse proxy / Tailscale / Cloudflare Tunnel in front.
+    ports:
+      - "127.0.0.1:3000:3000"

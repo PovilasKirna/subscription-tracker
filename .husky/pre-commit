@@ -1,0 +1,7 @@
+# Lint + format only what's staged (auto-fix, then re-stage the fixes)
+npx biome check --staged --write --no-errors-on-unmatched
+git update-index --again
+
+# Whole-project safety net
+npm run typecheck
+npm test

@@ -1,0 +1,20 @@
+node_modules/
+# local database, keys and secrets (root only: src/**/data/ is source code)
+/data/
+.env
+*.pem
+*.db
+*.db-*
+.env.local
+.next/
+next-env.d.ts
+*.tsbuildinfo
+# local HTTPS certs from `next dev --experimental-https`
+certificates/
+
+.vercel
+.env*
+!.env.example
+# personal data exports & reports
+subscription-tracker-*.json
+anonymized-report.*
