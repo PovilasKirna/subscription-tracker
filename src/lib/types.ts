@@ -13,6 +13,8 @@ export type Subscription = {
   category: string;
   currency: string;
   cadence: Cadence;
+  /** True when the user set `cadence` themselves rather than leaving it to detection. */
+  cadenceChosen: boolean;
   periodDays: number;
   /** Latest charged amount, positive, in major units. */
   amount: number;
