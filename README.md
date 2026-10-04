@@ -35,14 +35,14 @@ To try it with fake data first: `npm run sample && npm run seed`.
 
 ### Getting your Revolut data (CSV)
 
-In the Revolut app, go to **Accounts → (your EUR account) → … → Statement**. Choose **Excel** (it downloads as CSV), pick a period (as long as you like), then upload it on the **Data & sync** page. Re-importing overlapping periods is safe: rows are de-duplicated.
+In the Revolut app, go to **Accounts → (your EUR account) → … → Statement**. Choose **Excel** (it downloads as CSV), pick a period (as long as you like), then upload it in **Settings → Data & sync**. Re-importing overlapping periods is safe: rows are de-duplicated.
 
 ### Automatic sync with Enable Banking (optional)
 
 1. Create an account at <https://enablebanking.com> and add an **application** in the Control Panel. Choose **Production** and add the redirect URL `https://<your-host>/api/bank/callback`. Enable Banking only accepts **https**. Locally, run `npm run dev:https` and use `https://localhost:3000/api/bank/callback`. On first run, Next creates a locally trusted certificate with mkcert, and Windows/macOS will ask you to approve installing its local CA. Keep the private key file it gives you.
 2. On the application, click **Activate by linking accounts** and link your Revolut account. This turns on the free *restricted* mode, which only works with accounts you've linked yourself.
 3. Copy the key to `data/enablebanking.pem` and set `ENABLE_BANKING_APP_ID` (and `ENABLE_BANKING_REDIRECT_URL`) in `.env`, then restart.
-4. On **Data & sync**, pick your country and Revolut, then click **Connect**. You'll approve access in Revolut. Consent lasts up to 180 days; after that the page asks you to reconnect.
+4. In **Settings → Data & sync**, click **Add connection**, pick your country and Revolut, then **Continue to Revolut**. You'll approve access in Revolut. Consent lasts up to 180 days; after that the page asks you to reconnect. Open a connection to switch individual accounts off: they are no longer fetched and their transactions are hidden everywhere (nothing is deleted; exports keep them).
 
 How the sync works:
 
@@ -113,7 +113,7 @@ Vercel runs the app as serverless functions, so two things differ from self-host
 
 4. **Deploy:** `npx vercel --prod`.
 5. **Add your domain:** in Vercel → **Settings → Domains**, add e.g. `subs.example.com`. Then in Hostinger (**Domains → DNS / Nameservers → DNS records**), add the record Vercel shows. For a subdomain that's a `CNAME` from `subs` to `cname.vercel-dns.com`. For the apex domain it's an `A` record from `@` to the IP Vercel shows. HTTPS is issued automatically.
-6. Whitelist `https://<your-domain>/api/bank/callback` in your Enable Banking app, then connect Revolut on the Data page.
+6. Whitelist `https://<your-domain>/api/bank/callback` in your Enable Banking app, then connect Revolut in Settings → Data & sync.
 
 Notes:
 
@@ -133,7 +133,7 @@ Notes:
 
 Each environment has its own variables in Vercel (**Settings → Environment Variables**, scoped to *Preview* or *Production*), so a dev deployment can never reach production data. Preview needs `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` (from connecting the dev database with only *Preview* ticked), `APP_PASSWORD`, `SESSION_SECRET` and `SEED_SAMPLE_DATA=true`. Leave the Enable Banking variables and `CRON_SECRET` unset. Cron jobs only run in production.
 
-With `SEED_SAMPLE_DATA=true`, an **empty** database imports the fake sample statement the first time the app opens it. It never runs on a Vercel production deployment or on a database that already has transactions. To start the dev data over, empty the database on the Data page and redeploy; the next cold start imports it again.
+With `SEED_SAMPLE_DATA=true`, an **empty** database imports the fake sample statement the first time the app opens it. It never runs on a Vercel production deployment or on a database that already has transactions. To start the dev data over, empty the database in Settings → Data & sync and redeploy; the next cold start imports it again.
 
 Deploy dev from the CLI with `npx vercel deploy` (no `--prod`), or push a branch once the Git repository is connected.
 
@@ -146,7 +146,7 @@ docker compose up -d --build
 
 The container listens on `127.0.0.1:3000` and keeps everything in `./data` (`tracker.db`, the cookie secret, and your Enable Banking key). Put it behind HTTPS before you open it to the internet. Easy options are **Tailscale** (`tailscale serve 3000`, private to your devices), a **Cloudflare Tunnel**, or Caddy. It runs fine on a Raspberry Pi, a NAS, or any small VPS.
 
-**Backups:** use **Export JSON backup** on the Data page, or copy `data/tracker.db`.
+**Backups:** use **Export JSON backup** in Settings → Data & sync, or copy `data/tracker.db`.
 
 ### Security notes
 

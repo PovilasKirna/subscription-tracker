@@ -84,13 +84,13 @@ export default function PrivacyPage() {
       <Section title="Your rights and controls">
         <ul>
           <li>
-            <b>Export</b>: download all stored data as JSON from the Data & sync page.
+            <b>Export</b>: download all stored data as JSON in Settings → Data & sync.
           </li>
           <li>
-            <b>Delete</b>: &quot;Delete all data&quot; on the Data & sync page permanently removes all transactions and edits.
+            <b>Delete</b>: &quot;Delete all data&quot; in Settings → Data & sync permanently removes all transactions and edits.
           </li>
           <li>
-            <b>Withdraw consent</b>: disconnect the bank on the Data & sync page, or revoke access from within your banking app.
+            <b>Withdraw consent</b>: disconnect the bank in Settings → Data & sync, or revoke access from within your banking app.
           </li>
           <li>
             You can also request access, correction or erasure by contacting <Contact />, and you may lodge a complaint with your data

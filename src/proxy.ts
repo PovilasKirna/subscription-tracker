@@ -8,6 +8,7 @@ const PUBLIC = [
   "/api/bank/callback",
   "/api/health",
   "/api/cron/sync",
+  "/api/cron/tick",
   "/privacy",
   "/terms",
   // Fetched by the browser/OS without our cookie: installing to the home screen, the push service worker.

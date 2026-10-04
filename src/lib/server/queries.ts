@@ -3,8 +3,11 @@ import { cache } from "react";
 import type { SubscriptionFilters, TransactionFilters } from "../search-params";
 import type {
   AssignOptionsPayload,
+  BankAccount,
+  ChargeReimbursement,
   DataStatusPayload,
   HistoryPayload,
+  ReimbursementSourcesPayload,
   RelatedTransaction,
   Subscription,
   SubscriptionDetailPayload,
@@ -13,13 +16,25 @@ import type {
   TransactionItem,
   TransactionsPayload,
 } from "../types";
+import { reconcileBankAccounts, visibleTransactions } from "./bankAccounts";
 import { bankConfigured, config } from "./config";
-import { all, allAssignments, allExclusions, allOverrides, allTransactions, dataVersion, getDb, one, type TxRow } from "./db";
+import {
+  all,
+  allAssignments,
+  allExclusions,
+  allOverrides,
+  allReimbursementData,
+  dataVersion,
+  getDb,
+  type ReimbursementData,
+  type TxRow,
+} from "./db";
 import { buildHistory, type Detection, detectSubscriptions, parseSubKey, sameAmount, websiteResolver } from "./detect";
 import { merchantName } from "./merchant";
+import { applyReimbursements, chargeTotalMinor, summarizeSources } from "./reimburse";
 import { memoByVersion } from "./snapshot";
 import { querySubscriptions } from "./subscriptionTable";
-import { isSyncing } from "./sync";
+import { isSyncing, syncCutoff } from "./sync";
 import { queryTransactions } from "./transactionTable";
 
 // Data functions shared by server-component prefetching and the /api route handlers,
@@ -28,7 +43,8 @@ import { queryTransactions } from "./transactionTable";
 const today = () => new Date().toISOString().slice(0, 10);
 
 /**
- * Every transaction plus the detection result. Loading all transactions is the expensive part
+ * Every visible transaction (accounts switched off are filtered out here, once, so every view
+ * agrees) plus the detection result. Loading all transactions is the expensive part
  * (a full table read from Turso), so the snapshot is reused until the data version (bumped by DB
  * triggers on any write) or the day changes. A cache hit costs one tiny query, and React's
  * per-request cache dedupes even that when one render calls several queries. Read-only.
@@ -36,23 +52,44 @@ const today = () => new Date().toISOString().slice(0, 10);
 export const detection = cache(
   memoByVersion(
     async () => `${await dataVersion(await getDb())}|${today()}`,
-    async (version): Promise<{ txs: TxRow[]; det: Detection; excluded: Set<string>; assigned: Map<string, string> }> => {
+    async (
+      version,
+    ): Promise<{
+      txs: TxRow[];
+      det: Detection;
+      excluded: Set<string>;
+      assigned: Map<string, string>;
+      reimbursement: ReimbursementData;
+      /** Payment id → reimbursement of the charge it stands for (see applyReimbursements). */
+      reimbursedTx: Map<string, ChargeReimbursement>;
+    }> => {
       const day = version.slice(version.indexOf("|") + 1);
       const db = await getDb();
-      const [txs, overrides, excluded, assigned] = await Promise.all([
-        allTransactions(db),
+      const [txs, overrides, excluded, assigned, reimbursement] = await Promise.all([
+        visibleTransactions(db),
         allOverrides(db),
         allExclusions(db),
         allAssignments(db),
+        allReimbursementData(db),
       ]);
-      return { txs, excluded, assigned, det: detectSubscriptions(txs, overrides, day, config.baseCurrency, excluded, assigned) };
+      const det = detectSubscriptions(txs, overrides, day, config.baseCurrency, excluded, assigned);
+      const reimbursedTx = applyReimbursements(det, txs, reimbursement, day);
+      return { txs, excluded, assigned, det, reimbursement, reimbursedTx };
     },
   ),
 );
 
 type WebsiteOf = ReturnType<typeof websiteResolver>;
 
-const toItem = (t: TxRow, subscriptionKey: string | null, websiteOf: WebsiteOf): TransactionItem => ({
+const toItem = (
+  t: TxRow,
+  subscriptionKey: string | null,
+  websiteOf: WebsiteOf,
+  reimbursement?: ChargeReimbursement,
+  chargeMinor?: number,
+): TransactionItem => ({
+  ...(reimbursement && { reimbursement }),
+  ...(chargeMinor !== undefined && chargeMinor !== -t.amount_minor && { chargeTotal: chargeMinor / 100 }),
   id: t.id,
   date: t.date,
   description: t.description,
@@ -105,7 +142,7 @@ function relatedTransactions(
 
 /** Everything the subscription drawer shows: the subscription, its charges, excluded and related ones. */
 export async function getSubscriptionDetail(key: string): Promise<SubscriptionDetailPayload> {
-  const { txs, det, excluded, assigned } = await detection();
+  const { txs, det, excluded, assigned, reimbursedTx } = await detection();
   const active = det.subscriptions.find((s) => s.key === key);
   const ignored = det.ignored.find((s) => s.key === key);
   const subscription = active ?? ignored ?? null;
@@ -124,7 +161,11 @@ export async function getSubscriptionDetail(key: string): Promise<SubscriptionDe
           (ignored && t.merchant_key === merchantKey && t.currency === currency && !excluded.has(t.id) && t.amount_minor < 0),
       )
       .sort(newestFirst)
-      .map((t) => toItem(t, active ? key : null, websiteOf)),
+      .map((t) => {
+        if (!active) return toItem(t, null, websiteOf);
+        const r = reimbursedTx.get(t.id);
+        return toItem(t, key, websiteOf, r, r && chargeTotalMinor(t, counted, det.txToSub));
+      }),
     excluded: txs
       .filter((t) => excluded.has(t.id) && ((t.merchant_key === merchantKey && t.currency === currency) || assigned.get(t.id) === key))
       .sort(newestFirst)
@@ -190,6 +231,12 @@ export async function getHistory(months = 12): Promise<HistoryPayload> {
   return buildHistory(txs, det, config.baseCurrency, today(), Math.min(Math.max(months, 3), 36));
 }
 
+/** Reimbursement sources with the subscriptions that use them. */
+export async function getReimbursementSources(): Promise<ReimbursementSourcesPayload> {
+  const { det, reimbursement } = await detection();
+  return { sources: summarizeSources([...reimbursement.sources.values()], reimbursement, det) };
+}
+
 /** Filtered, sorted, paginated page for the transactions data table (see transactionTable.ts). */
 export async function getTransactions(filters: TransactionFilters): Promise<TransactionsPayload> {
   const { txs, det } = await detection();
@@ -198,21 +245,42 @@ export async function getTransactions(filters: TransactionFilters): Promise<Tran
 
 export async function getDataStatus(): Promise<DataStatusPayload> {
   const db = await getDb();
-  const stats = (await one<{ n: number; first: string | null; last: string | null }>(
+  // One pass over the table gives both the totals and the per-account counts: this runs on every
+  // status poll (every 1.5s while syncing), and a remote database bills per row read.
+  const groups = await all<{ source: string; account: string | null; n: number; first: string; last: string }>(
     db,
-    "SELECT COUNT(*) AS n, MIN(date) AS first, MAX(date) AS last FROM transactions",
-  )) ?? { n: 0, first: null, last: null };
+    "SELECT source, account, COUNT(*) AS n, MIN(date) AS first, MAX(date) AS last FROM transactions GROUP BY source, account",
+  );
+  const stats = groups.reduce<{ n: number; first: string | null; last: string | null }>(
+    (acc, g) => ({
+      n: acc.n + Number(g.n),
+      first: acc.first === null || g.first < acc.first ? g.first : acc.first,
+      last: acc.last === null || g.last > acc.last ? g.last : acc.last,
+    }),
+    { n: 0, first: null, last: null },
+  );
+  const txCount = new Map(groups.filter((g) => g.source === "bank" && g.account !== null).map((g) => [g.account, Number(g.n)]));
   const sessions = await all<{
     session_id: string;
     aspsp_name: string;
     aspsp_country: string;
     valid_until: string | null;
-    accounts_json: string;
     last_sync_at: string | null;
     last_error: string | null;
     status: string | null;
     next_retry_at: string | null;
+    sync_started_at: string | null;
   }>(db, "SELECT * FROM bank_sessions ORDER BY created_at DESC");
+  const accounts = await reconcileBankAccounts(db);
+  const toAccount = (a: (typeof accounts)[number]): BankAccount => ({
+    key: a.account_key,
+    name: a.name,
+    iban: a.iban ? `•••• ${a.iban.slice(-4)}` : null,
+    currency: a.currency,
+    included: Boolean(a.included),
+    syncedThrough: a.synced_through,
+    transactionCount: txCount.get(a.account_key) ?? 0,
+  });
   const imports = await all<DataStatusPayload["imports"][number]>(
     db,
     "SELECT id, at, source, inserted, updated, skipped, message FROM import_log ORDER BY id DESC LIMIT 10",
@@ -224,24 +292,26 @@ export async function getDataStatus(): Promise<DataStatusPayload> {
     bankConfigured: bankConfigured(),
     syncIntervalHours: config.syncIntervalHours,
     syncing: await isSyncing(),
-    sessions: sessions.map((s) => ({
-      sessionId: s.session_id,
-      aspsp: s.aspsp_name,
-      country: s.aspsp_country,
-      validUntil: s.valid_until,
-      lastSyncAt: s.last_sync_at,
-      lastError: s.last_error,
-      status: s.status === "needs_reconnect" ? "needs_reconnect" : "active",
-      nextRetryAt: s.next_retry_at,
-      accounts: (JSON.parse(s.accounts_json) as { uid: string; name?: string; currency?: string; account_id?: { iban?: string } }[]).map(
-        (a) => ({
-          uid: a.uid,
-          name: a.name ?? null,
-          iban: a.account_id?.iban ? `•••• ${a.account_id.iban.slice(-4)}` : null,
-          currency: a.currency ?? null,
-        }),
-      ),
-    })),
+    hiddenTransactionCount: accounts.filter((a) => !a.included).reduce((n, a) => n + (txCount.get(a.account_key) ?? 0), 0),
+    sessions: sessions.map((s) => {
+      const own = accounts
+        .filter((a) => a.session_id === s.session_id)
+        .map(toAccount)
+        .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "en", { sensitivity: "base" }) || a.key.localeCompare(b.key));
+      return {
+        sessionId: s.session_id,
+        aspsp: s.aspsp_name,
+        country: s.aspsp_country,
+        validUntil: s.valid_until,
+        lastSyncAt: s.last_sync_at,
+        lastError: s.last_error,
+        status: s.status === "needs_reconnect" ? "needs_reconnect" : "active",
+        nextRetryAt: s.next_retry_at,
+        syncing: Boolean(s.sync_started_at && s.sync_started_at > syncCutoff()),
+        accounts: own,
+        transactionCount: own.reduce((n, a) => n + a.transactionCount, 0),
+      };
+    }),
     imports: imports.map((i) => ({ ...i })),
   };
 }
