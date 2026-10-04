@@ -1,12 +1,11 @@
 "use client";
 
-import { useSuspenseQuery } from "@tanstack/react-query";
 import { CircleAlertIcon, CircleCheckIcon, FileUpIcon, Loader2Icon } from "lucide-react";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fullDate } from "@/lib/format";
-import { statusQuery } from "@/lib/query/options";
+import { useLiveStatus } from "@/lib/query/useLiveStatus";
 import { cn } from "@/lib/utils";
 import { sessionHealth } from "./BankCard";
 
@@ -20,7 +19,7 @@ function ago(iso: string): string {
 
 /** Compact "where does this data come from / is it fresh" pill for the Overview header. */
 export function SyncStatus() {
-  const { data } = useSuspenseQuery(statusQuery());
+  const { data } = useLiveStatus();
   const today = new Date().toISOString().slice(0, 10);
   const session = data.sessions[0];
   const health = session ? sessionHealth(session, today) : null;
