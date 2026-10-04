@@ -24,7 +24,8 @@ export async function POST(req: NextRequest) {
     title: "Test email from Subscriptions",
     body: "Email notifications work. Reminders and summaries you turn on will arrive at this address.",
     url: "/",
-    appUrl: config.appUrl || req.nextUrl.origin,
+    // Same as real reminders and digests (configuredChannels), so the test shows exactly what they will.
+    appUrl: config.appUrl,
   });
   try {
     await mailer.send({ to: recipient, ...email });

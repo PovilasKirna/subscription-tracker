@@ -30,7 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fullDate, localDate } from "@/lib/format";
-import { api, keys, pushDevicesQuery, pushKeyQuery } from "@/lib/query/options";
+import { api, keys, pushDevicesQuery, pushKeyQuery, settingsQuery } from "@/lib/query/options";
 import type { PushDevice } from "@/lib/types";
 
 // Settings → Notifications → Devices: turn on Web Push for this browser/phone and manage the
@@ -253,6 +253,8 @@ function DeviceList({
 
 function DeviceRow({ device, current, onChanged }: { device: PushDevice; current: boolean; onChanged: () => void }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // The saved zone (prefetched with the page), so the server render and the browser agree on the day.
+  const timeZone = useQuery(settingsQuery()).data?.timeZone;
   const test = useMutation({
     mutationFn: () => api<{ sent: number }>("/api/push/test", { method: "POST", body: JSON.stringify({ endpoint: device.endpoint }) }),
     onSuccess: () => toast.success(`Test sent to ${device.name}`),
@@ -282,8 +284,9 @@ function DeviceRow({ device, current, onChanged }: { device: PushDevice; current
           <span className="truncate">{device.name}</span>
           {current && <Badge variant="secondary">This device</Badge>}
         </div>
-        <div className="text-xs text-muted-foreground">
-          Added {fullDate(localDate(device.createdAt))} ·{" "}
+        {/* "x min ago" depends on the clock, which can tick between the server render and hydration. */}
+        <div className="text-xs text-muted-foreground" suppressHydrationWarning>
+          Added {fullDate(localDate(device.createdAt, timeZone))} ·{" "}
           {device.lastSuccessAt ? `last notified ${ago(device.lastSuccessAt)}` : "no notifications yet"}
         </div>
       </div>
