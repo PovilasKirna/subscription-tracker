@@ -84,7 +84,7 @@ export function OnboardingBanner() {
           <div className="font-medium">No subscriptions yet</div>
           <p className="text-sm text-muted-foreground">Import a Revolut CSV statement or connect your bank to get started.</p>
         </div>
-        <Link href="/data" className={buttonVariants()}>
+        <Link href="/settings/data" className={buttonVariants()}>
           <UploadIcon /> Import data
         </Link>
       </CardContent>

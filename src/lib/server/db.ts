@@ -84,6 +84,19 @@ const SCHEMA = `
     last_error    TEXT
   );
 
+  -- One row per bank account, keyed by the stable account key (accountKey(), which is what
+  -- transactions.account holds for bank rows), so preferences survive reconnects.
+  -- included = 0 skips the account during sync and hides its transactions everywhere but exports.
+  CREATE TABLE IF NOT EXISTS bank_accounts (
+    account_key     TEXT PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    name            TEXT,
+    iban            TEXT,
+    currency        TEXT,
+    included        INTEGER NOT NULL DEFAULT 1,
+    synced_through  TEXT -- ISO time of the last successful fetch of this account
+  );
+
   CREATE TABLE IF NOT EXISTS pending_auth (
     state         TEXT PRIMARY KEY,
     aspsp_name    TEXT NOT NULL,
@@ -163,6 +176,14 @@ ${["transactions", "overrides", "tx_exclusions", "tx_assignments", "reimbursemen
     ),
   )
   .join("")}
+  -- Only changes to which accounts are visible matter to detection (not every synced_through bump).
+  CREATE TRIGGER IF NOT EXISTS bank_accounts_insert_version AFTER INSERT ON bank_accounts WHEN NEW.included = 0
+  BEGIN UPDATE meta SET value = value + 1 WHERE key = 'data_version'; END;
+  CREATE TRIGGER IF NOT EXISTS bank_accounts_update_version AFTER UPDATE OF included ON bank_accounts
+  WHEN OLD.included IS NOT NEW.included
+  BEGIN UPDATE meta SET value = value + 1 WHERE key = 'data_version'; END;
+  CREATE TRIGGER IF NOT EXISTS bank_accounts_delete_version AFTER DELETE ON bank_accounts WHEN OLD.included = 0
+  BEGIN UPDATE meta SET value = value + 1 WHERE key = 'data_version'; END;
 `;
 
 // Additive migrations for databases created by earlier versions.
@@ -201,7 +222,7 @@ export async function openDb(url = config.databaseUrl, authToken = config.databa
 
 // One client per process (survives dev hot reloads and warm serverless invocations).
 // Bump SCHEMA_VERSION when SCHEMA/COLUMNS change so a cached client gets migrated too.
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 const g = globalThis as unknown as { __trackerDb?: Promise<Client>; __trackerDbVersion?: number };
 export function getDb(): Promise<Client> {
   if (!g.__trackerDb || g.__trackerDbVersion !== SCHEMA_VERSION) {
@@ -333,7 +354,7 @@ export async function logImport(db: Db, source: string, s: InsertStats, message?
   ]);
 }
 
-/** Changes whenever transactions, overrides, exclusions, assignments or reimbursements change (see the triggers in SCHEMA). */
+/** Changes whenever transactions, overrides, exclusions, assignments, included accounts or reimbursements change (see the triggers in SCHEMA). */
 export async function dataVersion(db: Db): Promise<number> {
   return Number((await one<{ value: number }>(db, "SELECT value FROM meta WHERE key = 'data_version'"))?.value ?? 0);
 }

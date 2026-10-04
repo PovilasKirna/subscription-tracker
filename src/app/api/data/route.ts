@@ -18,6 +18,7 @@ export async function DELETE() {
       "DELETE FROM import_log",
       // Next sync re-fetches the full history the bank still allows.
       "UPDATE bank_sessions SET last_sync_at = NULL",
+      "UPDATE bank_accounts SET synced_through = NULL",
     ],
     "write",
   );
