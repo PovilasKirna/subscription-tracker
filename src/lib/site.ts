@@ -1,6 +1,6 @@
 // Operator details shown on the public legal pages.
 export const site = {
-  name: "Personal Finance Tracker",
+  name: "Hoard",
   operator: "Povilas Kirna",
   url: "https://personal-finance-tracker.povilaskirna.com",
   /** Public contact for privacy requests; set CONTACT_EMAIL to show an address. */

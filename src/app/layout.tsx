@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import type { ReactNode } from "react";
 import { Providers } from "@/components/Providers";
+import { site } from "@/lib/site";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Subscriptions",
+  title: site.name,
   description: "Self-hosted subscription tracker for your Revolut account",
   robots: { index: false, follow: false },
 };
