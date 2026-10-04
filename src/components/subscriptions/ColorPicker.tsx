@@ -37,13 +37,13 @@ function describe(choice: ColorChoice | null): string {
   return `custom ${choice}`;
 }
 
-/** Black or white, whichever reads better on `hex` (WCAG relative luminance). */
+/** Black or white, whichever has the higher WCAG contrast on `hex` (they tie at luminance ~0.179). */
 function checkColorOn(hex: HexColor): string {
   const [r, g, b] = [1, 3, 5].map((i) => {
     const c = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
     return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.4 ? "text-black" : "text-white";
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? "text-black" : "text-white";
 }
 
 /** The hex a palette slot currently renders as (theme-aware), to seed the custom picker. */
