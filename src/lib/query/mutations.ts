@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { OverrideStatus } from "../server/db";
-import { api } from "./options";
+import { api, keys } from "./options";
 
 export type OverrideInput = {
   key: string;
@@ -18,6 +18,20 @@ export type OverrideInput = {
 export function useInvalidateAll() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries();
+}
+
+/**
+ * After new transactions land (bank sync): reset rather than invalidate, so suspense views drop
+ * their stale data and show skeletons while they refetch. Status refreshes in place (it drives the
+ * sync UI itself), and the bank list doesn't depend on transactions.
+ */
+export function useResetAll() {
+  const qc = useQueryClient();
+  return () =>
+    Promise.all([
+      qc.resetQueries({ predicate: (q) => q.queryKey[0] !== keys.status[0] && q.queryKey[0] !== "aspsps" }),
+      qc.invalidateQueries({ queryKey: keys.status }),
+    ]);
 }
 
 export function useOverride() {
