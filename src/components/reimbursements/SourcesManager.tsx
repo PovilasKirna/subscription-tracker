@@ -1,0 +1,214 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import { BellIcon, ChevronRightIcon, CircleAlertIcon, Loader2Icon, PlusIcon, Trash2Icon, ZapIcon } from "lucide-react";
+import { useId, useState } from "react";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { type SourceInput, useDeleteSource, useSaveSource } from "@/lib/query/mutations";
+import { reimbursementSourcesQuery } from "@/lib/query/options";
+import { MODE_LABEL, ordinal } from "@/lib/reimbursement";
+import type { ReimbursementSource } from "@/lib/types";
+import { DEFAULT_SOURCE_INPUT, SourceFields, validSource } from "./SourceFields";
+
+// Where reimbursements come from: one tile per source plus an "Add source" tile. Self-contained
+// (fetches its own data) so a settings page only has to mount it.
+
+/** "Netflix, Claude and 2 more". */
+const listNames = (names: string[], max = 3) =>
+  names.length <= max ? names.join(", ") : `${names.slice(0, max).join(", ")} and ${names.length - max} more`;
+
+export function SourcesManager() {
+  const { data, error, isPending } = useQuery(reimbursementSourcesQuery());
+  // null = closed, "new" = adding, otherwise the source being edited.
+  const [editing, setEditing] = useState<ReimbursementSource | "new" | null>(null);
+
+  if (isPending) {
+    return (
+      <div className="grid gap-3 sm:grid-cols-2" role="status" aria-busy="true" aria-label="Loading reimbursement sources">
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+      </div>
+    );
+  }
+  if (error) return <p className="text-sm text-destructive">Couldn&apos;t load reimbursement sources: {error.message}</p>;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {!data.sources.length && (
+        <p className="text-sm text-muted-foreground">
+          No sources yet. Add where reimbursements come from, like your salary or an insurer, then pick it when you set up a
+          subscription&apos;s reimbursement.
+        </p>
+      )}
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {data.sources.map((s) => (
+          <li key={s.id}>
+            <SourceTile source={s} onOpen={() => setEditing(s)} />
+          </li>
+        ))}
+        <li>
+          <button
+            type="button"
+            onClick={() => setEditing("new")}
+            className="flex h-full min-h-28 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-foreground/20 text-sm text-muted-foreground opacity-70 transition outline-none hover:border-foreground/40 hover:bg-muted/40 hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            <PlusIcon className="size-4" aria-hidden /> Add source
+          </button>
+        </li>
+      </ul>
+      {editing && <SourceDialog source={editing === "new" ? null : editing} onOpenChange={(open) => !open && setEditing(null)} />}
+    </div>
+  );
+}
+
+function SourceTile({ source: s, onOpen }: { source: ReimbursementSource; onOpen: () => void }) {
+  const Icon = s.mode === "request" ? BellIcon : ZapIcon;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group flex h-full min-h-28 w-full items-start gap-3 rounded-xl bg-card p-4 text-left ring-1 ring-foreground/10 transition outline-none hover:bg-muted/40 hover:ring-foreground/20 focus-visible:ring-3 focus-visible:ring-ring/50"
+      aria-label={`${s.name}, ${MODE_LABEL[s.mode].toLowerCase()}. Edit`}
+    >
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <Icon className="size-4" aria-hidden />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate font-medium">{s.name}</span>
+        <span className="text-xs text-muted-foreground">
+          {MODE_LABEL[s.mode]}
+          {s.reminderDay !== null && ` · reminder on the ${ordinal(s.reminderDay)}`}
+        </span>
+        <span className="mt-1 text-xs text-muted-foreground">
+          {s.subscriptions.length ? `Used by ${listNames(s.subscriptions.map((u) => u.name))}` : "Not used yet"}
+        </span>
+        {s.pending > 0 && (
+          <span className="mt-1 flex items-center gap-1 text-xs">
+            <CircleAlertIcon className="size-3.5 text-[var(--status-warning)]" aria-hidden />
+            {s.pending} pending
+          </span>
+        )}
+      </span>
+      <ChevronRightIcon
+        className="mt-2 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+        aria-hidden
+      />
+    </button>
+  );
+}
+
+/** Add (`source` null) or edit a source; editing also offers deleting it while nothing uses it. */
+export function SourceDialog({
+  source,
+  onOpenChange,
+  onSaved,
+}: {
+  source: ReimbursementSource | null;
+  onOpenChange: (open: boolean) => void;
+  onSaved?: (id: number) => void;
+}) {
+  const save = useSaveSource();
+  const formId = useId();
+  const [value, setValue] = useState<SourceInput>(
+    source ? { name: source.name, mode: source.mode, reminderDay: source.reminderDay } : { ...DEFAULT_SOURCE_INPUT, name: "" },
+  );
+  const valid = validSource(value);
+  return (
+    <Dialog open onOpenChange={(open) => !save.isPending && onOpenChange(open)}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{source ? `Edit ${source.name}` : "Add a reimbursement source"}</DialogTitle>
+          <DialogDescription>Where money for your subscriptions comes back from, like your salary or an insurer.</DialogDescription>
+        </DialogHeader>
+        <form
+          id={formId}
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!valid) return;
+            save.mutate(
+              { ...value, name: value.name.trim(), id: source?.id },
+              {
+                onSuccess: (res) => {
+                  toast.success(source ? "Source saved" : `${value.name.trim()} added`);
+                  onSaved?.(res.id);
+                  onOpenChange(false);
+                },
+              },
+            );
+          }}
+        >
+          <SourceFields value={value} onChange={setValue} autoFocus={!source} />
+        </form>
+        {source && <DeleteSource source={source} onDeleted={() => onOpenChange(false)} />}
+        <DialogFooter>
+          <Button variant="outline" disabled={save.isPending} onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" form={formId} disabled={!valid || save.isPending}>
+            {save.isPending && <Loader2Icon className="animate-spin" />}
+            {source ? "Save" : "Add source"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Danger zone: delete, or explain which subscriptions still use the source. */
+function DeleteSource({ source, onDeleted }: { source: ReimbursementSource; onDeleted: () => void }) {
+  const remove = useDeleteSource();
+  const [confirm, setConfirm] = useState(false);
+  if (source.subscriptions.length) {
+    return (
+      <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+        Can&apos;t be deleted while {listNames(source.subscriptions.map((u) => u.name))}{" "}
+        {source.subscriptions.length === 1 ? "has" : "have"} reimbursement periods from it. Remove those periods in each subscription first.
+      </p>
+    );
+  }
+  return (
+    <AlertDialog open={confirm} onOpenChange={(open) => !remove.isPending && setConfirm(open)}>
+      <Button variant="ghost" size="sm" className="w-fit text-destructive hover:text-destructive" onClick={() => setConfirm(true)}>
+        <Trash2Icon /> Delete source
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete {source.name}?</AlertDialogTitle>
+          <AlertDialogDescription>No subscription uses it, so nothing else changes.</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={remove.isPending}>Keep it</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={remove.isPending}
+            onClick={() =>
+              remove.mutate(source.id, {
+                onSuccess: () => {
+                  toast.success(`${source.name} deleted`);
+                  setConfirm(false);
+                  onDeleted();
+                },
+              })
+            }
+          >
+            {remove.isPending ? <Loader2Icon className="animate-spin" /> : <Trash2Icon />}
+            {remove.isPending ? "Deleting…" : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
