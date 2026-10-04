@@ -5,7 +5,32 @@ import type { SeriesColor } from "./color";
 export type Cadence = "weekly" | "monthly" | "quarterly" | "semiannual" | "yearly";
 export type SubStatus = "active" | "late" | "inactive" | "cancelled";
 
-export type Charge = { date: string; amount: number };
+export type ReimbursementMode = "request" | "automatic";
+
+/**
+ * What came back (or should come back) for one charge, derived from the subscription's
+ * reimbursement periods and anything the user recorded:
+ * - `recorded`: the user said what came back (`amount` 0 = not reimbursed); always wins.
+ * - `assumed`: an automatic source pays it, so the expected amount counts as reimbursed.
+ * - `pending`: a request source should pay it, but nothing is recorded yet.
+ * - `none`: not reimbursable (before the first period, or after "Stop reimbursing").
+ */
+export type ChargeReimbursement = {
+  status: "recorded" | "assumed" | "pending" | "none";
+  /** Recorded, assumed or pending amount; 0 for `none`. */
+  amount: number;
+  /** What the period in force expects back for this charge (capped at the charge); null = not reimbursable. */
+  expected: number | null;
+  /** Source of the period in force, if it has one. */
+  sourceId: number | null;
+};
+
+export type Charge = {
+  date: string;
+  amount: number;
+  /** Absent when the charge is not reimbursable and nothing was recorded for it. */
+  reimbursement?: ChargeReimbursement;
+};
 export type PriceChange = { date: string; from: number; to: number };
 
 export type Subscription = {
@@ -48,7 +73,43 @@ export type Subscription = {
   websiteChosen: boolean;
   priceChanges: PriceChange[];
   charges: Charge[];
+  /** The reimbursement period in force today; null = not reimbursed (never set up, or stopped). */
+  reimbursement: ReimbursementPeriod | null;
+  /** Every reimbursement period, newest first (stops included, upcoming ones too). */
+  reimbursementPeriods: ReimbursementPeriod[];
+  /** `monthlyCost` minus what the current period expects back — what it really costs you. */
+  netMonthlyCost: number;
+  /** Recorded plus assumed reimbursements over all its charges. */
+  totalReimbursed: number;
+  /** Charges a request source should pay back that have nothing recorded yet. */
+  pendingReimbursements: number;
 };
+
+/** One stretch of time a subscription is (or stops being) reimbursed, until the next period. */
+export type ReimbursementPeriod = {
+  id: number;
+  /** YYYY-MM-DD; applies to charges on or after this day. */
+  startsOn: string;
+  /** Expected back per charge, in the subscription's currency; 0 for a stop. */
+  amount: number;
+  /** null = "Stop reimbursing" from `startsOn`. */
+  source: { id: number; name: string; mode: ReimbursementMode } | null;
+};
+
+/** Where reimbursements come from, e.g. "Salary" (you file a request) or an insurer that pays automatically. */
+export type ReimbursementSource = {
+  id: number;
+  name: string;
+  mode: ReimbursementMode;
+  /** Day of the month (1–28) to be reminded to file requests; request sources only. */
+  reminderDay: number | null;
+  /** Subscriptions with any period from this source; `current` = it pays them today. */
+  subscriptions: { key: string; name: string; current: boolean }[];
+  /** Charges from this source with nothing recorded yet (request sources only). */
+  pending: number;
+};
+
+export type ReimbursementSourcesPayload = { sources: ReimbursementSource[] };
 
 export type SubscriptionsPayload = {
   baseCurrency: string;
@@ -90,6 +151,8 @@ export type HistoryPayload = {
   totals: number[];
   /** All money out per month (excl. transfers/exchanges), for context. */
   allSpending: number[];
+  /** Reimbursed per month (recorded + assumed, by charge date), in the base currency. */
+  reimbursed: number[];
 };
 
 export type TransactionItem = {
@@ -104,6 +167,11 @@ export type TransactionItem = {
   type: string | null;
   source: "csv" | "bank";
   subscriptionKey: string | null;
+  /**
+   * Set on the one payment that stands for its subscription charge (a charge day can have a fee
+   * line too). Absent on other payments.
+   */
+  reimbursement?: ChargeReimbursement;
 };
 
 export type TransactionsPayload = {

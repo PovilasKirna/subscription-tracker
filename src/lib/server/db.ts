@@ -1,6 +1,6 @@
 import { type Client, createClient, type InStatement, type InValue } from "@libsql/client";
 import type { ColorChoice, HexColor } from "../color";
-import type { Cadence } from "../types";
+import type { Cadence, ReimbursementMode } from "../types";
 import { config } from "./config";
 
 // libSQL (open-source SQLite fork): a local file for dev/Docker (`file:./data/tracker.db`),
@@ -106,6 +106,37 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS tx_assignments_sub ON tx_assignments(sub_key);
 
+  -- Where reimbursements come from. "request": you file a request each time (and can forget),
+  -- reminded on reminder_day (1–28). "automatic": paid without asking, so it's assumed.
+  CREATE TABLE IF NOT EXISTS reimbursement_sources (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    mode          TEXT NOT NULL,
+    reminder_day  INTEGER,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- A subscription is reimbursed amount_minor per charge from starts_on until its next period.
+  -- source_id NULL = "Stop reimbursing" from starts_on. Charges before the first period are
+  -- ordinary spend.
+  CREATE TABLE IF NOT EXISTS reimbursement_periods (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    sub_key       TEXT NOT NULL,
+    source_id     INTEGER REFERENCES reimbursement_sources(id),
+    amount_minor  INTEGER NOT NULL,
+    starts_on     TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS reimbursement_periods_sub_start ON reimbursement_periods(sub_key, starts_on);
+
+  -- What actually came back for a charge, entered by hand; always beats anything derived.
+  -- 0 records that this charge won't be reimbursed (e.g. the request was never filed).
+  CREATE TABLE IF NOT EXISTS reimbursements (
+    tx_id         TEXT PRIMARY KEY,
+    amount_minor  INTEGER NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS import_log (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     at        TEXT NOT NULL DEFAULT (datetime('now')),
@@ -123,7 +154,7 @@ const SCHEMA = `
     value  INTEGER NOT NULL
   );
   INSERT OR IGNORE INTO meta (key, value) VALUES ('data_version', 0);
-${["transactions", "overrides", "tx_exclusions", "tx_assignments"]
+${["transactions", "overrides", "tx_exclusions", "tx_assignments", "reimbursement_sources", "reimbursement_periods", "reimbursements"]
   .flatMap((table) =>
     ["INSERT", "UPDATE", "DELETE"].map(
       (op) => `
@@ -170,7 +201,7 @@ export async function openDb(url = config.databaseUrl, authToken = config.databa
 
 // One client per process (survives dev hot reloads and warm serverless invocations).
 // Bump SCHEMA_VERSION when SCHEMA/COLUMNS change so a cached client gets migrated too.
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 const g = globalThis as unknown as { __trackerDb?: Promise<Client>; __trackerDbVersion?: number };
 export function getDb(): Promise<Client> {
   if (!g.__trackerDb || g.__trackerDbVersion !== SCHEMA_VERSION) {
@@ -302,7 +333,7 @@ export async function logImport(db: Db, source: string, s: InsertStats, message?
   ]);
 }
 
-/** Changes whenever transactions, overrides, exclusions or assignments change (see the triggers in SCHEMA). */
+/** Changes whenever transactions, overrides, exclusions, assignments or reimbursements change (see the triggers in SCHEMA). */
 export async function dataVersion(db: Db): Promise<number> {
   return Number((await one<{ value: number }>(db, "SELECT value FROM meta WHERE key = 'data_version'"))?.value ?? 0);
 }
@@ -344,4 +375,64 @@ export async function saveOverride(db: Db, key: string, patch: Partial<Omit<Over
 export async function allOverrides(db: Db): Promise<Map<string, Override>> {
   const rows = await all<Override>(db, `SELECT key, ${OVERRIDE_FIELDS.join(", ")} FROM overrides`);
   return new Map(rows.map((r) => [r.key, r]));
+}
+
+export type SourceRow = { id: number; name: string; mode: ReimbursementMode; reminder_day: number | null };
+export type PeriodRow = { id: number; sub_key: string; source_id: number | null; amount_minor: number; starts_on: string };
+
+/** Everything reimbursements are derived from: sources, periods per subscription and recorded amounts. */
+export type ReimbursementData = {
+  sources: Map<number, SourceRow>;
+  /** Subscription key → its periods, oldest first. */
+  periods: Map<string, PeriodRow[]>;
+  /** Transaction id → amount recorded for it (minor units, 0 = not reimbursed). */
+  records: Map<string, number>;
+};
+
+export async function allSources(db: Db): Promise<SourceRow[]> {
+  const rows = await all<SourceRow>(db, "SELECT id, name, mode, reminder_day FROM reimbursement_sources ORDER BY id");
+  return rows.map((r) => ({ ...r, id: Number(r.id), reminder_day: r.reminder_day === null ? null : Number(r.reminder_day) }));
+}
+
+export async function allReimbursementData(db: Db): Promise<ReimbursementData> {
+  const [sources, periodRows, records] = await Promise.all([
+    allSources(db),
+    all<PeriodRow>(db, "SELECT id, sub_key, source_id, amount_minor, starts_on FROM reimbursement_periods ORDER BY starts_on, id"),
+    all<{ tx_id: string; amount_minor: number }>(db, "SELECT tx_id, amount_minor FROM reimbursements"),
+  ]);
+  const periods = new Map<string, PeriodRow[]>();
+  for (const p of periodRows) {
+    const row = {
+      ...p,
+      id: Number(p.id),
+      source_id: p.source_id === null ? null : Number(p.source_id),
+      amount_minor: Number(p.amount_minor),
+    };
+    const list = periods.get(p.sub_key);
+    if (list) list.push(row);
+    else periods.set(p.sub_key, [row]);
+  }
+  return {
+    sources: new Map(sources.map((s) => [s.id, s])),
+    periods,
+    records: new Map(records.map((r) => [r.tx_id, Number(r.amount_minor)])),
+  };
+}
+
+export type NewSource = { name: string; mode: ReimbursementMode; reminderDay: number | null };
+
+export async function insertSource(db: Db, s: NewSource): Promise<number> {
+  const row = await one<{ id: number }>(db, "INSERT INTO reimbursement_sources (name, mode, reminder_day) VALUES (?, ?, ?) RETURNING id", [
+    s.name,
+    s.mode,
+    s.reminderDay,
+  ]);
+  return Number(row?.id);
+}
+
+/** Another source already has this name (case-insensitive)? */
+export async function sourceNameTaken(db: Db, name: string, exceptId?: number): Promise<boolean> {
+  return Boolean(
+    await one(db, "SELECT 1 AS x FROM reimbursement_sources WHERE lower(name) = lower(?) AND id IS NOT ?", [name, exceptId ?? null]),
+  );
 }

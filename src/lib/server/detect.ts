@@ -167,6 +167,12 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
     websiteChosen: Boolean(override?.website),
     priceChanges: priceChanges(charges),
     charges,
+    // Filled in from the reimbursement periods by applyReimbursements (reimburse.ts).
+    reimbursement: null,
+    reimbursementPeriods: [],
+    netMonthlyCost: round2(monthlyCost),
+    totalReimbursed: 0,
+    pendingReimbursements: 0,
   };
 }
 
@@ -393,6 +399,15 @@ export function buildHistory(txs: TxRow[], detection: Detection, baseCurrency: s
     if (row) row[i] += -t.amount_minor / 100;
   }
   const valuesOf = (key: string) => perSub.get(key) ?? [];
+  // Recorded + assumed reimbursements, by the date of the charge they pay back.
+  const reimbursed = new Array<number>(months.length).fill(0);
+  for (const s of subs) {
+    for (const ch of s.charges) {
+      const r = ch.reimbursement;
+      const i = idx.get(ch.date.slice(0, 7));
+      if (i !== undefined && (r?.status === "recorded" || r?.status === "assumed")) reimbursed[i] += r.amount;
+    }
+  }
 
   // Coloured subscriptions keep their own series (even if empty in this window, so the
   // legend and colours stay put); everything else folds into "Other".
@@ -422,5 +437,6 @@ export function buildHistory(txs: TxRow[], detection: Detection, baseCurrency: s
     series,
     totals: months.map((_, i) => round2(series.reduce((s, r) => s + r.values[i], 0))),
     allSpending: allSpending.map(round2),
+    reimbursed: reimbursed.map(round2),
   };
 }
