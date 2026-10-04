@@ -3,6 +3,7 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import {
   CheckIcon,
+  ChevronDownIcon,
   MinusCircleIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -15,20 +16,31 @@ import {
 import { useQueryState } from "nuqs";
 import { type ReactNode, Suspense, useState } from "react";
 import { toast } from "sonner";
-import { ChargeHistory, type ColorSlot, PRESET_COLORS, slotColor } from "@/charts";
+import { ChargeHistory } from "@/charts";
 import { MerchantIcon } from "@/components/MerchantIcon";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CADENCE_LABEL, fullDate, money, monthYearLabel, relativeDays } from "@/lib/format";
 import { useAssign, useExclusion, useOverride } from "@/lib/query/mutations";
 import { subscriptionDetailQuery } from "@/lib/query/options";
-import { subscriptionDrawerParams } from "@/lib/search-params";
-import type { RelatedTransaction, TransactionItem } from "@/lib/types";
+import { CADENCES, subscriptionDrawerParams } from "@/lib/search-params";
+import type { Cadence, RelatedTransaction, Subscription, TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { ColorPicker } from "./ColorPicker";
 import { StatusBadge } from "./StatusBadge";
 import { SubscriptionActions } from "./SubscriptionActions";
 
@@ -63,7 +75,7 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
           {s ? (
             <div className="flex items-center gap-2">
               <LogoPicker subKey={subKey} name={s.name} website={s.website} chosen={s.websiteChosen} />
-              <ColorPicker subKey={subKey} name={s.name} slot={s.colorSlot} chosen={s.colorChosen} />
+              <ColorPicker subKey={subKey} name={s.name} color={s.color} chosen={s.colorChosen} />
               <div className="min-w-0 flex-1">
                 <EditableName subKey={subKey} name={s.name} />
               </div>
@@ -75,7 +87,7 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
             {s && (
               <>
                 <span>{s.category}</span>
-                <span>{CADENCE_LABEL[s.cadence]}</span>
+                <CadencePicker sub={s} />
                 <StatusBadge status={data.ignored ? "ignored" : s.status} />
               </>
             )}
@@ -117,7 +129,7 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
               <h3 className="mb-2 text-sm font-medium">Charge history</h3>
               <ChargeHistory
                 charges={s.charges}
-                slot={s.colorSlot}
+                color={s.color}
                 formatValue={fmt}
                 formatAxisValue={(n) => money(n, s.currency, { cents: false })}
                 formatDate={fullDate}
@@ -284,69 +296,55 @@ function RelatedList({ subKey, name, items }: { subKey: string; name: string; it
   );
 }
 
-/** Swatch beside the name; picks one of the preset chart colours, or hands it back to automatic. */
-function ColorPicker({ subKey, name, slot, chosen }: { subKey: string; name: string; slot: ColorSlot; chosen: boolean }) {
+/**
+ * How often it renews. Detection needs two charges to tell, so a lone one is shown as a guess
+ * the user can correct; picking "Automatic" hands it back to detection.
+ */
+function CadencePicker({ sub }: { sub: Pick<Subscription, "key" | "name" | "cadence" | "cadenceChosen" | "chargeCount"> }) {
   const override = useOverride();
-  const [open, setOpen] = useState(false);
-  const current = chosen ? PRESET_COLORS.find((c) => c.slot === slot) : undefined;
-  const pick = (colorSlot: number | null) => {
-    setOpen(false);
-    if (colorSlot === (chosen ? slot : null)) return;
+  const guessed = !sub.cadenceChosen && sub.chargeCount < 2;
+  const pick = (value: string) => {
+    const cadence = value === "auto" ? null : (value as Cadence);
+    if (cadence === (sub.cadenceChosen ? sub.cadence : null)) return;
     override.mutate(
-      { key: subKey, colorSlot },
-      { onSuccess: () => toast.success(colorSlot ? "Colour updated" : "Colour set to automatic") },
+      { key: sub.key, cadence },
+      { onSuccess: () => toast.success(cadence ? `Renews ${CADENCE_LABEL[cadence].toLowerCase()}` : "Renewal set to automatic") },
     );
   };
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
+    <DropdownMenu>
+      <DropdownMenuTrigger
         render={
           <Button
             variant="ghost"
-            size="icon-xs"
-            className="shrink-0"
-            aria-label={`Colour for ${name}: ${current?.label ?? "automatic"}. Change colour`}
+            size="xs"
+            className="-mx-2 font-normal text-muted-foreground data-popup-open:bg-muted"
+            disabled={override.isPending}
+            aria-label={`Renews ${CADENCE_LABEL[sub.cadence].toLowerCase()}${guessed ? " (guessed)" : ""}. Change how often ${sub.name} renews`}
           />
         }
       >
-        <span className="size-3.5 rounded-[4px]" style={{ background: slotColor(slot) }} aria-hidden />
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto">
-        <PopoverHeader>
-          <PopoverTitle>Colour</PopoverTitle>
-          <PopoverDescription className="text-xs">Marks this subscription in the table and its own chart series.</PopoverDescription>
-        </PopoverHeader>
-        <fieldset className="grid grid-cols-4 gap-1.5" aria-label="Preset colours">
-          {PRESET_COLORS.map((c) => {
-            const selected = chosen && c.slot === slot;
-            return (
-              <button
-                key={c.slot}
-                type="button"
-                aria-pressed={selected}
-                aria-label={c.label}
-                title={c.label}
-                disabled={override.isPending}
-                onClick={() => pick(c.slot)}
-                className="grid size-8 place-items-center rounded-md outline-none ring-offset-2 ring-offset-popover transition-shadow hover:ring-2 hover:ring-ring/40 focus-visible:ring-2 focus-visible:ring-ring aria-pressed:ring-2 aria-pressed:ring-foreground"
-                style={{ background: slotColor(c.slot) }}
-              >
-                {selected && <CheckIcon className="size-4 text-white" aria-hidden />}
-              </button>
-            );
-          })}
-        </fieldset>
-        <Button
-          variant={chosen ? "outline" : "secondary"}
-          size="sm"
-          disabled={override.isPending}
-          onClick={() => pick(null)}
-          aria-pressed={!chosen}
-        >
-          <SparklesIcon /> Automatic
-        </Button>
-      </PopoverContent>
-    </Popover>
+        {CADENCE_LABEL[sub.cadence]}
+        {guessed && <span className="text-muted-foreground/70">(guessed)</span>}
+        <ChevronDownIcon data-icon="inline-end" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Renews</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={sub.cadenceChosen ? sub.cadence : "auto"} onValueChange={(v) => pick(String(v))}>
+            <DropdownMenuRadioItem value="auto">
+              <SparklesIcon /> Automatic
+            </DropdownMenuRadioItem>
+            <DropdownMenuSeparator />
+            {CADENCES.map((c) => (
+              <DropdownMenuRadioItem key={c} value={c}>
+                {CADENCE_LABEL[c]}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

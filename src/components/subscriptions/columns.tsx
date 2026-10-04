@@ -2,12 +2,13 @@
 
 import type { ColumnDef } from "@tanstack/react-table";
 import { BadgeCheckIcon } from "lucide-react";
-import { ChargeSparkline, slotColor } from "@/charts";
+import { ChargeSparkline } from "@/charts";
 import { DataTableColumnHeader } from "@/components/data-table";
 import { MerchantIcon } from "@/components/MerchantIcon";
 import { Badge } from "@/components/ui/badge";
 import { CADENCE_LABEL, fullDate, money, relativeDays } from "@/lib/format";
 import { isLive } from "@/lib/insights";
+import { ColorSwatch } from "./ColorPicker";
 import { StatusBadge } from "./StatusBadge";
 import { SubscriptionActions } from "./SubscriptionActions";
 import type { SubscriptionRow } from "./shared";
@@ -23,7 +24,7 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       header: ({ column }) => <DataTableColumnHeader column={column} title="Subscription" />,
       cell: ({ row: { original: s } }) => (
         <div className="flex max-w-[18rem] items-center gap-2.5">
-          <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: slotColor(s.colorSlot) }} aria-hidden />
+          <ColorSwatch color={s.color} none={s.colorChosen && s.color === null} className="size-2.5" />
           <MerchantIcon name={s.name} website={s.website} />
           <div className="min-w-0">
             <div className="truncate font-medium">{s.name}</div>
@@ -87,7 +88,7 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       cell: ({ row: { original: s } }) => (
         <ChargeSparkline
           charges={s.charges.slice(-12)}
-          slot={s.colorSlot}
+          color={s.color}
           muted={!isLive(s)}
           formatValue={(n) => money(n, s.currency)}
           formatDate={fullDate}

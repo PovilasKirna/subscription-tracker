@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 type LayerKey = `s:${number}`;
 
 function toMonthlySpend(h: HistoryPayload): { rows: MonthlySpend<LayerKey>[]; series: SeriesMeta<LayerKey>[] } {
-  const series = h.series.map((s, i): SeriesMeta<LayerKey> => ({ key: `s:${i}`, name: s.name, slot: s.slot }));
+  const series = h.series.map((s, i): SeriesMeta<LayerKey> => ({ key: `s:${i}`, name: s.name, color: s.color }));
   const rows = h.months.map((month, i) => {
     const row: MonthlySpend<LayerKey> = { month, total: h.totals[i] };
     h.series.forEach((s, j) => {

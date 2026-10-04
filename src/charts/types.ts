@@ -7,14 +7,14 @@ type HistorySeries = HistoryPayload["series"][number];
 /** YYYY-MM month key as returned by /api/history. */
 export type Month = HistoryPayload["months"][number];
 
-/** A categorical colour slot (1–8) or null for the neutral "Other". */
-export type ColorSlot = Subscription["colorSlot"];
+/** A categorical colour slot (1–8), a custom hex colour, or null for the neutral "Other". */
+export type SeriesColor = Subscription["color"];
 
 /** One stack layer of SpendColumns. */
 export type SeriesMeta<K extends string> = {
   key: K;
   name: HistorySeries["name"];
-  slot: HistorySeries["slot"];
+  color: HistorySeries["color"];
 };
 
 /** One column of SpendColumns: a month plus one value per series key. */
@@ -25,7 +25,7 @@ export type MonthlySpend<K extends string> = { month: Month; total: HistoryPaylo
 /** One row of SubscriptionTimeline. */
 export type TimelineRow = Pick<
   Subscription,
-  "key" | "name" | "currency" | "colorSlot" | "status" | "firstCharge" | "lastCharge" | "charges" | "priceChanges"
+  "key" | "name" | "currency" | "color" | "status" | "firstCharge" | "lastCharge" | "charges" | "priceChanges"
 >;
 export type TimelineCharge = TimelineRow["charges"][number];
 
@@ -36,7 +36,7 @@ export type ExpectedCharge = {
   name: Subscription["name"];
   amount: Subscription["amount"];
   currency: Subscription["currency"];
-  slot: ColorSlot;
+  color: SeriesColor;
 };
 
 /** Today's date as the server saw it (keeps SSR and hydration in agreement). */

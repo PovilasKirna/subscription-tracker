@@ -2,8 +2,8 @@
 
 import { type TooltipInPortalProps, useTooltip, useTooltipInPortal } from "@visx/tooltip";
 import type { FC, ReactNode } from "react";
-import { slotColor } from "./palette";
-import type { ColorSlot } from "./types";
+import { seriesColor } from "./palette";
+import type { SeriesColor } from "./types";
 
 /**
  * useTooltip<T> plus a portal: ParentSize clips its children (overflow: hidden), so tooltips
@@ -34,10 +34,10 @@ export function ChartTooltip({
 }
 
 /** A row inside a tooltip: colour key beside the text; the text stays in text tokens. */
-export function TooltipRow({ slot, label, value, strong }: { slot?: ColorSlot; label: ReactNode; value: ReactNode; strong?: boolean }) {
+export function TooltipRow({ color, label, value, strong }: { color?: SeriesColor; label: ReactNode; value: ReactNode; strong?: boolean }) {
   return (
     <div className="flex items-center gap-2 py-0.5 text-[var(--text-secondary)]">
-      {slot !== undefined && <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: slotColor(slot) }} />}
+      {color !== undefined && <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: seriesColor(color) }} />}
       <span className={strong ? "font-medium text-[var(--text-primary)]" : "truncate"}>{label}</span>
       <span className="tabular ml-auto pl-4 font-medium text-[var(--text-primary)]">{value}</span>
     </div>
