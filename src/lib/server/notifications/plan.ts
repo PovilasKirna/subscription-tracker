@@ -1,7 +1,7 @@
 import { CADENCE_LABEL, fullDate, money, shortDate } from "../../format";
 import { computeStats, isLive, projectCharges } from "../../insights";
 import type { NotificationType, Settings } from "../../settings";
-import { addDays, daysBetween, zonedParts } from "../../timeZone";
+import { addDays, daysBetween, lastMonthlyDate, zonedParts } from "../../timeZone";
 import type { ReimbursementMode, Subscription } from "../../types";
 
 // What to notify about, decided from a snapshot of the data: pure (no DB, no clock of its own), so
@@ -130,9 +130,11 @@ function reimbursementReminders(snapshot: NotificationSnapshot, settings: Settin
   const out: NotificationCandidate[] = [];
   for (const source of snapshot.sources) {
     if (source.mode !== "request" || !source.reminderDay) continue;
-    const lateBy = local.day - source.reminderDay;
+    // The latest reminder day on or before today, possibly last month's (28 Feb when it's 1 Mar).
+    const scheduled = lastMonthlyDate(local.date, source.reminderDay);
+    const lateBy = daysBetween(scheduled, local.date);
     // On the reminder day from the delivery hour, or a couple of days later if no run happened then.
-    if (!dueNow(local, lateBy, addDays(local.date, -lateBy), settings, snapshot.lastRunAt)) continue;
+    if (!dueNow(local, lateBy, scheduled, settings, snapshot.lastRunAt)) continue;
     const charges = snapshot.pendingCharges
       .filter((c) => c.sourceId === source.id && c.date <= local.date)
       .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
@@ -140,7 +142,8 @@ function reimbursementReminders(snapshot: NotificationSnapshot, settings: Settin
     const names = [...new Set(charges.map((c) => c.name))];
     const subs = [...new Set(charges.map((c) => c.subKey))];
     out.push({
-      dedupeKey: `reimburse:${source.id}:${local.month}`,
+      // Keyed by the reminder's own month: a catch-up on the 1st must not use up next month's key.
+      dedupeKey: `reimburse:${source.id}:${scheduled.slice(0, 7)}`,
       type: "reimbursement_reminder",
       title: `Request your ${source.name} reimbursements`,
       body: `${plural(charges.length, "charge")} waiting, ${totals(charges.map((c) => ({ amount: c.expected, currency: c.currency })))} back: ${names.join(", ")}.`,
@@ -336,8 +339,9 @@ export function digestDue(settings: Settings, now: Date, lastKey: string | null,
   if (settings.digestFrequency === "off") return null;
   const local = zonedParts(now, settings.timeZone);
   const weekly = settings.digestFrequency === "weekly";
-  const lateBy = weekly ? local.weekday - 1 : local.day - 1;
-  const periodStart = addDays(local.date, -lateBy);
+  // This week's Monday or this month's 1st: never after today, so a catch-up never crosses a period.
+  const periodStart = weekly ? addDays(local.date, 1 - local.weekday) : lastMonthlyDate(local.date, 1);
+  const lateBy = daysBetween(periodStart, local.date);
   if (!dueNow(local, lateBy, periodStart, settings, lastRunAt)) return null;
   const [y, mo] = periodStart.split("-").map(Number);
   const periodEnd = weekly ? addDays(periodStart, 7) : mo === 12 ? `${y + 1}-01-01` : `${y}-${String(mo + 1).padStart(2, "0")}-01`;
