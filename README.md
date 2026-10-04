@@ -17,7 +17,8 @@ src/
   app/            routes: (app)/ pages, api/ route handlers, login
   charts/         every chart (visx). Pages import from "@/charts" only
   components/     page sections, skeletons, shell, shadcn ui/
-  lib/server/     db, detection, Revolut CSV parser, Enable Banking client, auth
+  emails/         email templates (React Email); preview with `npm run email:dev`
+  lib/server/     db, detection, Revolut CSV parser, Enable Banking client, auth, mail/, push/
   lib/query/      query options shared by server prefetch + client
   lib/search-params.ts   nuqs parsers shared by server + client
 ```
@@ -62,9 +63,47 @@ ENABLE_BANKING_API_URL=http://localhost:4010
 ENABLE_BANKING_KEY_PATH=./data/mock-enablebanking.pem
 ```
 
+## Notifications: push and email (optional)
+
+The app can reach you outside the browser in two ways. Both are off until you configure them, and neither needs a paid service.
+
+### Push notifications (Web Push)
+
+Web Push is an open standard: the browser's own push service (Google, Mozilla, Apple) relays an encrypted message to your device. The app signs it with a VAPID key pair; there is no account to create.
+
+1. Run `npm run vapid` once and put the printed `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` address or your https URL) in `.env` or your hosting's environment variables. Keep the keys: new keys silently unsubscribe every device.
+2. Open the app on each phone or computer and choose **Enable on this device**. Your browser asks for permission.
+3. **iPhone/iPad:** iOS (16.4 or later) only delivers push to apps on the Home Screen. In Safari tap **Share → Add to Home Screen**, open the app from there, then enable notifications. The web app manifest and icons make it install like an app.
+
+Push needs https (or `localhost`). Devices whose subscription expires are removed automatically. Sessions are sliding: the 30-day login cookie is renewed whenever fewer than 20 days remain, so an installed app that you open now and then stays signed in.
+
+### Email
+
+Set **one** of these. When both are set, Resend is used.
+
+- `RESEND_API_KEY`: [Resend](https://resend.com) (free tier: 3,000 emails a month), called over its REST API.
+- `SMTP_URL`: any SMTP server, e.g. `smtps://user:app-password@smtp.gmail.com:465`.
+
+Also set `MAIL_FROM` (the sender, e.g. `Hoard <notifications@your-domain.com>`) and `APP_URL` (your public address, used for links in emails; without it emails carry no links into the app). Then, in **Settings → Notifications → Email**, save the address notifications go to and use **Send test email**. Nothing is emailed until an address is saved.
+
+To send from your own domain with Resend: in Resend open **Domains → Add domain**. Resend shows a DKIM `TXT` record (`resend._domainkey`) and an `MX` plus an SPF `TXT` record on the `send` subdomain. Add them at your DNS host. With Hostinger that's **Domains → DNS / Nameservers → DNS records**. Click **Verify**, wait for the status to turn green (minutes, sometimes hours), then create an API key with sending access. Until the domain is verified, Resend only accepts mail from its test sender to your own address.
+
+Email templates live in `src/emails/` and are built with React Email. `npm run email:dev` previews them at <http://localhost:3001>.
+
+What goes where is chosen per type in **Settings → Notifications**: push on or off, and email off, right away, or collected into the weekly or monthly summary email. Push is always immediate. Everything also appears under the bell.
+
+### Scheduler: the hourly tick
+
+Reminders, push notifications and the summary email go out when the app "ticks": it syncs banks that are due, then plans and sends notifications. Calls are cheap and safe to repeat, so tick hourly.
+
+- **Self-hosted:** a built-in timer ticks every hour while the server runs. Nothing to set up.
+- **Vercel:** set `CRON_SECRET` to a long random string (`openssl rand -hex 32`). `vercel.json` ticks once a day (the Hobby plan's limit), so add an hourly job at [cron-job.org](https://cron-job.org) (free): URL `https://<your-domain>/api/cron/tick`, schedule every hour, and under **Advanced → Headers** add `Authorization: Bearer <your CRON_SECRET>`. Settings → Notifications → Scheduler shows the last tick and whether calls arrive hourly.
+
+To tick by hand: `curl -H "Authorization: Bearer $CRON_SECRET" "https://<your-domain>/api/cron/tick?wait=1"` (`wait=1` returns the outcome instead of answering at once). `/api/cron/sync` still works, but only syncs.
+
 ## Deploy to Vercel (with your own domain)
 
-Vercel runs the app as serverless functions, so two things differ from self-hosting. The database lives in **Turso** (hosted libSQL, free tier). The scheduled sync runs as a **Vercel Cron** job instead of a timer.
+Vercel runs the app as serverless functions, so two things differ from self-hosting. The database lives in **Turso** (hosted libSQL, free tier). Scheduled work (bank sync and notifications) is triggered over HTTP at `/api/cron/tick` instead of by a timer.
 
 1. **Create the project:** run `npx vercel login`, then `npx vercel link` in this folder, or import the Git repo in the Vercel dashboard.
 2. **Add a database:** Vercel → your project → **Storage** → **Marketplace → Turso** → create a database. This adds `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. Any libSQL URL also works via `DATABASE_URL` / `DATABASE_AUTH_TOKEN`. Tables are created on first request.
@@ -74,11 +113,14 @@ Vercel runs the app as serverless functions, so two things differ from self-host
    |---|---|
    | `APP_PASSWORD` | your login password |
    | `SESSION_SECRET` | `openssl rand -hex 32` (required on Vercel) |
-   | `CRON_SECRET` | another random string; Vercel Cron sends it to `/api/cron/sync` |
+   | `CRON_SECRET` | another random string; Vercel Cron and cron-job.org send it to `/api/cron/tick` (see [Scheduler](#scheduler-the-hourly-tick)) |
    | `ENABLE_BANKING_APP_ID` | your Enable Banking application id |
    | `ENABLE_BANKING_PRIVATE_KEY` | the full contents of the `.pem` file |
    | `ENABLE_BANKING_REDIRECT_URL` | `https://<your-domain>/api/bank/callback` |
    | `BASE_CURRENCY` | `EUR` (optional) |
+   | `APP_URL` | `https://<your-domain>` (links in emails) |
+   | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | from `npm run vapid` (optional, push notifications) |
+   | `RESEND_API_KEY` or `SMTP_URL`, `MAIL_FROM` | optional, email notifications (see above) |
 
 4. **Deploy:** `npx vercel --prod`.
 5. **Add your domain:** in Vercel → **Settings → Domains**, add e.g. `subs.example.com`. Then in Hostinger (**Domains → DNS / Nameservers → DNS records**), add the record Vercel shows. For a subdomain that's a `CNAME` from `subs` to `cname.vercel-dns.com`. For the apex domain it's an `A` record from `@` to the IP Vercel shows. HTTPS is issued automatically.
@@ -86,7 +128,7 @@ Vercel runs the app as serverless functions, so two things differ from self-host
 
 Notes:
 
-- On the Hobby plan, Vercel Cron runs at most once a day (`vercel.json` schedules 05:00 UTC). That's within Revolut's background limit, and **Sync now** works any time.
+- On the Hobby plan, Vercel Cron runs at most once a day (`vercel.json` ticks at 05:00 UTC). Add the hourly cron-job.org job from [Scheduler](#scheduler-the-hourly-tick) so reminders arrive on time. Hourly ticks stay within Revolut's background limit because a connection is only synced once it's `SYNC_INTERVAL_HOURS` old, and **Sync now** works any time.
 - CSV uploads are limited to about 4 MB on Vercel. For longer histories, export your statement in a few periods.
 - To move existing local data, re-import your CSV in the deployed app, or run `npm run seed -- your-statement.csv` with `DATABASE_URL` and `DATABASE_AUTH_TOKEN` set.
 - On the Hobby plan, Vercel only deploys commits whose author email belongs to your Vercel account. If a deployment shows **Blocked**, check `git config user.email` in this repo.
@@ -120,7 +162,8 @@ The container listens on `127.0.0.1:3000` and keeps everything in `./data` (`tra
 ### Security notes
 
 - Single-user login with a password from `APP_PASSWORD`. Sessions are HMAC-signed, `HttpOnly` and `SameSite=Lax` cookies, and login attempts are rate-limited.
-- Every page and API route is checked by `src/proxy.ts`, and each route handler checks again.
+- Every page and API route is checked by `src/proxy.ts`, and each route handler checks again. Only the login page, the legal pages, the web app manifest, the service worker (`/sw.js`) and the icons are public, because the browser fetches those without your cookie.
+- Push subscriptions are stored in your database. API keys stay in environment variables and are never sent to the browser.
 - The bank callback is authorized by a one-time `state` value that expires after an hour.
 - Your Enable Banking key and database never leave `data/`, which is gitignored and dockerignored.
 - Revolut credentials never touch this app. You approve access in Revolut's own app.
@@ -132,7 +175,9 @@ The container listens on `127.0.0.1:3000` and keeps everything in `./data` (`tra
 | `npm run dev` | Next dev server |
 | `npm run typecheck` | `next typegen` + `tsc --noEmit` |
 | `npm run lint` / `lint:fix` | Biome lint + format check |
-| `npm test` | Unit tests (`node:test`): CSV parsing, detection, auth |
+| `npm test` | Unit tests (`node:test`): CSV parsing, detection, auth, mail, push. `*.test.tsx` (email rendering) run in a second pass without the `react-server` condition |
+| `npm run vapid` | Print a new VAPID key pair for push notifications |
+| `npm run email:dev` | Preview the email templates (React Email) on port 3001 |
 | `npm run sample` / `seed` | Generate fake Revolut CSV / import a CSV into the DB |
 
 A Husky **pre-commit** hook runs Biome on the staged files (auto-fixes and re-stages them), then the typecheck and the tests.

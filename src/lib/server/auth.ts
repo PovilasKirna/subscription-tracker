@@ -27,16 +27,32 @@ export function createSessionToken(now = Date.now()): string {
   return `${payload}.${sign(payload)}`;
 }
 
-export function verifySessionToken(token: string | undefined, now = Date.now()): boolean {
-  if (!token) return false;
+/** Expiry (ms epoch) of a genuine, unexpired session token; null when it is missing, forged or expired. */
+export function sessionExpiry(token: string | undefined, now = Date.now()): number | null {
+  if (!token) return null;
   const [payload, sig] = token.split(".");
-  if (!payload || !sig || !safeEqual(sig, sign(payload))) return false;
+  if (!payload || !sig || !safeEqual(sig, sign(payload))) return null;
   try {
     const { exp } = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { exp: number };
-    return typeof exp === "number" && exp > now;
+    return typeof exp === "number" && exp > now ? exp : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export function verifySessionToken(token: string | undefined, now = Date.now()): boolean {
+  return sessionExpiry(token, now) !== null;
+}
+
+/**
+ * Sliding sessions: a valid cookie with fewer than this many days left is reissued for another
+ * full 30 days, so an app installed to the home screen (opened now and then) never logs out.
+ */
+export const SESSION_RENEW_BELOW_DAYS = 20;
+
+export function sessionNeedsRenewal(token: string | undefined, now = Date.now()): boolean {
+  const exp = sessionExpiry(token, now);
+  return exp !== null && exp - now < SESSION_RENEW_BELOW_DAYS * 86_400_000;
 }
 
 export const sessionCookieOptions = {
