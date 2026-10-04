@@ -12,14 +12,8 @@ export async function PUT(_req: NextRequest, { params }: { params: Promise<{ id:
   if (!(await one(db, "SELECT 1 AS x FROM transactions WHERE id = ?", [id]))) {
     return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
   }
-  await db.batch(
-    [
-      // A removed charge leaves the subscription it was assigned to, too.
-      { sql: "DELETE FROM tx_assignments WHERE tx_id = ?", args: [id] },
-      { sql: "INSERT OR IGNORE INTO tx_exclusions (tx_id) VALUES (?)", args: [id] },
-    ],
-    "write",
-  );
+  // Any assignment stays: the exclusion overrides it, and deleting the exclusion restores it.
+  await run(db, "INSERT OR IGNORE INTO tx_exclusions (tx_id) VALUES (?)", [id]);
   return NextResponse.json({ ok: true });
 }
 

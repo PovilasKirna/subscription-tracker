@@ -243,35 +243,50 @@ export function parseSubKey(key: string): { merchantKey: string; currency: strin
 }
 
 /**
- * New charges keep flowing into a pinned subscription: an unassigned charge from one of its
- * merchants, dated after its latest charge and at the same price, continues it. Returns the
- * charges nobody claimed.
+ * New charges keep flowing into a pinned subscription: an unassigned payment day from one of its
+ * merchants, dated after its latest charge and at the same price, continues it. Prices compare
+ * per day (like `toCharges`), so a renewal split over two same-day rows still matches; failing
+ * that, single rows priced like the subscription join on their own. A charge that would fit
+ * several pinned subscriptions is left alone rather than guessed. Returns the unclaimed rows.
  */
 function followPinned(pinned: Map<string, TxRow[]>, pool: TxRow[]): TxRow[] {
+  const dayTotal = (rows: TxRow[], date: string) => rows.reduce((s, t) => s + (t.date === date ? t.amount_minor : 0), 0);
   const heads = [...pinned].map(([key, list]) => {
     const { merchantKey, currency } = parseSubKey(key);
-    const latest = list.reduce((a, b) => (b.date > a.date ? b : a));
-    return {
-      list,
-      currency,
-      merchants: new Set([merchantKey, ...list.map((t) => t.merchant_key)]),
-      date: latest.date,
-      amount: latest.amount_minor,
-    };
+    const date = list.reduce((d, t) => (t.date > d ? t.date : d), "");
+    return { list, currency, merchants: new Set([merchantKey, ...list.map((t) => t.merchant_key)]), date, amount: dayTotal(list, date) };
   });
   if (!heads.length) return pool;
+
+  // One payment day per merchant + currency, oldest first.
+  const days = new Map<string, TxRow[]>();
+  for (const t of pool) {
+    const k = `${t.date}|${t.merchant_key}|${t.currency}`;
+    const day = days.get(k);
+    if (day) day.push(t);
+    else days.set(k, [t]);
+  }
   const rest: TxRow[] = [];
-  for (const t of [...pool].sort((a, b) => a.date.localeCompare(b.date))) {
-    const head = heads.find(
-      (h) => h.currency === t.currency && h.merchants.has(t.merchant_key) && t.date > h.date && sameAmount(t.amount_minor, h.amount),
-    );
-    if (!head) {
-      rest.push(t);
+  for (const k of [...days.keys()].sort()) {
+    const rows = days.get(k) as TxRow[];
+    const { date, merchant_key, currency } = rows[0];
+    const open = heads.filter((h) => h.currency === currency && h.merchants.has(merchant_key) && date > h.date);
+    const only = <T>(xs: T[]) => (xs.length === 1 ? xs[0] : undefined);
+    const total = rows.reduce((s, t) => s + t.amount_minor, 0);
+    const whole = only(open.filter((h) => sameAmount(total, h.amount)));
+    if (whole) {
+      whole.list.push(...rows);
+      whole.date = date;
+      whole.amount = total;
       continue;
     }
-    head.list.push(t);
-    head.date = t.date;
-    head.amount = t.amount_minor;
+    // The day also holds other purchases: take just the rows priced like a subscription.
+    for (const t of rows) {
+      const head = only(open.filter((h) => sameAmount(t.amount_minor, h.amount)));
+      if (head) head.list.push(t);
+      else rest.push(t);
+    }
+    for (const h of open) if (h.list.at(-1)?.date === date) h.date = date;
   }
   return rest;
 }
@@ -283,7 +298,10 @@ export function detectSubscriptions(
   baseCurrency = "EUR",
   /** Transaction ids the user removed from subscriptions; never counted as charges. */
   excluded: ReadonlySet<string> = new Set(),
-  /** Transaction id → the subscription key the user put it in. Beats detection and exclusions. */
+  /**
+   * Transaction id → the subscription key the user put it in. Beats detection; an exclusion still
+   * wins, and keeping the assignment underneath is what lets "Include again" restore it.
+   */
   assigned: ReadonlyMap<string, string> = new Map(),
 ): Detection {
   // Assigned charges form "pinned" subscriptions whatever their type (a direct debit can come
@@ -291,15 +309,17 @@ export function detectSubscriptions(
   const pinned = new Map<string, TxRow[]>();
   for (const t of txs) {
     const key = assigned.get(t.id);
-    if (key === undefined || t.amount_minor >= 0) continue;
+    if (key === undefined || t.amount_minor >= 0 || excluded.has(t.id)) continue;
     const list = pinned.get(key);
     if (list) list.push(t);
     else pinned.set(key, [t]);
   }
+  // Renewals continue a pinned subscription before type rules apply (its direct debits are
+  // transfers too); only what's left goes through automatic detection.
   const pool = followPinned(
     pinned,
-    txs.filter((t) => isSpend(t) && !excluded.has(t.id) && !assigned.has(t.id)),
-  );
+    txs.filter((t) => t.amount_minor < 0 && !excluded.has(t.id) && !assigned.has(t.id)),
+  ).filter(isSpend);
 
   const found: Subscription[] = [];
   const txToSub = new Map<string, string>();

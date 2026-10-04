@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeftIcon, PlusIcon, RepeatIcon } from "lucide-react";
+import { ArrowLeftIcon, PlusIcon, RepeatIcon, RotateCcwIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -22,7 +22,7 @@ type Target = { key: string | null; name: string };
  * bring along other payments to the same merchant — e.g. the charges after a plan upgrade.
  */
 export function AddToSubscriptionDialog({ tx, onOpenChange }: { tx: TransactionItem; onOpenChange: (open: boolean) => void }) {
-  const { data } = useQuery(assignOptionsQuery(tx.id));
+  const { data, error, refetch, isFetching } = useQuery(assignOptionsQuery(tx.id));
   const assign = useAssign();
   const router = useRouter();
   const [target, setTarget] = useState<Target | null>(null);
@@ -64,7 +64,14 @@ export function AddToSubscriptionDialog({ tx, onOpenChange }: { tx: TransactionI
             {fullDate(tx.date)} · {tx.description} · {money(Math.abs(tx.amount), tx.currency)}
           </DialogDescription>
         </DialogHeader>
-        {!data ? (
+        {!data && error ? (
+          <div className="flex flex-col items-start gap-3 p-4" role="alert">
+            <p className="text-sm text-muted-foreground">Couldn't load your subscriptions: {error.message}</p>
+            <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
+              <RotateCcwIcon /> Retry
+            </Button>
+          </div>
+        ) : !data ? (
           <div className="flex flex-col gap-2 p-4" role="status" aria-busy="true" aria-label="Loading subscriptions">
             <Skeleton className="h-8" />
             <Skeleton className="h-8" />
