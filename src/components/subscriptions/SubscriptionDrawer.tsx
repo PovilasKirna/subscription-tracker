@@ -1,15 +1,25 @@
 "use client";
 
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { CheckIcon, MinusCircleIcon, MoreHorizontalIcon, PencilIcon, PlusCircleIcon, TrendingUpIcon, XIcon } from "lucide-react";
+import {
+  CheckIcon,
+  MinusCircleIcon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  PlusCircleIcon,
+  SparklesIcon,
+  TrendingUpIcon,
+  XIcon,
+} from "lucide-react";
 import { useQueryState } from "nuqs";
 import { type ReactNode, Suspense, useState } from "react";
 import { toast } from "sonner";
-import { ChargeHistory } from "@/charts";
+import { ChargeHistory, type ColorSlot, PRESET_COLORS, slotColor } from "@/charts";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CADENCE_LABEL, fullDate, money, monthYearLabel, relativeDays } from "@/lib/format";
 import { useExclusion, useOverride } from "@/lib/query/mutations";
@@ -48,7 +58,14 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
     <div className="flex h-full min-h-0 flex-col">
       <DrawerHeader className="flex-row items-start justify-between gap-3 border-b pb-4">
         <div className="min-w-0">
-          {s ? <EditableName subKey={subKey} name={s.name} /> : <DrawerTitle>Not a subscription anymore</DrawerTitle>}
+          {s ? (
+            <div className="flex items-center gap-2">
+              <ColorPicker subKey={subKey} name={s.name} slot={s.colorSlot} chosen={s.colorChosen} />
+              <EditableName subKey={subKey} name={s.name} />
+            </div>
+          ) : (
+            <DrawerTitle>Not a subscription anymore</DrawerTitle>
+          )}
           <DrawerDescription className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
             {s && (
               <>
@@ -205,6 +222,72 @@ function ChargeList({
         {!items.length && <li className="px-3 py-4 text-center text-sm text-muted-foreground">No charges.</li>}
       </ul>
     </section>
+  );
+}
+
+/** Swatch beside the name; picks one of the preset chart colours, or hands it back to automatic. */
+function ColorPicker({ subKey, name, slot, chosen }: { subKey: string; name: string; slot: ColorSlot; chosen: boolean }) {
+  const override = useOverride();
+  const [open, setOpen] = useState(false);
+  const current = chosen ? PRESET_COLORS.find((c) => c.slot === slot) : undefined;
+  const pick = (colorSlot: number | null) => {
+    setOpen(false);
+    if (colorSlot === (chosen ? slot : null)) return;
+    override.mutate(
+      { key: subKey, colorSlot },
+      { onSuccess: () => toast.success(colorSlot ? "Colour updated" : "Colour set to automatic") },
+    );
+  };
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0"
+            aria-label={`Colour for ${name}: ${current?.label ?? "automatic"}. Change colour`}
+          />
+        }
+      >
+        <span className="size-3.5 rounded-[4px]" style={{ background: slotColor(slot) }} aria-hidden />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto">
+        <PopoverHeader>
+          <PopoverTitle>Colour</PopoverTitle>
+          <PopoverDescription className="text-xs">Used for this subscription in every chart.</PopoverDescription>
+        </PopoverHeader>
+        <fieldset className="grid grid-cols-4 gap-1.5" aria-label="Preset colours">
+          {PRESET_COLORS.map((c) => {
+            const selected = chosen && c.slot === slot;
+            return (
+              <button
+                key={c.slot}
+                type="button"
+                aria-pressed={selected}
+                aria-label={c.label}
+                title={c.label}
+                disabled={override.isPending}
+                onClick={() => pick(c.slot)}
+                className="grid size-8 place-items-center rounded-md outline-none ring-offset-2 ring-offset-popover transition-shadow hover:ring-2 hover:ring-ring/40 focus-visible:ring-2 focus-visible:ring-ring aria-pressed:ring-2 aria-pressed:ring-foreground"
+                style={{ background: slotColor(c.slot) }}
+              >
+                {selected && <CheckIcon className="size-4 text-white" aria-hidden />}
+              </button>
+            );
+          })}
+        </fieldset>
+        <Button
+          variant={chosen ? "outline" : "secondary"}
+          size="sm"
+          disabled={override.isPending}
+          onClick={() => pick(null)}
+          aria-pressed={!chosen}
+        >
+          <SparklesIcon /> Automatic
+        </Button>
+      </PopoverContent>
+    </Popover>
   );
 }
 

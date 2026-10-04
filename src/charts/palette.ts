@@ -3,6 +3,18 @@ import type { ColorSlot } from "./types";
 // Colours are CSS custom properties (light + dark live in globals.css), never raw hex here.
 export const slotColor = (slot: ColorSlot): string => (slot ? `var(--series-${slot})` : "var(--series-other)");
 
+/** The preset colours a user can pick for a subscription, in slot order (`--series-1` … `--series-8`). */
+export const PRESET_COLORS = [
+  { slot: 1, label: "Blue" },
+  { slot: 2, label: "Orange" },
+  { slot: 3, label: "Teal" },
+  { slot: 4, label: "Amber" },
+  { slot: 5, label: "Pink" },
+  { slot: 6, label: "Green" },
+  { slot: 7, label: "Violet" },
+  { slot: 8, label: "Red" },
+] as const;
+
 export const tokens = {
   surface: "var(--surface-1)",
   grid: "var(--grid)",

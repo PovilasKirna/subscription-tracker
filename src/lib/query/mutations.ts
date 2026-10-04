@@ -10,6 +10,8 @@ export type OverrideInput = {
   displayName?: string | null;
   category?: string | null;
   status?: OverrideStatus | null;
+  /** Preset colour slot (1–8); null = automatic. */
+  colorSlot?: number | null;
 };
 
 /** Every server-side derived view depends on transactions + overrides, so refresh them all. */
