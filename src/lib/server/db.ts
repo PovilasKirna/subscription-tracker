@@ -1,5 +1,6 @@
 import { type Client, createClient, type InStatement, type InValue } from "@libsql/client";
 import type { ColorChoice, HexColor } from "../color";
+import type { Cadence } from "../types";
 import { config } from "./config";
 
 // libSQL (open-source SQLite fork): a local file for dev/Docker (`file:./data/tracker.db`),
@@ -30,6 +31,8 @@ export type Override = {
   color_slot: number | null;
   /** Custom `#rrggbb` colour the user picked; only set while `color_slot` is null. */
   color_hex: HexColor | null;
+  /** How often it renews, as the user set it; null = detected from the charges. */
+  cadence: Cadence | null;
 };
 
 /** `color_slot` for a subscription the user explicitly left uncoloured. */
@@ -141,6 +144,7 @@ const COLUMNS: Record<string, Record<string, string>> = {
   overrides: {
     color_slot: "INTEGER", // user-picked preset colour (0 = none); null = automatic
     color_hex: "TEXT", // user-picked custom colour
+    cadence: "TEXT", // user-set renewal cadence; null = detected
   },
 };
 
@@ -163,7 +167,7 @@ export async function openDb(url = config.databaseUrl, authToken = config.databa
 
 // One client per process (survives dev hot reloads and warm serverless invocations).
 // Bump SCHEMA_VERSION when SCHEMA/COLUMNS change so a cached client gets migrated too.
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 9;
 const g = globalThis as unknown as { __trackerDb?: Promise<Client>; __trackerDbVersion?: number };
 export function getDb(): Promise<Client> {
   if (!g.__trackerDb || g.__trackerDbVersion !== SCHEMA_VERSION) {
@@ -317,7 +321,7 @@ export async function allAssignments(db: Db): Promise<Map<string, string>> {
   return new Map(rows.map((r) => [r.tx_id, r.sub_key]));
 }
 
-const OVERRIDE_FIELDS = ["display_name", "category", "status", "color_slot", "color_hex"] as const;
+const OVERRIDE_FIELDS = ["display_name", "category", "status", "color_slot", "color_hex", "cadence"] as const;
 
 /**
  * Upsert one override, changing only the fields present in `patch` (null clears a field).
@@ -329,7 +333,7 @@ export async function saveOverride(db: Db, key: string, patch: Partial<Omit<Over
   const set = supplied.map((f) => `${f} = excluded.${f}`).join(", ");
   await run(
     db,
-    `INSERT INTO overrides (key, ${OVERRIDE_FIELDS.join(", ")}) VALUES (?${", ?".repeat(OVERRIDE_FIELDS.length)}) ON CONFLICT(key) DO UPDATE SET ${set}`,
+    `INSERT INTO overrides (key, ${OVERRIDE_FIELDS.join(", ")}) VALUES (?, ${OVERRIDE_FIELDS.map(() => "?").join(", ")}) ON CONFLICT(key) DO UPDATE SET ${set}`,
     [key, ...OVERRIDE_FIELDS.map((f) => patch[f] ?? null)],
   );
 }

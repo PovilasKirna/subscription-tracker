@@ -22,6 +22,7 @@ const sub = (
     category,
     currency: "EUR",
     cadence,
+    cadenceChosen: false,
     periodDays: 30,
     amount,
     monthlyCost: amount,

@@ -2,10 +2,18 @@ import { type NextRequest, NextResponse } from "next/server";
 import { isColorChoice } from "@/lib/color";
 import { colorColumns, getDb, type OverrideStatus, run, saveOverride } from "@/lib/server/db";
 import { guard } from "@/lib/server/session";
+import type { Cadence } from "@/lib/types";
 
 const STATUSES = new Set(["confirmed", "ignored", "cancelled"]);
+const CADENCES = new Set<string>(["weekly", "monthly", "quarterly", "semiannual", "yearly"] satisfies Cadence[]);
 
-type Body = { displayName?: string | null; category?: string | null; status?: string | null; color?: unknown };
+type Body = {
+  displayName?: string | null;
+  category?: string | null;
+  status?: string | null;
+  color?: unknown;
+  cadence?: string | null;
+};
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ key: string }> }) {
   const denied = await guard();
@@ -19,12 +27,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ key:
   if (!(color == null || isColorChoice(color))) {
     return NextResponse.json({ error: "Invalid colour" }, { status: 400 });
   }
+  if (body.cadence != null && !CADENCES.has(body.cadence)) {
+    return NextResponse.json({ error: "Invalid cadence" }, { status: 400 });
+  }
   // Only the fields sent are written; omitted ones keep their stored value.
   await saveOverride(await getDb(), key, {
     display_name: body.displayName !== undefined ? body.displayName?.trim() || null : undefined,
     category: body.category !== undefined ? body.category || null : undefined,
     status: body.status as OverrideStatus | null | undefined,
     ...(color !== undefined ? colorColumns(color) : {}),
+    cadence: body.cadence as Cadence | null | undefined,
   });
   return NextResponse.json({ ok: true });
 }

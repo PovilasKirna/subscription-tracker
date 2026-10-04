@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { ColorChoice } from "../color";
 import type { OverrideStatus } from "../server/db";
+import type { Cadence } from "../types";
 import { api, keys } from "./options";
 
 export type OverrideInput = {
@@ -13,6 +14,8 @@ export type OverrideInput = {
   status?: OverrideStatus | null;
   /** Preset slot (1–8), custom hex, or "none"; null = automatic. */
   color?: ColorChoice | null;
+  /** Renewal cadence; null = detected from the charges. */
+  cadence?: Cadence | null;
 };
 
 /** Every server-side derived view depends on transactions + overrides, so refresh them all. */

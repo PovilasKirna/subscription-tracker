@@ -83,7 +83,7 @@ test("marks a stopped subscription inactive and honours user overrides", () => {
   const key = det.subscriptions[0].key;
   const ignored = detectSubscriptions(
     txs,
-    new Map([[key, { key, display_name: null, category: null, status: "ignored", color_slot: null, color_hex: null }]]),
+    new Map([[key, { key, display_name: null, category: null, status: "ignored", color_slot: null, color_hex: null, cadence: null }]]),
     "2025-12-01",
   );
   assert.equal(ignored.subscriptions.length, 0);
@@ -162,7 +162,7 @@ test("a confirmed merchant stays one subscription even if its charges split by p
   assert.equal(detectSubscriptions(txs, none, "2025-06-10").subscriptions.length, 2);
   const key = "apple|EUR";
   const confirmed = new Map([
-    [key, { key, display_name: null, category: null, status: "confirmed" as const, color_slot: null, color_hex: null }],
+    [key, { key, display_name: null, category: null, status: "confirmed" as const, color_slot: null, color_hex: null, cadence: null }],
   ]);
   const det = detectSubscriptions(txs, confirmed, "2025-06-10");
   assert.deepEqual(
@@ -189,7 +189,9 @@ test("a user-picked colour sticks and automatic slots skip it", () => {
   ];
   const gym = detectSubscriptions(txs, none, "2025-11-01").subscriptions.find((s) => s.name === "Lemon Gym");
   assert.ok(gym);
-  const picked = new Map([[gym.key, { key: gym.key, display_name: null, category: null, status: null, color_slot: 1, color_hex: null }]]);
+  const picked = new Map([
+    [gym.key, { key: gym.key, display_name: null, category: null, status: null, color_slot: 1, color_hex: null, cadence: null }],
+  ]);
   const det = detectSubscriptions(txs, picked, "2025-11-01");
   const by = Object.fromEntries(det.subscriptions.map((s) => [s.name, s]));
   assert.equal(by["Lemon Gym"].color, 1);
@@ -208,9 +210,12 @@ test("a custom colour keeps its own series without taking a slot; 'none' folds i
   const picked = new Map<string, Override>([
     [
       keyOf("Lemon Gym"),
-      { key: keyOf("Lemon Gym"), display_name: null, category: null, status: null, color_slot: null, color_hex: "#123abc" },
+      { key: keyOf("Lemon Gym"), display_name: null, category: null, status: null, color_slot: null, color_hex: "#123abc", cadence: null },
     ],
-    [keyOf("Netflix"), { key: keyOf("Netflix"), display_name: null, category: null, status: null, color_slot: 0, color_hex: null }],
+    [
+      keyOf("Netflix"),
+      { key: keyOf("Netflix"), display_name: null, category: null, status: null, color_slot: 0, color_hex: null, cadence: null },
+    ],
   ]);
   const det = detectSubscriptions(txs, picked, "2025-11-01");
   const by = Object.fromEntries(det.subscriptions.map((s) => [s.name, s]));
@@ -226,6 +231,52 @@ test("a custom colour keeps its own series without taking a slot; 'none' folds i
       ["Other (1)", null],
     ],
   );
+});
+
+test("a user-set cadence replaces the guess for a lone charge, and beats a detected one", () => {
+  const once = [tx("2025-03-10", -59.99, "Proton AG")];
+  const assigned = new Map([[once[0].id, "proton|EUR"]]);
+  const guessed = detectSubscriptions(once, none, "2025-04-01", "EUR", new Set(), assigned).subscriptions[0];
+  assert.equal(guessed.cadence, "monthly");
+  assert.equal(guessed.cadenceChosen, false);
+
+  const yearly = new Map([
+    [
+      "proton|EUR",
+      {
+        key: "proton|EUR",
+        display_name: null,
+        category: null,
+        status: null,
+        color_slot: null,
+        color_hex: null,
+        cadence: "yearly" as const,
+      },
+    ],
+  ]);
+  const set = detectSubscriptions(once, yearly, "2025-04-01", "EUR", new Set(), assigned).subscriptions[0];
+  assert.equal(set.cadence, "yearly");
+  assert.equal(set.cadenceChosen, true);
+  assert.equal(set.nextCharge, "2026-03-10");
+  assert.equal(set.status, "active");
+  assert.equal(set.yearlyCost, 59.99);
+
+  const spotify = monthly("Spotify", 11.99, 4);
+  const quarterly = new Map([
+    [
+      "spotify|EUR",
+      {
+        key: "spotify|EUR",
+        display_name: null,
+        category: null,
+        status: null,
+        color_slot: null,
+        color_hex: null,
+        cadence: "quarterly" as const,
+      },
+    ],
+  ]);
+  assert.equal(detectSubscriptions(spotify, quarterly, "2025-04-20").subscriptions[0].cadence, "quarterly");
 });
 
 test("an exclusion overrides an assignment, and lifting it restores the subscription", () => {

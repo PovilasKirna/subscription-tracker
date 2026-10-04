@@ -1,21 +1,41 @@
 "use client";
 
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { CheckIcon, MinusCircleIcon, MoreHorizontalIcon, PencilIcon, PlusCircleIcon, TrendingUpIcon, XIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  MinusCircleIcon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  PlusCircleIcon,
+  SparklesIcon,
+  TrendingUpIcon,
+  XIcon,
+} from "lucide-react";
 import { useQueryState } from "nuqs";
 import { type ReactNode, Suspense, useState } from "react";
 import { toast } from "sonner";
 import { ChargeHistory } from "@/charts";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CADENCE_LABEL, fullDate, money, monthYearLabel, relativeDays } from "@/lib/format";
 import { useAssign, useExclusion, useOverride } from "@/lib/query/mutations";
 import { subscriptionDetailQuery } from "@/lib/query/options";
-import { subscriptionDrawerParams } from "@/lib/search-params";
-import type { RelatedTransaction, TransactionItem } from "@/lib/types";
+import { CADENCES, subscriptionDrawerParams } from "@/lib/search-params";
+import type { Cadence, RelatedTransaction, Subscription, TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ColorPicker } from "./ColorPicker";
 import { StatusBadge } from "./StatusBadge";
@@ -63,7 +83,7 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
             {s && (
               <>
                 <span>{s.category}</span>
-                <span>{CADENCE_LABEL[s.cadence]}</span>
+                <CadencePicker sub={s} />
                 <StatusBadge status={data.ignored ? "ignored" : s.status} />
               </>
             )}
@@ -269,6 +289,58 @@ function RelatedList({ subKey, name, items }: { subKey: string; name: string; it
         ))}
       </ul>
     </section>
+  );
+}
+
+/**
+ * How often it renews. Detection needs two charges to tell, so a lone one is shown as a guess
+ * the user can correct; picking "Automatic" hands it back to detection.
+ */
+function CadencePicker({ sub }: { sub: Pick<Subscription, "key" | "name" | "cadence" | "cadenceChosen" | "chargeCount"> }) {
+  const override = useOverride();
+  const guessed = !sub.cadenceChosen && sub.chargeCount < 2;
+  const pick = (value: string) => {
+    const cadence = value === "auto" ? null : (value as Cadence);
+    if (cadence === (sub.cadenceChosen ? sub.cadence : null)) return;
+    override.mutate(
+      { key: sub.key, cadence },
+      { onSuccess: () => toast.success(cadence ? `Renews ${CADENCE_LABEL[cadence].toLowerCase()}` : "Renewal set to automatic") },
+    );
+  };
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="xs"
+            className="-mx-2 font-normal text-muted-foreground data-popup-open:bg-muted"
+            disabled={override.isPending}
+            aria-label={`Renews ${CADENCE_LABEL[sub.cadence].toLowerCase()}${guessed ? " (guessed)" : ""}. Change how often ${sub.name} renews`}
+          />
+        }
+      >
+        {CADENCE_LABEL[sub.cadence]}
+        {guessed && <span className="text-muted-foreground/70">(guessed)</span>}
+        <ChevronDownIcon data-icon="inline-end" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Renews</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={sub.cadenceChosen ? sub.cadence : "auto"} onValueChange={(v) => pick(String(v))}>
+            <DropdownMenuRadioItem value="auto">
+              <SparklesIcon /> Automatic
+            </DropdownMenuRadioItem>
+            <DropdownMenuSeparator />
+            {CADENCES.map((c) => (
+              <DropdownMenuRadioItem key={c} value={c}>
+                {CADENCE_LABEL[c]}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

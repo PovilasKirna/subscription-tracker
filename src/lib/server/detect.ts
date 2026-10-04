@@ -125,7 +125,9 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
   const confidence = Math.min(1, 0.45 * (fit?.fit ?? 0) + 0.35 * stability + 0.1 * Math.min(1, (n - 1) / 4) + (known ? 0.15 : 0));
   if (!confirmed && (confidence < 0.7 || (fit?.fit ?? 0) < 0.6)) return null;
 
-  const period = fit ?? { cadence: "monthly" as Cadence, days: 30.44, months: 1, fit: 0 };
+  // The user's cadence beats the detected one; with neither (a lone hand-assigned charge), assume monthly.
+  const chosen = override?.cadence ? PERIODS.find((p) => p.cadence === override.cadence) : undefined;
+  const period = chosen ?? fit ?? { cadence: "monthly" as Cadence, days: 30.44, months: 1 };
   const last = charges[n - 1];
   const next = period.months ? addMonths(last.date, period.months) : toDate(toTime(last.date) + period.days * DAY);
   const daysLate = daysBetween(next, today);
@@ -145,6 +147,7 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
     category: override?.category || merchantCategory(c.merchantKey),
     currency: c.currency,
     cadence: period.cadence,
+    cadenceChosen: chosen !== undefined,
     periodDays: period.days,
     amount: round2(amount),
     monthlyCost: round2(monthlyCost),
