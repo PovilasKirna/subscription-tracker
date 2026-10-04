@@ -176,6 +176,11 @@ export type TransactionItem = {
    * line too). Absent on other payments.
    */
   reimbursement?: ChargeReimbursement;
+  /**
+   * What the whole charge cost (positive) when it's more than this payment, e.g. €18 + a €0.50 fee
+   * on the same day. Set alongside `reimbursement`; what can be reimbursed at most.
+   */
+  chargeTotal?: number;
 };
 
 export type TransactionsPayload = {

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ordinal, parseAmount, periodStartLabel, startOptions } from "../lib/reimbursement";
+import { charged, expectedFor, ordinal, parseAmount, periodStartLabel, startOptions } from "../lib/reimbursement";
 import type { Override, PeriodRow, ReimbursementData, SourceRow, TxRow } from "../lib/server/db";
 import { buildHistory, detectSubscriptions } from "../lib/server/detect";
 import { merchantKey } from "../lib/server/merchant";
-import { applyReimbursements, periodOn, resolveCharge, summarizeSources } from "../lib/server/reimburse";
+import { applyReimbursements, chargeTotalMinor, periodOn, resolveCharge, summarizeSources } from "../lib/server/reimburse";
 import { isIsoDate, parsePeriodInput, parseSourceInput, toMinor } from "../lib/server/reimbursementInput";
 
 const salary: SourceRow = { id: 1, name: "Salary", mode: "request", reminder_day: 20 };
@@ -164,6 +164,28 @@ test("a charge day's records count once for the day, on the payment that carries
   assert.equal(byTx.get(fee.id)?.status, "recorded");
   assert.equal(byTx.has(txs[5].id), false);
   assert.equal(det2.subscriptions[0].pendingReimbursements, 0);
+});
+
+test("a split charge (€18 + €0.50 fee) can be reimbursed up to its day total, whichever payment carries it", () => {
+  const txs = claude();
+  const fee = tx("2025-06-07", -0.5);
+  const other = tx("2025-06-07", -3, "Lidl");
+  const all = [...txs, fee, other];
+  const det = detectSubscriptions(all, none, "2025-06-20");
+  const byTx = applyReimbursements(det, all, data([period("2025-06-01", 1, 2000)]), "2025-06-20");
+  // The cap the API and the drawer use: the whole charge, not the carrier row.
+  assert.equal(chargeTotalMinor(txs[5], all, det.txToSub), 1850);
+  assert.equal(chargeTotalMinor(fee, all, det.txToSub), 1850);
+  assert.equal(chargeTotalMinor(txs[4], all, det.txToSub), 1800);
+  // Outside any subscription a payment is its own charge (another merchant that day doesn't add up).
+  assert.equal(chargeTotalMinor(other, all, det.txToSub), 300);
+  // The drawer's item for the carrier: "Got €18.50", and the dialog allows up to €18.50.
+  const item = { amount: -18, chargeTotal: 18.5, reimbursement: byTx.get(txs[5].id) };
+  assert.equal(charged(item), 18.5);
+  assert.equal(expectedFor(item), 18.5);
+  // Without a charge total (a single payment) it falls back to the payment itself.
+  assert.equal(charged({ amount: -18 }), 18);
+  assert.equal(expectedFor({ amount: -18, reimbursement: { status: "pending", amount: 15, expected: 20, sourceId: 1 } }), 18);
 });
 
 test("monthly history reports recorded + assumed reimbursements by charge month", () => {

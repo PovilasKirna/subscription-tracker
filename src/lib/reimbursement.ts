@@ -1,13 +1,23 @@
 import { fullDate, money, monthYearLabel, shortDate } from "./format";
-import type { ReimbursementMode } from "./types";
+import type { ReimbursementMode, TransactionItem } from "./types";
 
 // Client-safe helpers for the reimbursement UI.
 
 /** Toast after recording what came back for a charge (null = forgot the record). */
 export const reimbursementToast = (amount: number | null, currency: string) =>
-  amount === null ? "Back to automatic" : amount ? `Marked ${money(amount, currency)} as reimbursed` : "Marked as not reimbursed";
+  amount === null
+    ? "Reimbursement record cleared"
+    : amount
+      ? `Marked ${money(amount, currency)} as reimbursed`
+      : "Marked as not reimbursed";
 
 export const MODE_LABEL: Record<ReimbursementMode, string> = { request: "You request it", automatic: "Paid automatically" };
+
+/** What a charge can be reimbursed at most: never more than it cost (all its payments that day). */
+export const charged = (tx: Pick<TransactionItem, "amount" | "chargeTotal">) => tx.chargeTotal ?? Math.abs(tx.amount);
+/** The expected amount for this payment's charge, capped at what it cost; null = not reimbursable. */
+export const expectedFor = (tx: Pick<TransactionItem, "amount" | "chargeTotal" | "reimbursement">) =>
+  tx.reimbursement?.expected != null ? Math.min(tx.reimbursement.expected, charged(tx)) : null;
 
 /** 1 → "1st", 22 → "22nd". */
 export function ordinal(n: number): string {
