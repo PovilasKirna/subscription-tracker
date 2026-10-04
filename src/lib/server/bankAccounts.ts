@@ -60,12 +60,15 @@ export async function reconcileBankAccounts(db: Db): Promise<BankAccountRow[]> {
   const { upsert, remove } = planAccountRows(sessions, existing);
   if (!upsert.length && !remove.length) return existing;
   const writes: InStatement[] = [
-    // `included` and `synced_through` are left alone so the preference and progress survive reconnects.
+    // `included` and `synced_through` are left alone on update so the preference and progress survive
+    // reconnects. A new row starts from its session's last sync: for a session synced before this table
+    // existed that is how far its accounts were fetched, and for a fresh one it is NULL ("never fetched").
     ...upsert.map((a) => ({
-      sql: `INSERT INTO bank_accounts (account_key, session_id, name, iban, currency) VALUES (?, ?, ?, ?, ?)
+      sql: `INSERT INTO bank_accounts (account_key, session_id, name, iban, currency, synced_through)
+            VALUES (?, ?, ?, ?, ?, (SELECT last_sync_at FROM bank_sessions WHERE session_id = ?))
             ON CONFLICT(account_key) DO UPDATE SET
               session_id = excluded.session_id, name = excluded.name, iban = excluded.iban, currency = excluded.currency`,
-      args: [a.account_key, a.session_id, a.name, a.iban, a.currency],
+      args: [a.account_key, a.session_id, a.name, a.iban, a.currency, a.session_id],
     })),
     ...remove.map((key) => ({ sql: "DELETE FROM bank_accounts WHERE account_key = ?", args: [key] })),
   ];
@@ -107,11 +110,13 @@ export type FetchWindow = { kind: "full" } | { kind: "incremental"; dateFrom: st
  * Which transactions to ask the bank for, for one account. A session that has never synced gets
  * the full history (banks usually expose it only shortly after consent — this is also how a
  * reconnect fills gaps). After that each account continues from its own last successful fetch, so
- * an account switched back on backfills the time it was off; accounts tracked before per-account
- * progress existed fall back to the session's last sync.
+ * an account switched back on backfills the time it was off. An account that was never fetched
+ * (switched off before its first fetch, or after "Delete all data") gets the full history too.
+ * Accounts tracked before per-account progress existed are seeded from the session's last sync
+ * when their row is created (see `reconcileBankAccounts`), so NULL always means "never fetched".
  */
 export function fetchWindow(account: { syncedThrough: string | null }, session: { lastSyncAt: string | null }): FetchWindow {
-  if (!session.lastSyncAt) return { kind: "full" };
-  const since = account.syncedThrough ?? session.lastSyncAt;
+  if (!session.lastSyncAt || !account.syncedThrough) return { kind: "full" };
+  const since = account.syncedThrough;
   return { kind: "incremental", dateFrom: new Date(Date.parse(since) - SYNC_OVERLAP_DAYS * DAY).toISOString().slice(0, 10) };
 }

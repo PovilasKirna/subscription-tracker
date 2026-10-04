@@ -246,7 +246,8 @@ const shiftDate = (d: string, days: number) => new Date(Date.parse(`${d}T00:00:0
 /**
  * Insert transactions idempotently. Rows already present (same id) are updated;
  * rows that look like the same payment imported from the *other* source
- * (CSV vs bank sync) within ±3 days are skipped. Reads happen in two queries and
+ * (CSV vs bank sync) within ±3 days are skipped — except bank rows of switched-off accounts,
+ * which aren't shown anywhere and so don't count as a copy. Reads happen in two queries and
  * writes in one batch, so this stays fast against a remote database.
  */
 export async function insertTransactions(db: Db, rows: TxRow[]): Promise<InsertStats> {
@@ -256,9 +257,21 @@ export async function insertTransactions(db: Db, rows: TxRow[]): Promise<InsertS
   const dates = rows.map((r) => r.date).sort();
   const from = shiftDate(dates[0], -3);
   const to = shiftDate(dates[dates.length - 1], 3);
-  const nearby = await all<{ id: string; source: string; date: string; amount_minor: number; currency: string; merchant_key: string }>(
+  // `hidden` marks bank rows of accounts the user switched off: they're shown nowhere, so they must not
+  // swallow CSV rows for the same payments (e.g. a statement imported to replace that account's bank data).
+  const nearby = await all<{
+    id: string;
+    source: string;
+    date: string;
+    amount_minor: number;
+    currency: string;
+    merchant_key: string;
+    hidden: number;
+  }>(
     db,
-    "SELECT id, source, date, amount_minor, currency, merchant_key FROM transactions WHERE date BETWEEN ? AND ?",
+    `SELECT id, source, date, amount_minor, currency, merchant_key,
+            (source = 'bank' AND account IN (SELECT account_key FROM bank_accounts WHERE included = 0)) AS hidden
+     FROM transactions WHERE date BETWEEN ? AND ?`,
     [from, to],
   );
   const existingIds = new Set(nearby.map((r) => r.id));
@@ -274,6 +287,7 @@ export async function insertTransactions(db: Db, rows: TxRow[]): Promise<InsertS
   // identical charges (e.g. two 0.99 app purchases) are not collapsed into one.
   const byAmount = new Map<string, typeof nearby>();
   for (const n of nearby) {
+    if (n.hidden) continue;
     const k = `${n.currency}|${n.amount_minor}`;
     byAmount.set(k, [...(byAmount.get(k) ?? []), n]);
   }

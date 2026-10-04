@@ -21,7 +21,7 @@ const { fetchWindow, planAccountRows, reconcileBankAccounts, visibleTransactions
 );
 const { all, dataVersion, getDb, insertTransactions, one, run } = await import("../lib/server/db");
 const { syncAll } = await import("../lib/server/sync");
-const { historyGap } = await import("../lib/bank");
+const { historyGap, needsReconnect } = await import("../lib/bank");
 
 const DAY = 86_400_000;
 
@@ -40,11 +40,8 @@ test("each account continues from its own last fetch, overlapping a week", () =>
   });
 });
 
-test("accounts without their own progress fall back to the session's last sync", () => {
-  assert.deepEqual(fetchWindow({ syncedThrough: null }, { lastSyncAt: "2026-10-04T08:00:00.000Z" }), {
-    kind: "incremental",
-    dateFrom: "2026-09-27",
-  });
+test("an account that was never fetched gets the full history, even if its session has synced", () => {
+  assert.deepEqual(fetchWindow({ syncedThrough: null }, { lastSyncAt: "2026-10-04T08:00:00.000Z" }), { kind: "full" });
 });
 
 const session = (id: string, keys: string[]) => ({
@@ -104,6 +101,16 @@ test("only bank transactions of switched-off accounts are hidden", () => {
     ["2", "3", "4"],
   );
   assert.equal(withoutHiddenAccounts(txs, new Set()), txs, "no copy when nothing is hidden");
+});
+
+test("Reconnect is offered only for lost or expiring access, not for rate limits or one-off errors", () => {
+  const today = "2026-10-04";
+  assert.equal(needsReconnect({ status: "needs_reconnect", validUntil: "2027-01-01T00:00:00Z" }, today), true);
+  assert.equal(needsReconnect({ status: "active", validUntil: "2026-10-10T00:00:00Z" }, today), true, "expires within two weeks");
+  assert.equal(needsReconnect({ status: "active", validUntil: "2026-09-30T00:00:00Z" }, today), true, "already expired");
+  // A session with a lastError (e.g. a rate limit) but healthy access doesn't need one.
+  assert.equal(needsReconnect({ status: "active", validUntil: "2026-12-01T00:00:00Z" }, today), false);
+  assert.equal(needsReconnect({ status: "active", validUntil: null }, today), false);
 });
 
 test("the gap warning appears only after about 90 days", () => {
@@ -227,4 +234,52 @@ test("a reconnect keeps the switch; disconnecting shows hidden transactions agai
   assert.deepEqual(await reconcileBankAccounts(db), []);
   assert.notEqual(await dataVersion(db), before, "hidden rows coming back invalidates the snapshot");
   assert.ok((await visibleTransactions(db)).some((t) => t.account === "savings"));
+});
+
+test("rows created for a session synced before per-account progress existed start from its last sync", async () => {
+  const lastSync = new Date(Date.now() - 3 * DAY).toISOString();
+  const rows = await link("legacy", ["old"], lastSync);
+  assert.equal(rows.find((r) => r.account_key === "old")?.synced_through, lastSync);
+  const fresh = await link("fresh", ["new"], null);
+  assert.equal(fresh.find((r) => r.account_key === "new")?.synced_through, null);
+});
+
+test("after deleting all data, an account switched back on later re-imports its full history", async () => {
+  await link("s3", ["main", "savings"], new Date(Date.now() - DAY).toISOString());
+  const db = await getDb();
+  await run(db, "UPDATE bank_accounts SET included = 0 WHERE account_key = 'savings'");
+  // What "Delete all data" does to sync progress.
+  await db.batch(
+    ["DELETE FROM transactions", "UPDATE bank_sessions SET last_sync_at = NULL", "UPDATE bank_accounts SET synced_through = NULL"],
+    "write",
+  );
+  calls.length = 0;
+  await syncAll({ psu: { ipAddress: "1.1.1.1" } });
+  assert.deepEqual(fetchedUids(), ["uid-s3-main"]);
+  assert.ok((await one<{ last_sync_at: string | null }>(db, "SELECT last_sync_at FROM bank_sessions"))?.last_sync_at);
+
+  await run(db, "UPDATE bank_accounts SET included = 1 WHERE account_key = 'savings'");
+  calls.length = 0;
+  await syncAll({ psu: { ipAddress: "1.1.1.1" } });
+  const savings = calls.find((c) => c.url.pathname.includes("savings"));
+  assert.equal(savings?.url.searchParams.get("strategy"), "longest");
+  const main = calls.find((c) => c.url.pathname.includes("main"));
+  assert.equal(main?.url.searchParams.get("strategy"), null);
+});
+
+test("a CSV row matching a switched-off account's bank row is imported, not skipped as a duplicate", async () => {
+  const db = await getDb();
+  const tx = { date: "2026-07-15", amount_minor: -1299, currency: "EUR", description: "Gym", merchant_key: "gym", type: "CARD_PAYMENT" };
+  await run(db, "INSERT INTO bank_accounts (account_key, session_id, name, included) VALUES ('off', 'gone', 'Off', 0)");
+  await run(db, "INSERT INTO bank_accounts (account_key, session_id, name, included) VALUES ('on', 'gone', 'On', 1)");
+  await insertTransactions(db, [
+    { ...tx, id: "bank:off-gym", source: "bank", account: "off", state: "BOOKED" },
+    { ...tx, id: "bank:on-gym", source: "bank", account: "on", date: "2026-08-15", state: "BOOKED" },
+  ]);
+  const st = await insertTransactions(db, [
+    { ...tx, id: "csv:gym-jul", source: "csv", account: "Current", state: "COMPLETED" },
+    { ...tx, id: "csv:gym-aug", source: "csv", account: "Current", date: "2026-08-15", state: "COMPLETED" },
+  ]);
+  assert.deepEqual(st, { inserted: 1, updated: 0, skipped: 1 }, "only the copy of the visible account's row is skipped");
+  assert.ok((await visibleTransactions(db)).some((t) => t.id === "csv:gym-jul"));
 });
