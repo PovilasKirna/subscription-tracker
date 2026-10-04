@@ -3,17 +3,18 @@
 import { useMutation, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { CircleAlertIcon, LandmarkIcon, Link2Icon, Loader2Icon, RefreshCwIcon, UnlinkIcon } from "lucide-react";
 import { useQueryStates } from "nuqs";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { daysUntil, fullDate } from "@/lib/format";
-import { useInvalidateAll } from "@/lib/query/mutations";
+import { useInvalidateAll, useResetAll } from "@/lib/query/mutations";
 import { api, statusQuery } from "@/lib/query/options";
 import { dataParams } from "@/lib/search-params";
 import type { BankSession } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { SYNC_TOAST_ID } from "./SyncWatcher";
 
 const COUNTRIES = {
   LT: "Lithuania",
@@ -53,9 +54,10 @@ function useConnect() {
 }
 
 export function BankCard() {
-  // While the first full-history sync runs in the background, poll until it finishes.
-  const { data } = useSuspenseQuery({ ...statusQuery(), refetchInterval: (q) => (q.state.data?.syncing ? 1500 : false) });
+  // Background syncs are polled and announced app-wide by <SyncWatcher />.
+  const { data } = useSuspenseQuery(statusQuery());
   const invalidate = useInvalidateAll();
+  const resetAll = useResetAll();
   const [{ bank, reason }, setParams] = useQueryStates(dataParams);
   const [country, setCountry] = useState<Country>("LT");
   const [aspsp, setAspsp] = useState<string | null>(null);
@@ -67,16 +69,6 @@ export function BankCard() {
     if (bank === "error") toast.error("Couldn't connect the bank", { description: reason ?? undefined });
     if (bank) void setParams({ bank: null, reason: null });
   }, [bank, reason, setParams]);
-
-  // When a background sync finishes, refresh every view that depends on transactions.
-  const wasSyncing = useRef(data.syncing);
-  useEffect(() => {
-    if (wasSyncing.current && !data.syncing) {
-      toast.success("Sync finished");
-      void invalidate();
-    }
-    wasSyncing.current = data.syncing;
-  }, [data.syncing, invalidate]);
 
   const banks = useQuery({
     queryKey: ["aspsps", country],
@@ -91,9 +83,9 @@ export function BankCard() {
   const sync = useMutation({
     mutationFn: () => api<SyncResult>("/api/bank/sync", { method: "POST" }),
     onSuccess: (s) => {
-      if (s.errors.length) toast.warning("Sync finished with problems", { description: s.errors.join("\n") });
-      else toast.success(s.inserted ? `${s.inserted} new transactions` : "Already up to date");
-      void invalidate();
+      if (s.errors.length) toast.warning("Sync finished with problems", { id: SYNC_TOAST_ID, description: s.errors.join("\n") });
+      else toast.success(s.inserted ? `${s.inserted} new transactions` : "Already up to date", { id: SYNC_TOAST_ID });
+      void resetAll();
     },
     onError: (e) => toast.error(e.message),
   });
