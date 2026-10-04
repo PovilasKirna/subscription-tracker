@@ -267,19 +267,21 @@ test("after deleting all data, an account switched back on later re-imports its 
   assert.equal(main?.url.searchParams.get("strategy"), null);
 });
 
-test("a CSV row matching a switched-off account's bank row is imported, not skipped as a duplicate", async () => {
+test("a CSV copy of a switched-off account's bank row is skipped, so re-including it shows the payment once", async () => {
   const db = await getDb();
   const tx = { date: "2026-07-15", amount_minor: -1299, currency: "EUR", description: "Gym", merchant_key: "gym", type: "CARD_PAYMENT" };
   await run(db, "INSERT INTO bank_accounts (account_key, session_id, name, included) VALUES ('off', 'gone', 'Off', 0)");
-  await run(db, "INSERT INTO bank_accounts (account_key, session_id, name, included) VALUES ('on', 'gone', 'On', 1)");
-  await insertTransactions(db, [
-    { ...tx, id: "bank:off-gym", source: "bank", account: "off", state: "BOOKED" },
-    { ...tx, id: "bank:on-gym", source: "bank", account: "on", date: "2026-08-15", state: "BOOKED" },
-  ]);
-  const st = await insertTransactions(db, [
-    { ...tx, id: "csv:gym-jul", source: "csv", account: "Current", state: "COMPLETED" },
-    { ...tx, id: "csv:gym-aug", source: "csv", account: "Current", date: "2026-08-15", state: "COMPLETED" },
-  ]);
-  assert.deepEqual(st, { inserted: 1, updated: 0, skipped: 1 }, "only the copy of the visible account's row is skipped");
-  assert.ok((await visibleTransactions(db)).some((t) => t.id === "csv:gym-jul"));
+  await insertTransactions(db, [{ ...tx, id: "bank:off-gym", source: "bank", account: "off", state: "BOOKED" }]);
+  const st = await insertTransactions(db, [{ ...tx, id: "csv:gym-jul", source: "csv", account: "Current", state: "COMPLETED" }]);
+  assert.deepEqual(st, { inserted: 0, updated: 0, skipped: 1 }, "the hidden bank row still counts as the existing copy");
+  const gym = async () => (await visibleTransactions(db)).filter((t) => t.merchant_key === "gym" && t.date === tx.date);
+  assert.equal((await gym()).length, 0, "hidden while the account is switched off");
+
+  // Switching the account back on only flips `included`.
+  await run(db, "UPDATE bank_accounts SET included = 1 WHERE account_key = 'off'");
+  assert.deepEqual(
+    (await gym()).map((t) => t.id),
+    ["bank:off-gym"],
+    "the payment appears exactly once",
+  );
 });

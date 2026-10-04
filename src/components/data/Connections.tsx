@@ -70,6 +70,7 @@ const TONE_COLOR: Record<ConnectionTone, string> = {
 };
 
 const plural = (n: number, word: string) => `${n.toLocaleString("en-GB")} ${word}${n === 1 ? "" : "s"}`;
+const accountCount = (n: number) => (n === 0 ? "No accounts" : plural(n, "account"));
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** Sends the browser to the bank's consent page (then back to /api/bank/callback). */
@@ -191,7 +192,7 @@ function ConnectionTile({ session: s, onOpen }: { session: BankSession; onOpen: 
           {/* "x min ago" can tick over between server render and hydration. */}
           <div suppressHydrationWarning>{s.lastSyncAt ? `Synced ${timeAgo(s.lastSyncAt)}` : "Not synced yet"}</div>
           {s.validUntil && <div>Access until {fullDate(s.validUntil.slice(0, 10))}</div>}
-          {s.accounts.length > 1 && <div>{plural(s.accounts.length, "account")}</div>}
+          <div>{accountCount(s.accounts.length)}</div>
         </div>
       </div>
       <ChevronRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
@@ -383,7 +384,9 @@ function ConnectionDetail({ session: s, onDisconnected }: { session: BankSession
         </div>
 
         <section className="flex flex-col gap-2">
-          <h3 className="text-sm font-semibold">Accounts</h3>
+          <h3 className="flex items-baseline justify-between gap-2 text-sm font-semibold">
+            Accounts <span className="text-xs font-normal text-muted-foreground">{accountCount(s.accounts.length)}</span>
+          </h3>
           {s.accounts.length === 0 ? (
             <p className="text-sm text-muted-foreground">The bank didn't share any accounts with this connection.</p>
           ) : (
@@ -505,8 +508,8 @@ function DisconnectButton({ session: s, onDone }: { session: BankSession; onDone
         <AlertDialogHeader>
           <AlertDialogTitle>Disconnect {s.aspsp}?</AlertDialogTitle>
           <AlertDialogDescription>
-            Syncing stops and the bank's access is revoked. Your {plural(s.transactionCount, "imported transaction")} stay. You can
-            reconnect anytime.
+            Syncing stops and the bank's access is revoked. Your {plural(s.transactionCount, "imported transaction")}{" "}
+            {s.transactionCount === 1 ? "stays" : "stay"}. You can reconnect anytime.
             {excluded > 0 &&
               ` Transactions from the ${excluded === 1 ? "account" : `${excluded} accounts`} you switched off will show again.`}
           </AlertDialogDescription>
