@@ -154,13 +154,20 @@ export function useDeleteSource() {
   });
 }
 
+const SAVE_SETTINGS = ["saveSettings"] as const;
+
 /**
- * Change preferences (any subset). Applied to the cache at once so switches feel instant, rolled
- * back if the server refuses.
+ * Change preferences (any subset). Applied to the cache at once so switches feel instant. Saves can
+ * overlap (two quick toggles) and finish in any order, so no single response is written to the
+ * cache: a slow earlier one would undo a newer change. Instead the last save to settle refetches
+ * the settings, so the cache ends up as the server has them.
  */
 export function useSaveSettings() {
   const qc = useQueryClient();
+  // Still counts the settling mutation itself (callbacks run before it leaves "pending").
+  const othersInFlight = () => qc.isMutating({ mutationKey: SAVE_SETTINGS }) > 1;
   return useMutation({
+    mutationKey: SAVE_SETTINGS,
     mutationFn: (patch: SettingsPatch) => api<Settings>("/api/settings", { method: "PUT", body: JSON.stringify(patch) }),
     onMutate: async (patch) => {
       await qc.cancelQueries({ queryKey: keys.settings });
@@ -175,10 +182,15 @@ export function useSaveSettings() {
       return { previous };
     },
     onError: (e, _patch, ctx) => {
-      if (ctx?.previous) qc.setQueryData(keys.settings, ctx.previous);
+      // Roll back only when nothing newer is in flight; otherwise the refetch below sorts it out
+      // without wiping the other save's optimistic change.
+      if (ctx?.previous && !othersInFlight()) qc.setQueryData(keys.settings, ctx.previous);
       toast.error("Couldn't save the setting", { description: e.message });
     },
-    onSuccess: (settings) => qc.setQueryData(keys.settings, settings),
+    onSettled: () => {
+      // A refetch while another save is pending would briefly show its change as undone.
+      if (!othersInFlight()) void qc.invalidateQueries({ queryKey: keys.settings });
+    },
   });
 }
 

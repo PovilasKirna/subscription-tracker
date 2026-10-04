@@ -18,7 +18,7 @@ import { processNotifications } from "../lib/server/notifications/run";
 import { recordTick, schedulerHealth } from "../lib/server/notifications/scheduler";
 import { getSettings, getState, saveSettings, swapState } from "../lib/server/settings";
 import { DEFAULT_SETTINGS, parseSettingsPatch, type Settings, settingsFromStore } from "../lib/settings";
-import { isValidTimeZone, zonedParts } from "../lib/timeZone";
+import { isValidTimeZone, lastMonthlyDate, zonedParts } from "../lib/timeZone";
 import type { Subscription } from "../lib/types";
 
 // --- fixtures -----------------------------------------------------------------------------------
@@ -200,6 +200,53 @@ test("reimbursement reminder: only request sources with pending charges, one key
   assert.match(r.body, /Claude, Gym/);
   // Next month's reminder has its own key.
   assert.equal(planNotifications(two, settings(), at("2026-11-20T12:00:00Z"))[0].dedupeKey, "reimburse:1:2026-11");
+});
+
+test("lastMonthlyDate: the latest such day on or before today, across month and year ends", () => {
+  assert.equal(lastMonthlyDate("2026-10-20", 20), "2026-10-20");
+  assert.equal(lastMonthlyDate("2026-10-19", 20), "2026-09-20");
+  assert.equal(lastMonthlyDate("2027-03-01", 28), "2027-02-28");
+  assert.equal(lastMonthlyDate("2028-03-01", 28), "2028-02-28");
+  assert.equal(lastMonthlyDate("2028-03-01", 30), "2028-02-29");
+  assert.equal(lastMonthlyDate("2026-10-01", 31), "2026-09-30");
+  assert.equal(lastMonthlyDate("2027-01-01", 31), "2026-12-31");
+  assert.equal(lastMonthlyDate("2027-01-01", 1), "2027-01-01");
+});
+
+test("reimbursement reminder: catch-up crosses month and year ends, keyed by the reminder's month", () => {
+  const on = (day: number, over: Partial<NotificationSnapshot> = {}) =>
+    snapshot({
+      sources: [{ id: 1, name: "Salary", mode: "request", reminderDay: day }],
+      pendingCharges: [charge("t1", "2026-09-03")],
+      ...over,
+    });
+  const plan = (s: NotificationSnapshot, now: string) => keys(planNotifications(s, settings(), at(now)));
+
+  // 28 Feb 2027 (not a leap year): caught up on 1 and 2 March, under February's key.
+  assert.deepEqual(plan(on(28), "2027-02-28T12:00:00Z"), ["reimburse:1:2027-02"]);
+  assert.deepEqual(plan(on(28), "2027-03-01T12:00:00Z"), ["reimburse:1:2027-02"]);
+  assert.deepEqual(plan(on(28), "2027-03-02T12:00:00Z"), ["reimburse:1:2027-02"]);
+  assert.deepEqual(plan(on(28), "2027-03-03T12:00:00Z"), []);
+  // The delivery-hour rule still holds on a catch-up day across the month end: 1 Mar 04:00 Vilnius.
+  assert.deepEqual(plan(on(28), "2027-03-01T02:00:00Z"), ["reimburse:1:2027-02"]);
+  assert.deepEqual(plan(on(28, { lastRunAt: "2027-02-28T10:00:00Z" }), "2027-03-01T02:00:00Z"), []);
+  assert.deepEqual(plan(on(28, { lastRunAt: "2027-02-28T05:00:00Z" }), "2027-03-01T02:00:00Z"), ["reimburse:1:2027-02"]);
+  // March's own reminder gets its own key, so the catch-up didn't use it up.
+  assert.deepEqual(plan(on(28), "2027-03-28T12:00:00Z"), ["reimburse:1:2027-03"]);
+
+  // 2028 is a leap year: 29 Feb and 1 Mar are the catch-up days, 2 Mar is too late.
+  assert.deepEqual(plan(on(28), "2028-02-29T12:00:00Z"), ["reimburse:1:2028-02"]);
+  assert.deepEqual(plan(on(28), "2028-03-01T12:00:00Z"), ["reimburse:1:2028-02"]);
+  assert.deepEqual(plan(on(28), "2028-03-02T12:00:00Z"), []);
+
+  // Day 28 in a 30-day month: the 29th and 30th catch up; the 1st is too late and not October's.
+  assert.deepEqual(plan(on(28), "2026-09-30T12:00:00Z"), ["reimburse:1:2026-09"]);
+  assert.deepEqual(plan(on(28), "2026-10-01T12:00:00Z"), []);
+
+  // 31 Dec into the new year: still December's reminder.
+  assert.deepEqual(plan(on(31), "2027-01-01T12:00:00Z"), ["reimburse:1:2026-12"]);
+  assert.deepEqual(plan(on(31), "2027-01-02T12:00:00Z"), ["reimburse:1:2026-12"]);
+  assert.deepEqual(plan(on(31), "2027-01-03T12:00:00Z"), []);
 });
 
 test("planning is idempotent: same snapshot and time, same candidates", () => {
@@ -420,6 +467,29 @@ test("digestDue: weekly on Mondays, monthly on the 1st, from the delivery hour, 
     periodEnd: "2027-01-01",
   });
   assert.equal(digestDue(settings({ digestFrequency: "off" }), at("2026-10-05T06:00:00Z"), null), null);
+});
+
+test("digestDue: periods and catch-up days across month and year ends", () => {
+  const weekly = settings();
+  // Week starting Monday 30 Nov, caught up on Wednesday 2 Dec.
+  assert.deepEqual(digestDue(weekly, at("2026-12-02T12:00:00Z"), "weekly:2026-11-23"), {
+    key: "weekly:2026-11-30",
+    frequency: "weekly",
+    periodStart: "2026-11-30",
+    periodEnd: "2026-12-07",
+  });
+  // Week starting Monday 31 Dec 2029, caught up on 2 Jan 2030.
+  assert.equal(digestDue(weekly, at("2030-01-02T12:00:00Z"), "weekly:2029-12-24")?.periodEnd, "2030-01-07");
+  assert.equal(digestDue(weekly, at("2030-01-02T12:00:00Z"), "weekly:2029-12-24")?.key, "weekly:2029-12-31");
+
+  const monthly = settings({ digestFrequency: "monthly" });
+  // 1 Jan, caught up on the 3rd (before the delivery hour: no run looked since), not the 4th.
+  assert.equal(digestDue(monthly, at("2027-01-03T02:00:00Z"), "monthly:2026-12-01")?.key, "monthly:2027-01-01");
+  assert.equal(digestDue(monthly, at("2027-01-03T02:00:00Z"), "monthly:2026-12-01")?.periodEnd, "2027-02-01");
+  assert.equal(digestDue(monthly, at("2027-01-04T12:00:00Z"), "monthly:2026-12-01"), null);
+  // After a short February: March's digest, not a late February one.
+  assert.equal(digestDue(monthly, at("2027-03-02T12:00:00Z"), "monthly:2027-02-01")?.key, "monthly:2027-03-01");
+  assert.equal(digestDue(monthly, at("2027-02-28T12:00:00Z"), "monthly:2027-01-01"), null);
 });
 
 test("digestDue: a catch-up day before the delivery hour only when no run looked after it", () => {

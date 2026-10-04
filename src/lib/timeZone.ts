@@ -84,5 +84,24 @@ export const addDays = (date: string, days: number) => new Date(Date.parse(`${da
 export const daysBetween = (from: string, to: string) =>
   Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY);
 
+/** Days in the month of a YYYY-MM-DD (or YYYY-MM) date. */
+export const daysInMonth = (date: string) => {
+  const [y, m] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+};
+
+/**
+ * The latest date on or before `today` that falls on `day` of its month (clamped to the month's
+ * last day, so the 31st is the 30th in a 30-day month). Spans month and year ends: for day 28 and
+ * today 1 Mar it is 28 Feb.
+ */
+export function lastMonthlyDate(today: string, day: number): string {
+  const month = today.slice(0, 7);
+  const thisMonth = `${month}-${String(Math.min(day, daysInMonth(month))).padStart(2, "0")}`;
+  if (thisMonth <= today) return thisMonth;
+  const prev = addDays(`${month}-01`, -1).slice(0, 7);
+  return `${prev}-${String(Math.min(day, daysInMonth(prev))).padStart(2, "0")}`;
+}
+
 /** "09:00" */
 export const hourLabel = (hour: number) => `${String(hour).padStart(2, "0")}:00`;
