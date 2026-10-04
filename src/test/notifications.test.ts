@@ -82,6 +82,7 @@ function snapshot(over: Partial<NotificationSnapshot> = {}): NotificationSnapsho
     ],
     bankSessions: [],
     knownSubscriptions: new Set(),
+    lastRunAt: null,
     ...over,
   };
 }
@@ -169,6 +170,21 @@ test("reimbursement reminder: catches up for two days after a missed reminder da
   assert.equal(planNotifications(s, settings(), at("2026-10-21T02:00:00Z")).length, 1);
   assert.equal(planNotifications(s, settings(), at("2026-10-22T02:00:00Z")).length, 1);
   assert.deepEqual(planNotifications(s, settings(), at("2026-10-23T12:00:00Z")), []);
+});
+
+test("reimbursement reminder: catch-up days stay quiet before the delivery hour when a run already looked", () => {
+  const s = (lastRunAt: string | null) => snapshot({ pendingCharges: pending, lastRunAt });
+  const night = at("2026-10-21T00:00:00Z"); // 21 Oct 03:00 Vilnius
+  // Hourly runs went through the 20th after 09:00 (nothing was pending then, say): a charge that
+  // turns up in the night waits for the delivery hour…
+  assert.deepEqual(planNotifications(s("2026-10-20T20:00:00Z"), settings(), night), []);
+  assert.equal(planNotifications(s("2026-10-20T20:00:00Z"), settings(), at("2026-10-21T06:00:00Z")).length, 1);
+  // …but a run that only happened before the delivery hour (a daily cron at 08:00) missed it.
+  assert.equal(planNotifications(s("2026-10-20T05:00:00Z"), settings(), night).length, 1);
+  assert.equal(planNotifications(s("2026-10-19T12:00:00Z"), settings(), night).length, 1);
+  assert.equal(planNotifications(s(null), settings(), night).length, 1);
+  // Missed on the 20th, looked at on the 21st after 09:00: the 22nd's night is quiet again.
+  assert.deepEqual(planNotifications(s("2026-10-21T07:00:00Z"), settings(), at("2026-10-22T00:00:00Z")), []);
 });
 
 test("reimbursement reminder: only request sources with pending charges, one key per month", () => {
@@ -288,14 +304,35 @@ test("yearly renewal: 7 days ahead for yearly subscriptions only", () => {
   assert.deepEqual(plan("2026-10-20T12:00:00Z", [sub({ key: "spotify|EUR", nextCharge: "2026-10-25" })]), []);
 });
 
+const fresh = { firstCharge: "2026-08-15", lastCharge: "2026-10-15", nextCharge: "2026-11-15", chargeCount: 3 };
+
 test("new subscription: only ones not seen before, never during the baseline", () => {
   const now = at("2026-10-20T12:00:00Z");
-  const subs = [sub({ key: "a|EUR", name: "Alpha" }), sub({ key: "b|EUR", name: "Beta" }), sub({ key: "c|EUR", status: "inactive" })];
+  const subs = [
+    sub({ key: "a|EUR", name: "Alpha", ...fresh }),
+    sub({ key: "b|EUR", name: "Beta", ...fresh }),
+    sub({ key: "c|EUR", status: "inactive", ...fresh }),
+  ];
   assert.deepEqual(keys(planNotifications(snapshot({ subscriptions: subs, knownSubscriptions: null }), settings(), now)), []);
   const r = planNotifications(snapshot({ subscriptions: subs, knownSubscriptions: new Set(["a|EUR"]) }), settings(), now);
   assert.deepEqual(keys(r), ["new:b|EUR"]);
   assert.equal(r[0].title, "New subscription: Beta");
-  assert.equal(r[0].body, "€10.00 monthly, first charged 5 Jan 2026.");
+  assert.equal(r[0].body, "€10.00 monthly, first charged 15 Aug 2026.");
+});
+
+test("new subscription: history imported later (long, or old) is not announced", () => {
+  const now = at("2026-10-20T12:00:00Z");
+  const plan = (s: Subscription) =>
+    planNotifications(snapshot({ subscriptions: [s], knownSubscriptions: new Set(["a|EUR"]) }), settings(), now);
+  // Another account's CSV with years of history.
+  assert.deepEqual(plan(sub({ key: "gym|EUR", firstCharge: "2023-01-10", lastCharge: "2026-10-10", chargeCount: 46 })), []);
+  // An older statement: the subscription ended long ago (or its latest charge is old).
+  assert.deepEqual(plan(sub({ key: "hbo|EUR", firstCharge: "2025-01-10", lastCharge: "2025-03-10", chargeCount: 3 })), []);
+  // A yearly one that just renewed for the second time is new.
+  assert.equal(
+    plan(sub({ key: "vpn|EUR", cadence: "yearly", firstCharge: "2025-10-01", lastCharge: "2026-10-01", chargeCount: 2 })).length,
+    1,
+  );
 });
 
 test("subscription overdue: late subscriptions, silent in the baseline, not once long overdue", () => {
@@ -385,6 +422,15 @@ test("digestDue: weekly on Mondays, monthly on the 1st, from the delivery hour, 
   assert.equal(digestDue(settings({ digestFrequency: "off" }), at("2026-10-05T06:00:00Z"), null), null);
 });
 
+test("digestDue: a catch-up day before the delivery hour only when no run looked after it", () => {
+  const tuesdayNight = at("2026-10-06T00:00:00Z"); // Tue 03:00 Vilnius
+  // Hourly runs on Monday after 09:00 (the digest was off, or email not set up): wait for 09:00.
+  assert.equal(digestDue(settings(), tuesdayNight, "weekly:2026-09-28", "2026-10-05T20:00:00Z"), null);
+  assert.equal(digestDue(settings(), at("2026-10-06T06:00:00Z"), "weekly:2026-09-28", "2026-10-05T20:00:00Z")?.key, "weekly:2026-10-05");
+  // Only a daily cron before the delivery hour ran on Monday: catch up now.
+  assert.equal(digestDue(settings(), tuesdayNight, "weekly:2026-09-28", "2026-10-05T05:00:00Z")?.key, "weekly:2026-10-05");
+});
+
 test("buildDigest: totals, renewals in the coming period and outstanding reimbursements", () => {
   const subs = [
     sub({ key: "netflix|EUR", name: "Netflix", amount: 15, monthlyCost: 15, netMonthlyCost: 15, nextCharge: "2026-10-08" }),
@@ -436,7 +482,10 @@ const dir = mkdtempSync(join(tmpdir(), "st-notify-"));
 const db = await openDb(`file:${join(dir, "n.db").replaceAll("\\", "/")}`);
 
 type Sent = { kind: string; n: OutgoingNotification };
-function fakeChannels(log: Sent[], opts: { failPush?: boolean; digests?: DigestInput[] } = {}): NotificationChannel[] {
+function fakeChannels(
+  log: Sent[],
+  opts: { failPush?: boolean; failDigest?: boolean; digests?: DigestInput[] } = {},
+): NotificationChannel[] {
   return [
     {
       kind: "push",
@@ -453,6 +502,7 @@ function fakeChannels(log: Sent[], opts: { failPush?: boolean; digests?: DigestI
         log.push({ kind: "email", n });
       },
       sendDigest: async (d) => {
+        if (opts.failDigest) throw new Error("mail provider rejected the sender");
         opts.digests?.push(d);
       },
     },
@@ -472,6 +522,16 @@ test("settings store: saves only what changed and merges per-type preferences", 
   assert.equal(await swapState(db, "state.test", null, { a: 2 }), false);
   assert.equal(await swapState(db, "state.test", { a: 1 }, { a: 3 }), true);
   assert.deepEqual(await getState(db, "state.test"), { a: 3 });
+  // Giving a claim back to "missing" deletes the key, so expecting null works again afterwards.
+  assert.equal(await swapState(db, "state.test", { a: 2 }, null), false);
+  assert.equal(await swapState(db, "state.test", { a: 3 }, null), true);
+  assert.equal(await one(db, "SELECT value FROM settings WHERE key = 'state.test'"), undefined);
+  assert.equal(await swapState(db, "state.test", null, { a: 4 }), true);
+  // A stored JSON null (written by an older version) also counts as missing.
+  await run(db, "UPDATE settings SET value = 'null' WHERE key = 'state.test'");
+  assert.equal(await swapState(db, "state.test", null, { a: 5 }), true);
+  assert.deepEqual(await getState(db, "state.test"), { a: 5 });
+  await run(db, "DELETE FROM settings WHERE key = 'state.test'");
 });
 
 test("runner: baseline is silent, then new events are stored once, delivered per preference, resolved and cleaned up", async () => {
@@ -511,7 +571,7 @@ test("runner: baseline is silent, then new events are stored once, delivered per
   assert.equal(log.length, 0);
 
   // Reminder day (09:00 Vilnius) plus a brand-new subscription.
-  const spotify = sub({ key: "spotify|EUR", name: "Spotify" });
+  const spotify = sub({ key: "spotify|EUR", name: "Spotify", ...fresh });
   r = await processNotifications(db, {
     ...(await input("2026-10-20T06:00:00Z", { subscriptions: [...base.subscriptions, spotify] })),
     channels: fakeChannels(log),
@@ -588,4 +648,35 @@ test("runner: a failed delivery is retried by the next run; the digest goes out 
     rows.map((x) => x.type),
     ["bank_attention"],
   );
+});
+
+test("runner: a failed first digest gives its slot back, so the next run sends it", async () => {
+  await run(db, "DELETE FROM notifications");
+  await run(db, "DELETE FROM settings");
+  const digests: DigestInput[] = [];
+  const input = (now: string) => ({
+    snapshot: snapshot({ subscriptions: [sub({ key: "a|EUR" })], knownSubscriptions: new Set(["a|EUR"]) }),
+    settings: settings({ emailRecipient: "me@example.com" }),
+    now: at(now),
+    baseCurrency: "EUR",
+  });
+  let r = await processNotifications(db, { ...input("2026-10-05T06:00:00Z"), channels: fakeChannels([], { failDigest: true, digests }) });
+  assert.equal(r.digest, null);
+  assert.equal(await getState(db, "state.lastDigest"), null);
+  assert.equal(await one(db, "SELECT value FROM settings WHERE key = 'state.lastDigest'"), undefined);
+  // Fails again: still retried.
+  r = await processNotifications(db, { ...input("2026-10-05T07:00:00Z"), channels: fakeChannels([], { failDigest: true, digests }) });
+  assert.equal(r.digest, null);
+  r = await processNotifications(db, { ...input("2026-10-05T08:00:00Z"), channels: fakeChannels([], { digests }) });
+  assert.equal(r.digest, "weekly:2026-10-05");
+  assert.equal(digests.length, 1);
+  assert.equal((await getState<{ key: string }>(db, "state.lastDigest"))?.key, "weekly:2026-10-05");
+  // A later failure gives back the previous slot, not "missing": that period is still sent once.
+  r = await processNotifications(db, { ...input("2026-10-12T06:00:00Z"), channels: fakeChannels([], { failDigest: true, digests }) });
+  assert.equal((await getState<{ key: string }>(db, "state.lastDigest"))?.key, "weekly:2026-10-05");
+  r = await processNotifications(db, { ...input("2026-10-12T07:00:00Z"), channels: fakeChannels([], { digests }) });
+  assert.equal(r.digest, "weekly:2026-10-12");
+  assert.equal(digests.length, 2);
+  // Every run notes when it happened, for the catch-up rule.
+  assert.equal(await getState(db, "state.lastRun"), "2026-10-12T07:00:00.000Z");
 });

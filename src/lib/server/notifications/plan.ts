@@ -47,6 +47,8 @@ export type NotificationSnapshot = {
    * null before the first run that found any: that run is the silent baseline.
    */
   knownSubscriptions: ReadonlySet<string> | null;
+  /** When notifications last ran before this run (ISO), so a missed reminder or digest can be told from one already looked at. */
+  lastRunAt: string | null;
 };
 
 /** What the feed and the delivery channels need besides title/body; stored as `data_json`. */
@@ -81,6 +83,9 @@ export type NotificationCandidate = {
 
 /** A reminder or digest missed (e.g. only a daily cron that runs before the delivery hour) still goes out this many days later. */
 export const CATCH_UP_DAYS = 2;
+/** A subscription not seen before is announced only if it just started: a recent latest charge and a short history. */
+export const NEW_SUBSCRIPTION_WINDOW_DAYS = 35;
+export const NEW_SUBSCRIPTION_MAX_CHARGES = 5;
 export const RENEWAL_NOTICE_DAYS = 7;
 export const BANK_EXPIRY_NOTICE_DAYS = 7;
 /** Older price changes / missed charges aren't news any more (and stay below the 90-day retention). */
@@ -104,6 +109,22 @@ function fingerprint(s: string): string {
   return (h >>> 0).toString(36);
 }
 
+/**
+ * Whether something scheduled for `scheduledDate` at the delivery hour (`lateBy` days ago, at most
+ * CATCH_UP_DAYS) may go out now. From the delivery hour, yes. Before it, only on a catch-up day and
+ * only if no run happened since the scheduled moment: a run then has already looked, so anything
+ * that turns up later waits for the delivery hour instead of arriving in the night.
+ */
+function dueNow(local: { hour: number }, lateBy: number, scheduledDate: string, settings: Settings, lastRunAt: string | null): boolean {
+  if (lateBy < 0 || lateBy > CATCH_UP_DAYS) return false;
+  if (local.hour >= settings.deliveryHour) return true;
+  if (lateBy === 0) return false;
+  if (!lastRunAt || !Number.isFinite(Date.parse(lastRunAt))) return true;
+  const last = zonedParts(new Date(lastRunAt), settings.timeZone);
+  const ranSince = last.date > scheduledDate || (last.date === scheduledDate && last.hour >= settings.deliveryHour);
+  return !ranSince;
+}
+
 function reimbursementReminders(snapshot: NotificationSnapshot, settings: Settings, now: Date): NotificationCandidate[] {
   const local = zonedParts(now, settings.timeZone);
   const out: NotificationCandidate[] = [];
@@ -111,7 +132,7 @@ function reimbursementReminders(snapshot: NotificationSnapshot, settings: Settin
     if (source.mode !== "request" || !source.reminderDay) continue;
     const lateBy = local.day - source.reminderDay;
     // On the reminder day from the delivery hour, or a couple of days later if no run happened then.
-    if (lateBy < 0 || lateBy > CATCH_UP_DAYS || (lateBy === 0 && local.hour < settings.deliveryHour)) continue;
+    if (!dueNow(local, lateBy, addDays(local.date, -lateBy), settings, snapshot.lastRunAt)) continue;
     const charges = snapshot.pendingCharges
       .filter((c) => c.sourceId === source.id && c.date <= local.date)
       .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
@@ -183,7 +204,10 @@ function subscriptionEvents(snapshot: NotificationSnapshot, settings: Settings, 
     const m = (n: number) => money(n, s.currency);
     const url = subUrl(s.key);
 
-    if (snapshot.knownSubscriptions && !snapshot.knownSubscriptions.has(s.key)) {
+    // Not seen before and just started. A long or old history (another account's CSV, an older
+    // statement imported later) is existing history, not news, so it joins the known set silently.
+    const started = s.lastCharge >= addDays(today, -NEW_SUBSCRIPTION_WINDOW_DAYS) && s.chargeCount <= NEW_SUBSCRIPTION_MAX_CHARGES;
+    if (snapshot.knownSubscriptions && !snapshot.knownSubscriptions.has(s.key) && started) {
       out.push({
         dedupeKey: `new:${s.key}`,
         type: "new_subscription",
@@ -306,15 +330,15 @@ export type DigestSlot = { key: string; frequency: "weekly" | "monthly"; periodS
 /**
  * The digest that should go out now, if any: weekly on Mondays, monthly on the 1st, from the
  * delivery hour (or a couple of days later when no run happened then). `lastKey` is the slot sent
- * last, so each period gets one digest.
+ * last, so each period gets one digest; `lastRunAt` is the previous run (see NotificationSnapshot).
  */
-export function digestDue(settings: Settings, now: Date, lastKey: string | null): DigestSlot | null {
+export function digestDue(settings: Settings, now: Date, lastKey: string | null, lastRunAt: string | null = null): DigestSlot | null {
   if (settings.digestFrequency === "off") return null;
   const local = zonedParts(now, settings.timeZone);
   const weekly = settings.digestFrequency === "weekly";
   const lateBy = weekly ? local.weekday - 1 : local.day - 1;
-  if (lateBy > CATCH_UP_DAYS || (lateBy === 0 && local.hour < settings.deliveryHour)) return null;
   const periodStart = addDays(local.date, -lateBy);
+  if (!dueNow(local, lateBy, periodStart, settings, lastRunAt)) return null;
   const [y, mo] = periodStart.split("-").map(Number);
   const periodEnd = weekly ? addDays(periodStart, 7) : mo === 12 ? `${y + 1}-01-01` : `${y}-${String(mo + 1).padStart(2, "0")}-01`;
   const key = `${settings.digestFrequency}:${periodStart}`;

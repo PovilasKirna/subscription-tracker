@@ -58,7 +58,7 @@ type LastDigest = { key: string; at: string };
 
 /** Everything the planner looks at, read from the database. */
 export async function loadSnapshot(db: Db): Promise<NotificationSnapshot> {
-  const [{ det, txs, reimbursedTx, reimbursement }, sessions, known] = await Promise.all([
+  const [{ det, txs, reimbursedTx, reimbursement }, sessions, known, lastRunAt] = await Promise.all([
     detection(),
     all<{
       session_id: string;
@@ -70,6 +70,7 @@ export async function loadSnapshot(db: Db): Promise<NotificationSnapshot> {
       next_retry_at: string | null;
     }>(db, "SELECT session_id, aspsp_name, status, valid_until, last_error, last_sync_at, next_retry_at FROM bank_sessions"),
     getState<string[]>(db, "state.knownSubscriptions"),
+    getState<string>(db, "state.lastRun"),
   ]);
   const subs = new Map(det.subscriptions.map((s) => [s.key, s]));
   const txById = new Map(txs.map((t) => [t.id, t]));
@@ -104,6 +105,7 @@ export async function loadSnapshot(db: Db): Promise<NotificationSnapshot> {
       nextRetryAt: s.next_retry_at,
     })),
     knownSubscriptions: Array.isArray(known) ? new Set(known) : null,
+    lastRunAt: typeof lastRunAt === "string" ? lastRunAt : null,
   };
 }
 
@@ -232,7 +234,7 @@ export async function processNotifications(db: Db, { snapshot, settings, now, ch
   // 4. The digest, handed to the email channel (nothing to send it with otherwise).
   const digester = email.find((c) => c.sendDigest);
   const last = await getState<LastDigest>(db, "state.lastDigest");
-  const slot = digester ? digestDue(settings, now, last?.key ?? null) : null;
+  const slot = digester ? digestDue(settings, now, last?.key ?? null, snapshot.lastRunAt) : null;
   if (digester?.sendDigest && slot) {
     const since = last?.at ?? new Date(now.getTime() - (slot.frequency === "weekly" ? 7 : 31) * DAY).toISOString();
     const digestTypes = NOTIFICATION_TYPES.filter((t) => settings.notifications[t].email === "digest");
@@ -257,10 +259,13 @@ export async function processNotifications(db: Db, { snapshot, settings, now, ch
         }
       } catch (e) {
         console.error("[notifications] digest failed:", e);
-        await swapState(db, "state.lastDigest", mine, last); // give the slot back; the next run retries
+        await swapState(db, "state.lastDigest", mine, last); // give the slot back (null deletes it); the next run retries
       }
     }
   }
+
+  // Lets the next run tell a missed reminder/digest from one this run already looked at.
+  await setState(db, "state.lastRun", at);
 
   // 5. Retention.
   const del = await db.execute({

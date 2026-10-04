@@ -36,7 +36,8 @@ export function GeneralSettings() {
       <CardHeader>
         <CardTitle>Time & delivery</CardTitle>
         <CardDescription>
-          Reminder days, renewal dates and the weekly summary follow your calendar, and nothing arrives before the delivery hour.
+          Reminder days, renewal dates and the weekly summary follow your calendar. Reminders and summaries wait for the delivery hour; one
+          the scheduler missed follows at its next run.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">

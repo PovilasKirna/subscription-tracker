@@ -52,17 +52,24 @@ export async function setState(db: Db, key: `state.${string}`, value: unknown): 
 }
 
 /**
- * Sets `key` to `value` only if it currently holds `expected` (null = missing). True when this call
- * won, so two overlapping runs (say an hourly tick and a sync) can't both send the same digest.
+ * Sets `key` to `value` only if it currently holds `expected`. True when this call won, so two
+ * overlapping runs (say an hourly tick and a sync) can't both send the same digest. null stands for
+ * "missing" on both sides: expecting null matches a missing key (or a stored JSON null), and setting
+ * null deletes the key, so a claim can always be given back.
  */
 export async function swapState(db: Db, key: `state.${string}`, expected: unknown, value: unknown): Promise<boolean> {
-  const json = JSON.stringify(value);
+  const expectedJson = JSON.stringify(expected ?? null);
   const rs =
-    expected === null
-      ? await db.execute({ sql: "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", args: [key, json] })
-      : await db.execute({
-          sql: "UPDATE settings SET value = ?, updated_at = datetime('now') WHERE key = ? AND value = ?",
-          args: [json, key, JSON.stringify(expected)],
-        });
+    value === null || value === undefined
+      ? await db.execute({ sql: "DELETE FROM settings WHERE key = ? AND value = ?", args: [key, expectedJson] })
+      : expected === null || expected === undefined
+        ? await db.execute({
+            sql: "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at WHERE settings.value = 'null'",
+            args: [key, JSON.stringify(value)],
+          })
+        : await db.execute({
+            sql: "UPDATE settings SET value = ?, updated_at = datetime('now') WHERE key = ? AND value = ?",
+            args: [JSON.stringify(value), key, expectedJson],
+          });
   return rs.rowsAffected > 0;
 }
