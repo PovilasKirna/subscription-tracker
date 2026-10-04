@@ -163,18 +163,36 @@ export type AssignOptionsPayload = {
   related: RelatedTransaction[];
 };
 
+export type BankAccount = {
+  /** Stable across reconnects; what `transactions.account` holds for bank rows. */
+  key: string;
+  name: string | null;
+  /** Masked, e.g. "•••• 1234". */
+  iban: string | null;
+  currency: string | null;
+  /** Off = not fetched during sync and its transactions hidden everywhere (nothing is deleted). */
+  included: boolean;
+  /** ISO time of the last successful fetch of this account. */
+  syncedThrough: string | null;
+  transactionCount: number;
+};
+
 export type BankSession = {
   sessionId: string;
   aspsp: string;
   country: string;
   validUntil: string | null;
-  accounts: { uid: string; name: string | null; iban: string | null; currency: string | null }[];
+  accounts: BankAccount[];
+  /** Transactions imported from this connection's accounts (they stay after disconnecting). */
+  transactionCount: number;
   lastSyncAt: string | null;
   lastError: string | null;
   /** "needs_reconnect" when consent expired or was revoked in the Revolut app. */
   status: "active" | "needs_reconnect";
   /** After a bank rate limit, background sync resumes at this time. */
   nextRetryAt: string | null;
+  /** A sync of this connection is running right now. */
+  syncing: boolean;
 };
 
 export type DataStatusPayload = {
@@ -186,5 +204,7 @@ export type DataStatusPayload = {
   /** A bank sync is running right now (e.g. the first full-history sync after connecting). */
   syncing: boolean;
   sessions: BankSession[];
+  /** Of `transactionCount`, how many belong to accounts switched off (hidden, not deleted). */
+  hiddenTransactionCount: number;
   imports: { id: number; at: string; source: string; inserted: number; updated: number; skipped: number; message: string | null }[];
 };
