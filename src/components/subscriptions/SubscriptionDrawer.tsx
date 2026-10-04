@@ -61,7 +61,9 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
           {s ? (
             <div className="flex items-center gap-2">
               <ColorPicker subKey={subKey} name={s.name} slot={s.colorSlot} chosen={s.colorChosen} />
-              <EditableName subKey={subKey} name={s.name} />
+              <div className="min-w-0 flex-1">
+                <EditableName subKey={subKey} name={s.name} />
+              </div>
             </div>
           ) : (
             <DrawerTitle>Not a subscription anymore</DrawerTitle>
@@ -255,7 +257,7 @@ function ColorPicker({ subKey, name, slot, chosen }: { subKey: string; name: str
       <PopoverContent align="start" className="w-auto">
         <PopoverHeader>
           <PopoverTitle>Colour</PopoverTitle>
-          <PopoverDescription className="text-xs">Used for this subscription in every chart.</PopoverDescription>
+          <PopoverDescription className="text-xs">Marks this subscription in the table and its own chart series.</PopoverDescription>
         </PopoverHeader>
         <fieldset className="grid grid-cols-4 gap-1.5" aria-label="Preset colours">
           {PRESET_COLORS.map((c) => {

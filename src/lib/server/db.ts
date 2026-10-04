@@ -285,6 +285,22 @@ export async function allExclusions(db: Db): Promise<Set<string>> {
   return new Set((await all<{ tx_id: string }>(db, "SELECT tx_id FROM tx_exclusions")).map((r) => r.tx_id));
 }
 
+const OVERRIDE_FIELDS = ["display_name", "category", "status", "color_slot"] as const;
+
+/**
+ * Upsert one override, changing only the fields present in `patch` (null clears a field).
+ * One statement, so overlapping edits (e.g. a rename and a colour pick) never undo each other.
+ */
+export async function saveOverride(db: Db, key: string, patch: Partial<Omit<Override, "key">>): Promise<void> {
+  const supplied = OVERRIDE_FIELDS.filter((f) => patch[f] !== undefined);
+  if (!supplied.length) return;
+  const set = supplied.map((f) => `${f} = excluded.${f}`).join(", ");
+  await run(db, `INSERT INTO overrides (key, ${OVERRIDE_FIELDS.join(", ")}) VALUES (?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET ${set}`, [
+    key,
+    ...OVERRIDE_FIELDS.map((f) => patch[f] ?? null),
+  ]);
+}
+
 export async function allOverrides(db: Db): Promise<Map<string, Override>> {
   const rows = await all<Override>(db, "SELECT key, display_name, category, status, color_slot FROM overrides");
   return new Map(rows.map((r) => [r.key, r]));
