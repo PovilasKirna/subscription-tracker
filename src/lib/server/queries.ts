@@ -36,7 +36,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 export const detection = cache(
   memoByVersion(
     async () => `${await dataVersion(await getDb())}|${today()}`,
-    async (version): Promise<{ txs: TxRow[]; det: Detection; excluded: Set<string> }> => {
+    async (version): Promise<{ txs: TxRow[]; det: Detection; excluded: Set<string>; assigned: Map<string, string> }> => {
       const day = version.slice(version.indexOf("|") + 1);
       const db = await getDb();
       const [txs, overrides, excluded, assigned] = await Promise.all([
@@ -45,7 +45,7 @@ export const detection = cache(
         allExclusions(db),
         allAssignments(db),
       ]);
-      return { txs, excluded, det: detectSubscriptions(txs, overrides, day, config.baseCurrency, excluded, assigned) };
+      return { txs, excluded, assigned, det: detectSubscriptions(txs, overrides, day, config.baseCurrency, excluded, assigned) };
     },
   ),
 );
@@ -101,7 +101,7 @@ function relatedTransactions(
 
 /** Everything the subscription drawer shows: the subscription, its charges, excluded and related ones. */
 export async function getSubscriptionDetail(key: string): Promise<SubscriptionDetailPayload> {
-  const { txs, det, excluded } = await detection();
+  const { txs, det, excluded, assigned } = await detection();
   const active = det.subscriptions.find((s) => s.key === key);
   const ignored = det.ignored.find((s) => s.key === key);
   const subscription = active ?? ignored ?? null;
@@ -121,7 +121,7 @@ export async function getSubscriptionDetail(key: string): Promise<SubscriptionDe
       .sort(newestFirst)
       .map((t) => toItem(t, active ? key : null)),
     excluded: txs
-      .filter((t) => excluded.has(t.id) && t.merchant_key === merchantKey && t.currency === currency)
+      .filter((t) => excluded.has(t.id) && ((t.merchant_key === merchantKey && t.currency === currency) || assigned.get(t.id) === key))
       .sort(newestFirst)
       .map((t) => toItem(t, null)),
     related: active

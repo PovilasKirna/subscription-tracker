@@ -155,14 +155,7 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
         />
         {s && data.related.length > 0 && <RelatedList subKey={subKey} name={s.name} items={data.related} />}
         {data.excluded.length > 0 && (
-          <ChargeList
-            title={`Removed from this subscription (${data.excluded.length})`}
-            items={data.excluded}
-            action="include"
-            // A pinned subscription only counts what's assigned to it, so re-assign instead.
-            pinnedTo={s?.pinned ? subKey : undefined}
-            muted
-          />
+          <ChargeList title={`Removed from this subscription (${data.excluded.length})`} items={data.excluded} action="include" muted />
         )}
       </div>
     </div>
@@ -183,28 +176,20 @@ function ChargeList({
   hint,
   items,
   action,
-  pinnedTo,
   muted,
 }: {
   title: string;
   hint?: string;
   items: TransactionItem[];
   action: "exclude" | "include";
-  pinnedTo?: string;
   muted?: boolean;
 }) {
   const exclusion = useExclusion();
-  const assign = useAssign();
-  const run = (tx: TransactionItem) => {
-    if (action === "include" && pinnedTo) {
-      assign.mutate({ subKey: pinnedTo, txIds: [tx.id] }, { onSuccess: () => toast.success("Charge added back") });
-      return;
-    }
+  const run = (tx: TransactionItem) =>
     exclusion.mutate(
       { txId: tx.id, exclude: action === "exclude" },
       { onSuccess: () => toast.success(action === "exclude" ? "Charge removed from this subscription" : "Charge added back") },
     );
-  };
   return (
     <section>
       <h3 className="text-sm font-medium">{title}</h3>
