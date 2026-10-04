@@ -1,5 +1,6 @@
+import { isHexColor } from "../color";
 import type { Cadence, Charge, HistoryPayload, PriceChange, SubStatus, Subscription } from "../types";
-import type { Override, TxRow } from "./db";
+import { NO_COLOR_SLOT, type Override, type TxRow } from "./db";
 import { isKnownSubscription, merchantCategory, merchantName } from "./merchant";
 
 // Statement rows that are never subscriptions (moving your own money around).
@@ -161,8 +162,7 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
     confirmed,
     pinned,
     known,
-    colorSlot: override?.color_slot ?? null,
-    colorChosen: override?.color_slot != null,
+    ...overrideColor(override),
     priceChanges: priceChanges(charges),
     charges,
   };
@@ -171,8 +171,13 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
 export type Detection = { subscriptions: Subscription[]; ignored: Subscription[]; txToSub: Map<string, string> };
 
 export const MAX_SERIES = 7;
-/** Preset colours a user can pick from (`--series-1` … `--series-8`). */
-export const COLOR_SLOTS = 8;
+
+/** The colour a user picked: a custom hex wins, slot `NO_COLOR_SLOT` means "none" (neutral grey). */
+function overrideColor(o: Override | undefined): Pick<Subscription, "color" | "colorChosen"> {
+  if (isHexColor(o?.color_hex)) return { color: o.color_hex, colorChosen: true };
+  if (o?.color_slot != null) return { color: o.color_slot === NO_COLOR_SLOT ? null : o.color_slot, colorChosen: true };
+  return { color: null, colorChosen: false };
+}
 
 /**
  * Subscriptions the user picked a colour for keep it. The biggest (all-time spend) of the rest
@@ -180,7 +185,7 @@ export const COLOR_SLOTS = 8;
  * filter, so survivors never repaint.
  */
 export function assignColorSlots(subs: Subscription[], baseCurrency: string): void {
-  const taken = new Set(subs.filter((s) => s.colorChosen).map((s) => s.colorSlot));
+  const taken = new Set(subs.filter((s) => s.colorChosen).map((s) => s.color));
   const free = Array.from({ length: MAX_SERIES }, (_, i) => i + 1).filter((slot) => !taken.has(slot));
   const auto = subs.filter((s) => !s.colorChosen);
   const top = auto
@@ -188,9 +193,9 @@ export function assignColorSlots(subs: Subscription[], baseCurrency: string): vo
     .sort((a, b) => b.totalSpent - a.totalSpent || a.key.localeCompare(b.key))
     .slice(0, free.length)
     .sort((a, b) => a.firstCharge.localeCompare(b.firstCharge) || a.key.localeCompare(b.key));
-  for (const s of auto) s.colorSlot = null;
+  for (const s of auto) s.color = null;
   top.forEach((s, i) => {
-    s.colorSlot = free[i];
+    s.color = free[i];
   });
 }
 
@@ -373,21 +378,25 @@ export function buildHistory(txs: TxRow[], detection: Detection, baseCurrency: s
   }
   const valuesOf = (key: string) => perSub.get(key) ?? [];
 
-  // Slotted subscriptions keep their own series (even if empty in this window, so the
+  // Coloured subscriptions keep their own series (even if empty in this window, so the
   // legend and colours stay put); everything else folds into "Other".
-  const slotted = subs.filter((s) => s.colorSlot !== null).sort((a, b) => (a.colorSlot ?? 0) - (b.colorSlot ?? 0));
-  const rest = subs.filter((s) => s.colorSlot === null && valuesOf(s.key).some((v) => v > 0));
-  const series: HistoryPayload["series"] = slotted.map((s) => ({
+  // Palette slots first, in slot order; then custom colours, by first-seen date.
+  const order = (s: Subscription) => (typeof s.color === "number" ? s.color : Number.POSITIVE_INFINITY);
+  const coloured = subs
+    .filter((s) => s.color !== null)
+    .sort((a, b) => order(a) - order(b) || a.firstCharge.localeCompare(b.firstCharge) || a.key.localeCompare(b.key));
+  const rest = subs.filter((s) => s.color === null && valuesOf(s.key).some((v) => v > 0));
+  const series: HistoryPayload["series"] = coloured.map((s) => ({
     key: s.key,
     name: s.name,
-    slot: s.colorSlot,
+    color: s.color,
     values: valuesOf(s.key).map(round2),
   }));
   if (rest.length) {
     series.push({
       key: "__other",
       name: `Other (${rest.length})`,
-      slot: null,
+      color: null,
       values: months.map((_, i) => round2(rest.reduce((sum, r) => sum + valuesOf(r.key)[i], 0))),
     });
   }

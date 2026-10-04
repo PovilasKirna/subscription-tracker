@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb, type OverrideStatus, run, saveOverride } from "@/lib/server/db";
-import { COLOR_SLOTS } from "@/lib/server/detect";
+import { isColorChoice } from "@/lib/color";
+import { colorColumns, getDb, type OverrideStatus, run, saveOverride } from "@/lib/server/db";
 import { guard } from "@/lib/server/session";
 import type { Cadence } from "@/lib/types";
 
@@ -11,7 +11,7 @@ type Body = {
   displayName?: string | null;
   category?: string | null;
   status?: string | null;
-  colorSlot?: number | null;
+  color?: unknown;
   cadence?: string | null;
 };
 
@@ -23,7 +23,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ key:
   if (body.status != null && !STATUSES.has(body.status)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
-  if (body.colorSlot != null && !(Number.isInteger(body.colorSlot) && body.colorSlot >= 1 && body.colorSlot <= COLOR_SLOTS)) {
+  const { color } = body;
+  if (!(color == null || isColorChoice(color))) {
     return NextResponse.json({ error: "Invalid colour" }, { status: 400 });
   }
   if (body.cadence != null && !CADENCES.has(body.cadence)) {
@@ -34,7 +35,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ key:
     display_name: body.displayName !== undefined ? body.displayName?.trim() || null : undefined,
     category: body.category !== undefined ? body.category || null : undefined,
     status: body.status as OverrideStatus | null | undefined,
-    color_slot: body.colorSlot,
+    ...(color !== undefined ? colorColumns(color) : {}),
     cadence: body.cadence as Cadence | null | undefined,
   });
   return NextResponse.json({ ok: true });

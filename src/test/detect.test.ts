@@ -83,7 +83,7 @@ test("marks a stopped subscription inactive and honours user overrides", () => {
   const key = det.subscriptions[0].key;
   const ignored = detectSubscriptions(
     txs,
-    new Map([[key, { key, display_name: null, category: null, status: "ignored", color_slot: null, cadence: null }]]),
+    new Map([[key, { key, display_name: null, category: null, status: "ignored", color_slot: null, color_hex: null, cadence: null }]]),
     "2025-12-01",
   );
   assert.equal(ignored.subscriptions.length, 0);
@@ -96,12 +96,12 @@ test("colour slots follow first-seen order, not rank", () => {
     ...monthly("Lemon Gym", 34.99, 6, 1, 2025).map((t, i) => ({ ...t, date: `2025-${String(i + 5).padStart(2, "0")}-01` })),
   ];
   const det = detectSubscriptions(txs, none, "2025-11-01");
-  const slot = Object.fromEntries(det.subscriptions.map((s) => [s.name, s.colorSlot]));
+  const slot = Object.fromEntries(det.subscriptions.map((s) => [s.name, s.color]));
   assert.equal(slot.Spotify, 1); // seen first, even though the gym costs more
   assert.equal(slot["Lemon Gym"], 2);
   const history = buildHistory(txs, det, "EUR", "2025-11-01", 6);
   assert.deepEqual(
-    history.series.map((s) => s.slot),
+    history.series.map((s) => s.color),
     [1, 2],
   );
 });
@@ -162,7 +162,7 @@ test("a confirmed merchant stays one subscription even if its charges split by p
   assert.equal(detectSubscriptions(txs, none, "2025-06-10").subscriptions.length, 2);
   const key = "apple|EUR";
   const confirmed = new Map([
-    [key, { key, display_name: null, category: null, status: "confirmed" as const, color_slot: null, cadence: null }],
+    [key, { key, display_name: null, category: null, status: "confirmed" as const, color_slot: null, color_hex: null, cadence: null }],
   ]);
   const det = detectSubscriptions(txs, confirmed, "2025-06-10");
   assert.deepEqual(
@@ -189,13 +189,48 @@ test("a user-picked colour sticks and automatic slots skip it", () => {
   ];
   const gym = detectSubscriptions(txs, none, "2025-11-01").subscriptions.find((s) => s.name === "Lemon Gym");
   assert.ok(gym);
-  const picked = new Map([[gym.key, { key: gym.key, display_name: null, category: null, status: null, color_slot: 1, cadence: null }]]);
+  const picked = new Map([
+    [gym.key, { key: gym.key, display_name: null, category: null, status: null, color_slot: 1, color_hex: null, cadence: null }],
+  ]);
   const det = detectSubscriptions(txs, picked, "2025-11-01");
   const by = Object.fromEntries(det.subscriptions.map((s) => [s.name, s]));
-  assert.equal(by["Lemon Gym"].colorSlot, 1);
+  assert.equal(by["Lemon Gym"].color, 1);
   assert.equal(by["Lemon Gym"].colorChosen, true);
-  assert.equal(by.Spotify.colorSlot, 2); // slot 1 is taken, so the next free one
+  assert.equal(by.Spotify.color, 2); // slot 1 is taken, so the next free one
   assert.equal(by.Spotify.colorChosen, false);
+});
+
+test("a custom colour keeps its own series without taking a slot; 'none' folds into Other", () => {
+  const txs = [
+    ...monthly("Spotify", 11.99, 10, 14),
+    ...monthly("Lemon Gym", 34.99, 6, 1, 2025).map((t, i) => ({ ...t, date: `2025-${String(i + 5).padStart(2, "0")}-01` })),
+    ...monthly("Netflix", 15.99, 10, 20),
+  ];
+  const keyOf = (name: string) => detectSubscriptions(txs, none, "2025-11-01").subscriptions.find((s) => s.name === name)?.key ?? "";
+  const picked = new Map<string, Override>([
+    [
+      keyOf("Lemon Gym"),
+      { key: keyOf("Lemon Gym"), display_name: null, category: null, status: null, color_slot: null, color_hex: "#123abc", cadence: null },
+    ],
+    [
+      keyOf("Netflix"),
+      { key: keyOf("Netflix"), display_name: null, category: null, status: null, color_slot: 0, color_hex: null, cadence: null },
+    ],
+  ]);
+  const det = detectSubscriptions(txs, picked, "2025-11-01");
+  const by = Object.fromEntries(det.subscriptions.map((s) => [s.name, s]));
+  assert.deepEqual([by["Lemon Gym"].color, by["Lemon Gym"].colorChosen], ["#123abc", true]);
+  assert.deepEqual([by.Netflix.color, by.Netflix.colorChosen], [null, true]); // "none" is a choice, not automatic
+  assert.equal(by.Spotify.color, 1); // neither choice took slot 1
+  const history = buildHistory(txs, det, "EUR", "2025-11-01", 6);
+  assert.deepEqual(
+    history.series.map((s) => [s.name, s.color]),
+    [
+      ["Spotify", 1],
+      ["Lemon Gym", "#123abc"],
+      ["Other (1)", null],
+    ],
+  );
 });
 
 test("a user-set cadence replaces the guess for a lone charge, and beats a detected one", () => {
@@ -206,7 +241,18 @@ test("a user-set cadence replaces the guess for a lone charge, and beats a detec
   assert.equal(guessed.cadenceChosen, false);
 
   const yearly = new Map([
-    ["proton|EUR", { key: "proton|EUR", display_name: null, category: null, status: null, color_slot: null, cadence: "yearly" as const }],
+    [
+      "proton|EUR",
+      {
+        key: "proton|EUR",
+        display_name: null,
+        category: null,
+        status: null,
+        color_slot: null,
+        color_hex: null,
+        cadence: "yearly" as const,
+      },
+    ],
   ]);
   const set = detectSubscriptions(once, yearly, "2025-04-01", "EUR", new Set(), assigned).subscriptions[0];
   assert.equal(set.cadence, "yearly");
@@ -219,7 +265,15 @@ test("a user-set cadence replaces the guess for a lone charge, and beats a detec
   const quarterly = new Map([
     [
       "spotify|EUR",
-      { key: "spotify|EUR", display_name: null, category: null, status: null, color_slot: null, cadence: "quarterly" as const },
+      {
+        key: "spotify|EUR",
+        display_name: null,
+        category: null,
+        status: null,
+        color_slot: null,
+        color_hex: null,
+        cadence: "quarterly" as const,
+      },
     ],
   ]);
   assert.equal(detectSubscriptions(spotify, quarterly, "2025-04-20").subscriptions[0].cadence, "quarterly");

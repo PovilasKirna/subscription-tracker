@@ -7,7 +7,7 @@ import { Bar, Circle } from "@visx/shape";
 import { useMemo } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
-import { marks, slotColor, tokens } from "./palette";
+import { marks, seriesColor, tokens } from "./palette";
 import type { Accessor, ExpectedCharge, Today } from "./types";
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
@@ -137,7 +137,7 @@ function Calendar({ cells, rows, today, formatMoney, formatDate, width }: Props 
                   cx={12 + i * 12}
                   cy={cellH - 13}
                   r={marks.markerR}
-                  fill={slotColor(ch.slot)}
+                  fill={seriesColor(ch.color)}
                   stroke={tokens.surface}
                   strokeWidth={marks.ring}
                 />
@@ -170,7 +170,7 @@ function Calendar({ cells, rows, today, formatMoney, formatDate, width }: Props 
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
           <div className="mb-1 font-medium">{formatDate(tooltipData.date)}</div>
           {tooltipData.charges.map((ch) => (
-            <TooltipRow key={ch.key} slot={ch.slot} label={ch.name} value={formatMoney(ch.amount, ch.currency)} />
+            <TooltipRow key={ch.key} color={ch.color} label={ch.name} value={formatMoney(ch.amount, ch.currency)} />
           ))}
         </ChartTooltip>
       )}
