@@ -141,7 +141,13 @@ export function getDb(): Promise<Client> {
     const previous = g.__trackerDb;
     g.__trackerDb = (async () => {
       const existing = previous ? await previous.catch(() => null) : null;
-      if (!existing) return openDb();
+      if (!existing) {
+        const db = await openDb();
+        // Dev/preview only (SEED_SAMPLE_DATA=true): an empty database gets the fake sample statement.
+        const { sampleSeedingEnabled, seedSampleIfEmpty } = await import("./seedSample");
+        if (sampleSeedingEnabled()) await seedSampleIfEmpty(db);
+        return db;
+      }
       await migrate(existing);
       return existing;
     })();

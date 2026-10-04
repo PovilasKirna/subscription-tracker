@@ -100,14 +100,11 @@ Notes:
 | Bank sync | mock (`npm run mock:bank`) | off | Enable Banking + daily cron |
 | Access | localhost | app password + Vercel deployment protection | app password |
 
-Each environment has its own variables in Vercel (**Settings → Environment Variables**, scoped to *Preview* or *Production*), so a dev deployment can never reach production data. Preview needs `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` (from connecting the dev database with only *Preview* ticked), `APP_PASSWORD` and `SESSION_SECRET`. Leave the Enable Banking variables and `CRON_SECRET` unset. Cron jobs only run in production.
+Each environment has its own variables in Vercel (**Settings → Environment Variables**, scoped to *Preview* or *Production*), so a dev deployment can never reach production data. Preview needs `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` (from connecting the dev database with only *Preview* ticked), `APP_PASSWORD`, `SESSION_SECRET` and `SEED_SAMPLE_DATA=true`. Leave the Enable Banking variables and `CRON_SECRET` unset. Cron jobs only run in production.
 
-To fill the dev database with sample data, pull the Preview variables into a file outside the repo and seed:
+With `SEED_SAMPLE_DATA=true`, an **empty** database imports the fake sample statement the first time the app opens it. It never runs on a Vercel production deployment or on a database that already has transactions. To start the dev data over, empty the database on the Data page and redeploy; the next cold start imports it again.
 
-```bash
-npx vercel env pull ../preview.env --environment=preview
-npx tsx --env-file=../preview.env scripts/seed.ts
-```
+Deploy dev from the CLI with `npx vercel deploy` (no `--prod`), or push a branch once the Git repository is connected.
 
 ## Self-hosting
 
