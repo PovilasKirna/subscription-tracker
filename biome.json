@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/node_modules", "!**/.next", "!**/data", "!samples/*.csv", "!next-env.d.ts"]
+    "includes": ["**", "!**/node_modules", "!**/.next", "!data", "!samples/*.csv", "!next-env.d.ts"]
   },
   "formatter": {
     "enabled": true,
