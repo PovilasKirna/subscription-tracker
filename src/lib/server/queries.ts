@@ -122,7 +122,7 @@ export async function getDataStatus(): Promise<DataStatusPayload> {
   }>(db, "SELECT * FROM bank_sessions ORDER BY created_at DESC");
   const imports = await all<DataStatusPayload["imports"][number]>(
     db,
-    "SELECT at, source, inserted, updated, skipped, message FROM import_log ORDER BY id DESC LIMIT 10",
+    "SELECT id, at, source, inserted, updated, skipped, message FROM import_log ORDER BY id DESC LIMIT 10",
   );
   return {
     transactionCount: Number(stats.n),

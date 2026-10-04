@@ -145,5 +145,5 @@ export type DataStatusPayload = {
   /** A bank sync is running right now (e.g. the first full-history sync after connecting). */
   syncing: boolean;
   sessions: BankSession[];
-  imports: { at: string; source: string; inserted: number; updated: number; skipped: number; message: string | null }[];
+  imports: { id: number; at: string; source: string; inserted: number; updated: number; skipped: number; message: string | null }[];
 };

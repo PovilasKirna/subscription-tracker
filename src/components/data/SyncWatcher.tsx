@@ -18,10 +18,15 @@ export function SyncWatcher() {
   const { data } = useQuery({ ...statusQuery(), refetchInterval: (q) => (q.state.data?.syncing ? 1500 : false) });
 
   const wasSyncing = useRef<boolean | undefined>(undefined);
+  // Newest bank import when the run was first seen: a run that logs nothing (e.g. every session
+  // skipped) mustn't be reported with the previous run's numbers.
+  const importBefore = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (!data) return;
+    const newest = data.imports.find((i) => i.source === "bank");
+    if (data.syncing && !wasSyncing.current) importBefore.current = newest?.id;
     if (wasSyncing.current && !data.syncing) {
-      const last = data.imports.find((i) => i.source === "bank");
+      const last = newest && newest.id !== importBefore.current ? newest : undefined;
       if (last?.message) toast.warning("Bank sync finished with problems", { id: SYNC_TOAST_ID, description: last.message });
       else
         toast.success("Bank sync finished", {
