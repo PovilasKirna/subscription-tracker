@@ -21,10 +21,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { fullDate, money, monthYearLabel } from "@/lib/format";
+import { fullDate, money } from "@/lib/format";
 import { type SourceInput, useDeleteReimbursementPeriod, useReimbursement, useReimbursementPeriod } from "@/lib/query/mutations";
 import { reimbursementSourcesQuery } from "@/lib/query/options";
-import { MODE_LABEL, parseAmount, startOptions } from "@/lib/reimbursement";
+import { MODE_LABEL, parseAmount, periodStartLabel, startOptions } from "@/lib/reimbursement";
 import type { ReimbursementPeriod, Subscription, TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +37,9 @@ export const charged = (tx: TransactionItem) => Math.abs(tx.amount);
 /** The expected amount for this payment, capped at what it cost; null = not reimbursable. */
 export const expectedFor = (tx: TransactionItem) =>
   tx.reimbursement?.expected != null ? Math.min(tx.reimbursement.expected, charged(tx)) : null;
+
+/** The first period that starts after `date` (periods are newest first), if any. */
+const periodAfter = (sub: Subscription, date: string) => sub.reimbursementPeriods.findLast((p) => p.startsOn > date);
 
 export const reimbursementToast = (amount: number | null, currency: string) =>
   amount === null ? "Back to automatic" : amount ? `Marked ${money(amount, currency)} as reimbursed` : "Marked as not reimbursed";
@@ -74,12 +77,16 @@ export function ReimbursementSection({
   const fmt = (n: number) => money(n, sub.currency);
   const current = sub.reimbursement;
   const latest = sub.reimbursementPeriods[0];
+  // Set up, but its first charge is still to come.
+  const upcoming = current ? undefined : periodAfter(sub, today);
   const pending = transactions.filter((t) => t.reimbursement?.status === "pending");
   let summary: string;
   if (current?.source) {
     summary = `${fmt(current.amount)} back per charge from ${current.source.name} · ${MODE_LABEL[current.source.mode].toLowerCase()}`;
+  } else if (upcoming?.source) {
+    summary = `Starts ${periodStartLabel(upcoming.startsOn)}: ${fmt(upcoming.amount)} back per charge from ${upcoming.source.name} · ${MODE_LABEL[upcoming.source.mode].toLowerCase()}`;
   } else if (latest && !latest.source && latest.startsOn <= today) {
-    summary = `Not reimbursed since ${monthYearLabel(latest.startsOn.slice(0, 7))}.`;
+    summary = `Not reimbursed since ${periodStartLabel(latest.startsOn)}.`;
   } else {
     summary = "Paid back to you, e.g. with your salary? Set how much comes back per charge, and from when.";
   }
@@ -94,8 +101,8 @@ export function ReimbursementSection({
           </p>
         </div>
         <Button variant="outline" size="xs" className="shrink-0" onClick={() => setDialog(true)}>
-          {current ? <PencilIcon /> : <HandCoinsIcon />}
-          {current ? "Change" : "Set up"}
+          {current || upcoming?.source ? <PencilIcon /> : <HandCoinsIcon />}
+          {current || upcoming?.source ? "Change" : "Set up"}
         </Button>
       </div>
       {pending.length > 0 && <PendingCallout items={pending} />}
@@ -153,7 +160,7 @@ function PeriodHistory({ sub, today }: { sub: Subscription; today: string }) {
           const Icon = p.source?.mode === "automatic" ? ZapIcon : BellIcon;
           return (
             <li key={p.id} className="flex items-center gap-2 py-1 pr-1 pl-3">
-              <span className="tabular w-20 shrink-0 text-muted-foreground">{monthYearLabel(p.startsOn.slice(0, 7))}</span>
+              <span className="tabular w-24 shrink-0 text-muted-foreground">{periodStartLabel(p.startsOn)}</span>
               <span className="flex min-w-0 flex-1 items-center gap-1.5">
                 {p.source ? (
                   <>
@@ -172,7 +179,7 @@ function PeriodHistory({ sub, today }: { sub: Subscription; today: string }) {
                 size="icon-xs"
                 className="shrink-0 text-muted-foreground hover:text-destructive"
                 onClick={() => setRemoving(p)}
-                aria-label={`Remove the period from ${monthYearLabel(p.startsOn.slice(0, 7))}`}
+                aria-label={`Remove the period from ${periodStartLabel(p.startsOn)}`}
               >
                 <Trash2Icon />
               </Button>
@@ -186,7 +193,7 @@ function PeriodHistory({ sub, today }: { sub: Subscription; today: string }) {
             <AlertDialogTitle>Remove this period?</AlertDialogTitle>
             <AlertDialogDescription>
               {removing &&
-                `Charges from ${monthYearLabel(removing.startsOn.slice(0, 7))} fall back to the period before it, or to ordinary spend if there is none. Amounts you recorded for charges stay.`}
+                `Charges from ${periodStartLabel(removing.startsOn)} fall back to the period before it, or to ordinary spend if there is none. Amounts you recorded for charges stay.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -222,15 +229,23 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
   const save = useReimbursementPeriod();
   const id = useId();
   const current = sub.reimbursement;
+  // What a change starts from: the period in force, else one that hasn't started yet.
+  const base = current ?? periodAfter(sub, today) ?? null;
+  // Not started yet: changing it keeps its start unless another one is picked.
+  const plannedStart = !current && base ? base.startsOn : null;
   const options = startOptions(
     sub.charges.map((c) => c.date),
     today,
+    sub.nextCharge,
   );
+  if (plannedStart && !options.some((o) => o.value === plannedStart)) {
+    options.unshift({ value: plannedStart, label: periodStartLabel(plannedStart), hint: "as planned" });
+  }
   // A first setup starts at the latest charge's month (so it counts); anything later applies to the next charge.
   const first = sub.reimbursementPeriods.length === 0;
-  const [startsOn, setStartsOn] = useState(first ? `${sub.lastCharge.slice(0, 7)}-01` : options[0].value);
-  const [amount, setAmount] = useState(String(current?.amount ?? sub.amount));
-  const [picked, setPicked] = useState<string | null>(current?.source ? String(current.source.id) : null);
+  const [startsOn, setStartsOn] = useState(first ? `${sub.lastCharge.slice(0, 7)}-01` : (plannedStart ?? options[0].value));
+  const [amount, setAmount] = useState(String(base?.source ? base.amount : sub.amount));
+  const [picked, setPicked] = useState<string | null>(base?.source ? String(base.source.id) : null);
   const [edited, setNewSource] = useState<SourceInput | null>(null);
   const [confirmStop, setConfirmStop] = useState(false);
 
@@ -244,6 +259,8 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
   // Nothing is decided while the sources load: the default would otherwise be a new "Salary".
   const valid = !sources.isPending && value !== null && value > 0 && (!creating || validSource(newSource));
   const startLabel = options.find((o) => o.value === startsOn)?.label ?? fullDate(startsOn);
+  // A later period still takes over from its own start, whatever is saved here.
+  const later = periodAfter(sub, startsOn);
   const sourceItems = {
     ...Object.fromEntries(list.map((s) => [String(s.id), s.name])),
     [NEW_SOURCE]: "New source…",
@@ -262,7 +279,7 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
           },
       {
         onSuccess: () => {
-          toast.success(stop ? `Not reimbursed from ${startLabel}` : current ? "Reimbursement changed" : "Reimbursement set up");
+          toast.success(stop ? `Not reimbursed from ${startLabel}` : base?.source ? "Reimbursement changed" : "Reimbursement set up");
           onOpenChange(false);
         },
       },
@@ -273,10 +290,10 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
     <Dialog open onOpenChange={(open) => !save.isPending && onOpenChange(open)}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{current ? "Change reimbursement" : "Set up reimbursement"}</DialogTitle>
+          <DialogTitle>{base?.source ? "Change reimbursement" : "Set up reimbursement"}</DialogTitle>
           <DialogDescription>
-            {current
-              ? "Changes apply from the month you pick; earlier charges keep what they had."
+            {base?.source
+              ? "Changes apply from the date you pick; earlier charges keep what they had."
               : `What you get back for ${sub.name}. It's taken off the monthly cost, and each charge shows whether it came back.`}
           </DialogDescription>
         </DialogHeader>
@@ -354,6 +371,9 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
               </SelectContent>
             </Select>
             <span className="text-xs text-muted-foreground">
+              {later
+                ? `Applies only until ${periodStartLabel(later.startsOn)}, when the later ${later.source ? `change (${money(later.amount, sub.currency)} from ${later.source.name})` : "stop"} takes over. `
+                : ""}
               Charges before the first period are ordinary spend. Pick an earlier month to include past charges.
             </span>
           </div>

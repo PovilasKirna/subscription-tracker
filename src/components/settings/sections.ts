@@ -1,4 +1,4 @@
-import { DatabaseIcon, type LucideIcon, UserIcon } from "lucide-react";
+import { DatabaseIcon, HandCoinsIcon, type LucideIcon, UserIcon } from "lucide-react";
 
 export type SettingsSection = { href: string; label: string; description: string; icon: LucideIcon };
 
@@ -9,6 +9,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     label: "Data & sync",
     description: "Bank connections, statement imports and backups.",
     icon: DatabaseIcon,
+  },
+  {
+    href: "/settings/reimbursements",
+    label: "Reimbursements",
+    description: "Where money for your subscriptions comes back from, and whether you have to ask for it.",
+    icon: HandCoinsIcon,
   },
   {
     href: "/settings/account",

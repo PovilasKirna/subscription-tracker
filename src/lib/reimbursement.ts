@@ -1,4 +1,4 @@
-import { monthYearLabel, shortDate } from "./format";
+import { fullDate, monthYearLabel, shortDate } from "./format";
 import type { ReimbursementMode } from "./types";
 
 // Client-safe helpers for the reimbursement UI.
@@ -20,17 +20,30 @@ const nextMonthStart = (d: string) => {
   return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
 };
 
+const nextDay = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+
+/** How a period's start reads: its month when it starts on the 1st, otherwise the exact day. */
+export const periodStartLabel = (startsOn: string) =>
+  startsOn.endsWith("-01") ? monthYearLabel(startsOn.slice(0, 7)) : fullDate(startsOn);
+
 /**
- * Where a reimbursement period can start: month starts only, so a period covers whole billing
- * months. First the month from which only future charges are affected, then every month that has
- * a charge, newest first (starting there includes that month's charges).
+ * Where a reimbursement period can start. First "next charge onwards", which affects only charges
+ * not made yet: this month when it has no charge yet, otherwise the day after the latest charge
+ * when the next one is due this month too (weekly plans), else next month. Then every month that
+ * has a charge, newest first (starting there includes that month's charges).
  */
-export function startOptions(chargeDates: readonly string[], today: string): StartOption[] {
+export function startOptions(chargeDates: readonly string[], today: string, nextCharge?: string | null): StartOption[] {
+  const sorted = [...chargeDates].sort();
   const firstInMonth = new Map<string, string>();
-  for (const d of [...chargeDates].sort()) if (!firstInMonth.has(monthStart(d))) firstInMonth.set(monthStart(d), d);
+  for (const d of sorted) if (!firstInMonth.has(monthStart(d))) firstInMonth.set(monthStart(d), d);
   const thisMonth = monthStart(today);
-  const upcoming = firstInMonth.has(thisMonth) ? nextMonthStart(today) : thisMonth;
-  const options: StartOption[] = [{ value: upcoming, label: monthYearLabel(upcoming.slice(0, 7)), hint: "next charge onwards" }];
+  const lastCharge = sorted.filter((d) => d <= today).at(-1);
+  let upcoming = thisMonth;
+  if (firstInMonth.has(thisMonth)) {
+    const dueThisMonth = lastCharge && nextCharge && nextCharge < nextMonthStart(today);
+    upcoming = dueThisMonth ? nextDay(lastCharge) : nextMonthStart(today);
+  }
+  const options: StartOption[] = [{ value: upcoming, label: periodStartLabel(upcoming), hint: "next charge onwards" }];
   for (const month of [...firstInMonth.keys()].sort().reverse()) {
     if (month === upcoming) continue;
     options.push({

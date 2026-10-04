@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ordinal, parseAmount, startOptions } from "../lib/reimbursement";
+import { ordinal, parseAmount, periodStartLabel, startOptions } from "../lib/reimbursement";
 import type { Override, PeriodRow, ReimbursementData, SourceRow, TxRow } from "../lib/server/db";
 import { buildHistory, detectSubscriptions } from "../lib/server/detect";
 import { merchantKey } from "../lib/server/merchant";
@@ -337,7 +337,28 @@ test("startOptions: next charge onwards first, then each month with a charge, ne
     ["2026-10-01", "2026-09-01"],
   );
   assert.equal(startOptions(["2026-12-07"], "2026-12-10")[0].value, "2027-01-01");
+  // A monthly plan whose next charge is next month still starts at the month.
+  assert.equal(startOptions(["2026-12-07"], "2026-12-10", "2027-01-07")[0].value, "2027-01-01");
+  // Weekly: the next charge is still this month, so start right after the latest one instead of
+  // skipping the rest of the month; the label is then the exact day.
+  const weekly = startOptions(["2026-09-03", "2026-09-10", "2026-09-17"], "2026-09-20", "2026-09-24");
+  assert.deepEqual(
+    weekly.map((o) => [o.value, o.label, o.hint]),
+    [
+      ["2026-09-18", "18 Sept 2026", "next charge onwards"],
+      ["2026-09-01", "Sept 2026", "from the 3 Sept charge"],
+    ],
+  );
+  // ...and when the weekly charge is late, from the day after the last one that came.
+  assert.equal(startOptions(["2026-09-03", "2026-09-10"], "2026-09-20", "2026-09-17")[0].value, "2026-09-11");
+  // The next weekly charge falls next month: start at next month.
+  assert.equal(startOptions(["2026-09-28"], "2026-09-29", "2026-10-05")[0].value, "2026-10-01");
   assert.equal(startOptions([], "2026-10-04").length, 1);
+});
+
+test("periodStartLabel: the month for a month start, otherwise the day", () => {
+  assert.equal(periodStartLabel("2026-09-01"), "Sept 2026");
+  assert.equal(periodStartLabel("2026-09-18"), "18 Sept 2026");
 });
 
 test("ordinal and parseAmount", () => {

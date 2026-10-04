@@ -17,10 +17,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { monthYearLabel } from "@/lib/format";
 import { type SourceInput, useDeleteReimbursementPeriod, useDeleteSource, useSaveSource } from "@/lib/query/mutations";
 import { reimbursementSourcesQuery } from "@/lib/query/options";
-import { MODE_LABEL, ordinal } from "@/lib/reimbursement";
+import { MODE_LABEL, ordinal, periodStartLabel } from "@/lib/reimbursement";
 import type { ReimbursementSource } from "@/lib/types";
 import { DEFAULT_SOURCE_INPUT, SourceFields, validSource } from "./SourceFields";
 
@@ -228,14 +227,14 @@ function SourceInUse({ source }: { source: ReimbursementSource }) {
         {periods.map((p) => (
           <li key={p.id} className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate text-foreground">
-              {p.name} <span className="text-muted-foreground">· from {monthYearLabel(p.startsOn.slice(0, 7))}</span>
+              {p.name} <span className="text-muted-foreground">· from {periodStartLabel(p.startsOn)}</span>
             </span>
             <Button
               variant="ghost"
               size="icon-xs"
               className="shrink-0 text-muted-foreground hover:text-destructive"
               onClick={() => setRemoving(p)}
-              aria-label={`Remove ${p.name}'s period from ${monthYearLabel(p.startsOn.slice(0, 7))}`}
+              aria-label={`Remove ${p.name}'s period from ${periodStartLabel(p.startsOn)}`}
             >
               <Trash2Icon />
             </Button>
@@ -248,7 +247,7 @@ function SourceInUse({ source }: { source: ReimbursementSource }) {
             <AlertDialogTitle>Remove this period?</AlertDialogTitle>
             <AlertDialogDescription>
               {removing &&
-                `${removing.name}'s charges from ${monthYearLabel(removing.startsOn.slice(0, 7))} fall back to the period before it, or to ordinary spend if there is none. Amounts you recorded for charges stay.`}
+                `${removing.name}'s charges from ${periodStartLabel(removing.startsOn)} fall back to the period before it, or to ordinary spend if there is none. Amounts you recorded for charges stay.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
