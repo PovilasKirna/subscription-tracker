@@ -98,6 +98,10 @@ export function applyReimbursements(
     const expected = s.reimbursement ? Math.min(s.reimbursement.amount, s.amount) : 0;
     s.netMonthlyCost = round2(((s.amount - expected) * 30.4375) / s.periodDays);
   }
+  // Ignored subscriptions keep their period history so periods set up before can still be removed.
+  for (const s of det.ignored) {
+    s.reimbursementPeriods = (data.periods.get(s.key) ?? []).map((p) => toPeriod(p, data.sources)).reverse();
+  }
   return byTx;
 }
 
@@ -114,10 +118,12 @@ export function summarizeSources(sources: readonly SourceRow[], data: Reimbursem
   return sources.map((src) => {
     const users: ReimbursementSource["subscriptions"] = [];
     for (const [key, periods] of data.periods) {
-      if (!periods.some((p) => p.source_id === src.id)) continue;
+      const own = periods.filter((p) => p.source_id === src.id);
+      if (!own.length) continue;
       const sub = subs.get(key);
       users.push({
         key,
+        periods: own.map((p) => ({ id: p.id, startsOn: p.starts_on })),
         // A period can outlive its subscription (e.g. after charges were removed); fall back to the merchant.
         name: sub?.name ?? key.split("|")[0],
         current: sub?.reimbursement?.source?.id === src.id,

@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { BellIcon, CircleAlertIcon, HandCoinsIcon, Loader2Icon, PencilIcon, Trash2Icon, ZapIcon } from "lucide-react";
+import Link from "next/link";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 import { DEFAULT_SOURCE_INPUT, SourceFields, validSource } from "@/components/reimbursements/SourceFields";
@@ -40,9 +41,36 @@ export const expectedFor = (tx: TransactionItem) =>
 export const reimbursementToast = (amount: number | null, currency: string) =>
   amount === null ? "Back to automatic" : amount ? `Marked ${money(amount, currency)} as reimbursed` : "Marked as not reimbursed";
 
-/** The drawer's reimbursement section: current period, pending charges and period history. */
-export function ReimbursementSection({ sub, transactions, today }: { sub: Subscription; transactions: TransactionItem[]; today: string }) {
+/**
+ * The drawer's reimbursement section: current period, pending charges and period history. For an
+ * ignored subscription only the history is left, so periods from before can still be removed.
+ */
+export function ReimbursementSection({
+  sub,
+  transactions,
+  today,
+  ignored = false,
+}: {
+  sub: Subscription;
+  transactions: TransactionItem[];
+  today: string;
+  ignored?: boolean;
+}) {
   const [dialog, setDialog] = useState(false);
+  if (ignored) {
+    if (!sub.reimbursementPeriods.length) return null;
+    return (
+      <section className="flex flex-col gap-3">
+        <div>
+          <h3 className="text-sm font-medium">Reimbursement</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Ignored subscriptions aren&apos;t reimbursed. Remove these periods if you no longer need them.
+          </p>
+        </div>
+        <PeriodHistory sub={sub} today={today} />
+      </section>
+    );
+  }
   const fmt = (n: number) => money(n, sub.currency);
   const current = sub.reimbursement;
   const latest = sub.reimbursementPeriods[0];
@@ -204,6 +232,7 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
   const [amount, setAmount] = useState(String(current?.amount ?? sub.amount));
   const [picked, setPicked] = useState<string | null>(current?.source ? String(current.source.id) : null);
   const [edited, setNewSource] = useState<SourceInput | null>(null);
+  const [confirmStop, setConfirmStop] = useState(false);
 
   const list = sources.data?.sources ?? [];
   // The very first source is offered as "Salary"; with others around, a new one starts blank.
@@ -212,7 +241,8 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
   const sourceValue = picked ?? (list[0] ? String(list[0].id) : NEW_SOURCE);
   const creating = sourceValue === NEW_SOURCE;
   const value = parseAmount(amount);
-  const valid = value !== null && value > 0 && (!creating || validSource(newSource));
+  // Nothing is decided while the sources load: the default would otherwise be a new "Salary".
+  const valid = !sources.isPending && value !== null && value > 0 && (!creating || validSource(newSource));
   const startLabel = options.find((o) => o.value === startsOn)?.label ?? fullDate(startsOn);
   const sourceItems = {
     ...Object.fromEntries(list.map((s) => [String(s.id), s.name])),
@@ -275,9 +305,18 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
                 <SelectItem value={NEW_SOURCE}>New source…</SelectItem>
               </SelectContent>
             </Select>
-            {sources.error && <span className="text-xs text-destructive">{sources.error.message}</span>}
+            {sources.error ? (
+              <span className="text-xs text-destructive">{sources.error.message}</span>
+            ) : (
+              <Link
+                href="/settings/reimbursements"
+                className="w-fit text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:underline focus-visible:outline-none"
+              >
+                Manage sources
+              </Link>
+            )}
           </div>
-          {creating && (
+          {creating && !sources.isPending && (
             <div className="rounded-lg border bg-muted/30 p-3">
               <SourceFields value={newSource} onChange={setNewSource} />
             </div>
@@ -325,7 +364,7 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
               variant="ghost"
               className="text-destructive hover:text-destructive"
               disabled={save.isPending}
-              onClick={() => submit(true)}
+              onClick={() => setConfirmStop(true)}
             >
               Stop from {startLabel}
             </Button>
@@ -342,6 +381,25 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
             </Button>
           </div>
         </DialogFooter>
+        <AlertDialog open={confirmStop} onOpenChange={(open) => !save.isPending && setConfirmStop(open)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Stop reimbursing {sub.name} from {startLabel}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Charges from then on are ordinary spend: nothing pending or assumed for them. Amounts you recorded stay.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={save.isPending}>Keep reimbursing</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" disabled={save.isPending} onClick={() => submit(true)}>
+                {save.isPending && <Loader2Icon className="animate-spin" />}
+                {save.isPending ? "Stopping…" : "Stop reimbursing"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

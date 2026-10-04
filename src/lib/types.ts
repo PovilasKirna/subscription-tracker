@@ -103,8 +103,11 @@ export type ReimbursementSource = {
   mode: ReimbursementMode;
   /** Day of the month (1–28) to be reminded to file requests; request sources only. */
   reminderDay: number | null;
-  /** Subscriptions with any period from this source; `current` = it pays them today. */
-  subscriptions: { key: string; name: string; current: boolean }[];
+  /**
+   * Subscriptions with any period from this source; `current` = it pays them today. `periods` are
+   * that subscription's periods from this source (oldest first), so they can be removed from here.
+   */
+  subscriptions: { key: string; name: string; current: boolean; periods: { id: number; startsOn: string }[] }[];
   /** Charges from this source with nothing recorded yet (request sources only). */
   pending: number;
 };

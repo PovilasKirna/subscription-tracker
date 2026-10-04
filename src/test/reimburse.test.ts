@@ -220,6 +220,38 @@ test("summarizeSources lists who uses each source and counts pending charges", (
   assert.equal(by.Insurer.pending, 0);
   assert.equal(by.Insurer.reminderDay, null);
   assert.deepEqual(by.Unused.subscriptions, []);
+  // Each user lists its own periods from that source, so they can be removed from the source.
+  const spotify = by.Salary.subscriptions.find((u) => u.key === "spotify|EUR");
+  assert.deepEqual(
+    spotify?.periods.map((p) => p.startsOn),
+    ["2025-01-01"],
+  );
+  assert.deepEqual(
+    by.Insurer.subscriptions.find((u) => u.key === "gone|EUR")?.periods.map((p) => p.startsOn),
+    ["2025-01-01"],
+  );
+});
+
+test("applyReimbursements keeps the period history of ignored subscriptions", () => {
+  const txs = claude();
+  const ignore: Override = {
+    key: "anthropic|EUR",
+    display_name: null,
+    category: null,
+    status: "ignored",
+    color_slot: null,
+    color_hex: null,
+    cadence: null,
+    website: null,
+  };
+  const det = detectSubscriptions(txs, new Map([[ignore.key, ignore]]), "2025-06-20");
+  assert.equal(det.ignored.length, 1);
+  const d: ReimbursementData = { sources, periods: new Map([["anthropic|EUR", [period("2025-05-01", 1, 1500)]]]), records: new Map() };
+  applyReimbursements(det, txs, d, "2025-06-20");
+  assert.deepEqual(
+    det.ignored[0].reimbursementPeriods.map((p) => [p.startsOn, p.source?.name]),
+    [["2025-05-01", "Salary"]],
+  );
 });
 
 test("parseSourceInput validates name, mode and reminder day", () => {

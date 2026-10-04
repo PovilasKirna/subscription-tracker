@@ -17,7 +17,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type SourceInput, useDeleteSource, useSaveSource } from "@/lib/query/mutations";
+import { monthYearLabel } from "@/lib/format";
+import { type SourceInput, useDeleteReimbursementPeriod, useDeleteSource, useSaveSource } from "@/lib/query/mutations";
 import { reimbursementSourcesQuery } from "@/lib/query/options";
 import { MODE_LABEL, ordinal } from "@/lib/reimbursement";
 import type { ReimbursementSource } from "@/lib/types";
@@ -32,8 +33,10 @@ const listNames = (names: string[], max = 3) =>
 
 export function SourcesManager() {
   const { data, error, isPending } = useQuery(reimbursementSourcesQuery());
-  // null = closed, "new" = adding, otherwise the source being edited.
-  const [editing, setEditing] = useState<ReimbursementSource | "new" | null>(null);
+  // null = closed, "new" = adding, otherwise the id of the source being edited (looked up in the
+  // fresh list so the dialog follows changes, e.g. periods removed from it).
+  const [editing, setEditing] = useState<number | "new" | null>(null);
+  const edited = typeof editing === "number" ? data?.sources.find((s) => s.id === editing) : undefined;
 
   if (isPending) {
     return (
@@ -56,7 +59,7 @@ export function SourcesManager() {
       <ul className="grid gap-3 sm:grid-cols-2">
         {data.sources.map((s) => (
           <li key={s.id}>
-            <SourceTile source={s} onOpen={() => setEditing(s)} />
+            <SourceTile source={s} onOpen={() => setEditing(s.id)} />
           </li>
         ))}
         <li>
@@ -69,7 +72,9 @@ export function SourcesManager() {
           </button>
         </li>
       </ul>
-      {editing && <SourceDialog source={editing === "new" ? null : editing} onOpenChange={(open) => !open && setEditing(null)} />}
+      {(editing === "new" || edited) && (
+        <SourceDialog key={editing} source={edited ?? null} onOpenChange={(open) => !open && setEditing(null)} />
+      )}
     </div>
   );
 }
@@ -171,14 +176,7 @@ export function SourceDialog({
 function DeleteSource({ source, onDeleted }: { source: ReimbursementSource; onDeleted: () => void }) {
   const remove = useDeleteSource();
   const [confirm, setConfirm] = useState(false);
-  if (source.subscriptions.length) {
-    return (
-      <p className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-        Can&apos;t be deleted while {listNames(source.subscriptions.map((u) => u.name))}{" "}
-        {source.subscriptions.length === 1 ? "has" : "have"} reimbursement periods from it. Remove those periods in each subscription first.
-      </p>
-    );
-  }
+  if (source.subscriptions.length) return <SourceInUse source={source} />;
   return (
     <AlertDialog open={confirm} onOpenChange={(open) => !remove.isPending && setConfirm(open)}>
       <Button variant="ghost" size="sm" className="w-fit text-destructive hover:text-destructive" onClick={() => setConfirm(true)}>
@@ -210,5 +208,70 @@ function DeleteSource({ source, onDeleted }: { source: ReimbursementSource; onDe
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+type PeriodRef = { id: number; startsOn: string; name: string };
+
+/** Why a source can't be deleted yet: every period from it, each removable right here. */
+function SourceInUse({ source }: { source: ReimbursementSource }) {
+  const remove = useDeleteReimbursementPeriod();
+  const [removing, setRemoving] = useState<PeriodRef | null>(null);
+  const periods: PeriodRef[] = source.subscriptions.flatMap((u) => u.periods.map((p) => ({ ...p, name: u.name })));
+  return (
+    <div className="rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+      <p>
+        Can&apos;t be deleted while {listNames(source.subscriptions.map((u) => u.name))}{" "}
+        {source.subscriptions.length === 1 ? "has" : "have"} reimbursement periods from it. Remove them first:
+      </p>
+      <ul className="mt-1.5 flex flex-col">
+        {periods.map((p) => (
+          <li key={p.id} className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-foreground">
+              {p.name} <span className="text-muted-foreground">· from {monthYearLabel(p.startsOn.slice(0, 7))}</span>
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="shrink-0 text-muted-foreground hover:text-destructive"
+              onClick={() => setRemoving(p)}
+              aria-label={`Remove ${p.name}'s period from ${monthYearLabel(p.startsOn.slice(0, 7))}`}
+            >
+              <Trash2Icon />
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <AlertDialog open={removing !== null} onOpenChange={(open) => !open && !remove.isPending && setRemoving(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this period?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removing &&
+                `${removing.name}'s charges from ${monthYearLabel(removing.startsOn.slice(0, 7))} fall back to the period before it, or to ordinary spend if there is none. Amounts you recorded for charges stay.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() =>
+                removing &&
+                remove.mutate(removing.id, {
+                  onSuccess: () => {
+                    toast.success("Period removed");
+                    setRemoving(null);
+                  },
+                })
+              }
+            >
+              {remove.isPending ? <Loader2Icon className="animate-spin" /> : <Trash2Icon />}
+              {remove.isPending ? "Removing…" : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }

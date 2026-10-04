@@ -139,7 +139,7 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
               </Stat>
             </dl>
 
-            {!data.ignored && <ReimbursementSection sub={s} transactions={data.transactions} today={data.today} />}
+            <ReimbursementSection sub={s} transactions={data.transactions} today={data.today} ignored={data.ignored} />
 
             <section>
               <h3 className="mb-2 text-sm font-medium">Charge history</h3>

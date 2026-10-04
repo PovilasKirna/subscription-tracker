@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb, insertSource, one, run, sourceNameTaken } from "@/lib/server/db";
+import { detection } from "@/lib/server/queries";
 import { DEFAULT_SOURCE, parsePeriodInput } from "@/lib/server/reimbursementInput";
 import { guard } from "@/lib/server/session";
 
@@ -13,6 +14,10 @@ export async function PUT(req: NextRequest) {
   const parsed = parsePeriodInput(await req.json().catch(() => null), today);
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
   const { subKey, startsOn, source, amountMinor } = parsed.value;
+  // Only detected (not ignored) subscriptions, so no period is left where nothing can remove it.
+  if (!(await detection()).det.subscriptions.some((s) => s.key === subKey)) {
+    return NextResponse.json({ error: "That subscription isn't detected anymore" }, { status: 404 });
+  }
   const db = await getDb();
 
   let sourceId: number | null = null;
