@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CircleAlertIcon, Loader2Icon, MailIcon, SendIcon } from "lucide-react";
+import { CheckIcon, CircleAlertIcon, Loader2Icon, MailIcon, SendIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -13,17 +13,37 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api, mailStatusQuery } from "@/lib/query/options";
 import type { MailProvider } from "@/lib/types";
 
-// Settings → Notifications → Email: which provider the server uses, the sender, a test email,
-// and how to verify a sending domain with Resend. The recipient is only kept here for now; the
-// notifications settings store it.
+// Settings → Notifications → Email: which provider the server uses, the sender, the recipient,
+// a test email, and how to verify a sending domain with Resend. The recipient is a stored setting:
+// the page passes the saved value in (it may arrive after mount) and how to save a new one. Until
+// the settings store is wired in, there is no save action and the address only serves the test.
 
 const PROVIDER_LABEL: Record<MailProvider, string> = { resend: "Resend", smtp: "SMTP" };
 const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function EmailCard({ defaultRecipient = "" }: { defaultRecipient?: string }) {
+export function EmailCard({
+  recipient = "",
+  onSaveRecipient,
+}: {
+  /** The saved recipient address ("" when none). */
+  recipient?: string;
+  /** Stores a new recipient; without it the card can only send test emails. */
+  onSaveRecipient?: (to: string) => Promise<unknown>;
+}) {
   const status = useQuery(mailStatusQuery());
-  const [to, setTo] = useState(defaultRecipient);
+  const [to, setTo] = useState(recipient);
+  // Follow the saved value when it loads or changes elsewhere (an unsaved edit is replaced).
+  const [savedRecipient, setSavedRecipient] = useState(recipient);
+  if (recipient !== savedRecipient) {
+    setSavedRecipient(recipient);
+    setTo(recipient);
+  }
   const inputId = useId();
+  const save = useMutation({
+    mutationFn: (value: string) => onSaveRecipient?.(value) ?? Promise.resolve(),
+    onSuccess: (_, value) => toast.success(value ? "Recipient saved" : "Recipient removed"),
+    onError: (e) => toast.error("Couldn't save the recipient", { description: e.message }),
+  });
   const test = useMutation({
     mutationFn: (recipient: string) => api("/api/mail/test", { method: "POST", body: JSON.stringify({ to: recipient }) }),
     onSuccess: (_, recipient) => toast.success("Test email sent", { description: `Check ${recipient} (and its spam folder).` }),
@@ -32,6 +52,7 @@ export function EmailCard({ defaultRecipient = "" }: { defaultRecipient?: string
 
   const s = status.data;
   const valid = LOOKS_LIKE_EMAIL.test(to.trim());
+  const changed = to.trim() !== recipient;
 
   return (
     <Card>
@@ -89,6 +110,15 @@ export function EmailCard({ defaultRecipient = "" }: { defaultRecipient?: string
                 <Button type="submit" variant="outline" disabled={!s?.ready || !valid || test.isPending}>
                   {test.isPending ? <Loader2Icon className="animate-spin" /> : <SendIcon />} Send test email
                 </Button>
+                {onSaveRecipient && (
+                  <Button
+                    type="button"
+                    disabled={!changed || (to.trim() !== "" && !valid) || save.isPending}
+                    onClick={() => save.mutate(to.trim())}
+                  >
+                    {save.isPending ? <Loader2Icon className="animate-spin" /> : <CheckIcon />} Save
+                  </Button>
+                )}
               </div>
             </form>
 

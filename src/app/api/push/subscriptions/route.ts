@@ -20,16 +20,19 @@ export async function GET() {
   return NextResponse.json({ configured, problem, devices } satisfies PushDevicesPayload);
 }
 
-// POST /api/push/subscriptions { subscription: PushSubscriptionJSON } — this browser wants notifications.
-// The device name comes from the User-Agent ("Chrome on Windows", "iPhone").
+// POST /api/push/subscriptions { subscription: PushSubscriptionJSON, replaces?: endpoint } — this browser
+// wants notifications. The device name comes from the User-Agent ("Chrome on Windows", "iPhone").
+// `replaces` is the endpoint this subscription supersedes (sent by the service worker on
+// `pushsubscriptionchange`, or after re-subscribing with new VAPID keys); its row is dropped.
 export async function POST(req: NextRequest) {
   const denied = await guard();
   if (denied) return denied;
   if (!pushSetup().configured) return NextResponse.json({ error: "Push notifications aren't set up on the server." }, { status: 503 });
-  const body = (await req.json().catch(() => ({}))) as { subscription?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { subscription?: unknown; replaces?: unknown };
   const target = parsePushSubscription(body.subscription);
   if (!target) return NextResponse.json({ error: "Invalid push subscription" }, { status: 400 });
-  const device = await savePushSubscription(await getDb(), target, req.headers.get("user-agent"));
+  const replaces = typeof body.replaces === "string" ? body.replaces : null;
+  const device = await savePushSubscription(await getDb(), target, req.headers.get("user-agent"), replaces);
   return NextResponse.json(device);
 }
 

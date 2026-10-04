@@ -1,5 +1,5 @@
 import type { PushDevice } from "../../types";
-import { all, type Db, run } from "../db";
+import { all, type Db } from "../db";
 import { deviceName } from "./device";
 
 // Push subscriptions as the browser hands them over (`PushSubscription.toJSON()`).
@@ -32,14 +32,30 @@ export function parsePushSubscription(input: unknown): PushTarget | null {
   return { endpoint: sub.endpoint, keys: { p256dh, auth } };
 }
 
-/** Insert or refresh a subscription (re-subscribing the same browser keeps its row and creation date). */
-export async function savePushSubscription(db: Db, target: PushTarget, userAgent: string | null): Promise<PushDevice> {
+/**
+ * Insert or refresh a subscription (re-subscribing the same browser keeps its row and creation date).
+ * `replaces` is the endpoint this one supersedes (the browser rotated it, or the VAPID keys changed):
+ * that row is removed and its creation date carried over, so the device stays one entry.
+ */
+export async function savePushSubscription(
+  db: Db,
+  target: PushTarget,
+  userAgent: string | null,
+  replaces?: string | null,
+): Promise<PushDevice> {
   const name = deviceName(userAgent);
-  await run(
-    db,
-    `INSERT INTO push_subscriptions (endpoint, keys_json, device_name, user_agent) VALUES (?, ?, ?, ?)
-     ON CONFLICT(endpoint) DO UPDATE SET keys_json = excluded.keys_json, device_name = excluded.device_name, user_agent = excluded.user_agent`,
-    [target.endpoint, JSON.stringify(target.keys), name, userAgent],
+  const old = replaces && replaces !== target.endpoint ? replaces : null;
+  await db.batch(
+    [
+      {
+        sql: `INSERT INTO push_subscriptions (endpoint, keys_json, device_name, user_agent, created_at)
+              VALUES (?, ?, ?, ?, COALESCE((SELECT created_at FROM push_subscriptions WHERE endpoint = ?), datetime('now')))
+              ON CONFLICT(endpoint) DO UPDATE SET keys_json = excluded.keys_json, device_name = excluded.device_name, user_agent = excluded.user_agent`,
+        args: [target.endpoint, JSON.stringify(target.keys), name, userAgent, old],
+      },
+      ...(old ? [{ sql: "DELETE FROM push_subscriptions WHERE endpoint = ?", args: [old] }] : []),
+    ],
+    "write",
   );
   const [row] = await all<PushSubscriptionRow>(db, "SELECT * FROM push_subscriptions WHERE endpoint = ?", [target.endpoint]);
   return toDevice(row);

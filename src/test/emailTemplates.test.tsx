@@ -70,10 +70,21 @@ test("digest email: summary block, renewals and events", async () => {
 test("an empty digest is still a useful email", async () => {
   const mail = await renderDigestEmail({
     frequency: "monthly",
+    timeZone: "Europe/Vilnius",
     events: [],
     summary: { currency: "EUR", netMonthlyCost: 12, upcomingRenewals: [], outstandingReimbursements: { count: 0, amount: 0 } },
   });
   assert.equal(mail.subject, "Monthly summary: nothing new");
   assert.match(mail.text, /Nothing new this month/);
   assert.ok(!mail.text.includes("reimbursed")); // no "after €0 reimbursed"
+});
+
+test("digest event dates are on the user's calendar, not UTC's", async () => {
+  // 21:30Z on 3 Oct is already 00:30 on 4 Oct in Vilnius (UTC+3 in summer).
+  const event = { title: "Late-night event", body: "x", at: "2026-10-03T21:30:00Z" };
+  const vilnius = await renderDigestEmail({ ...digest, timeZone: "Europe/Vilnius", events: [event] });
+  assert.ok(vilnius.text.includes("4 Oct"));
+  assert.ok(!vilnius.text.includes("3 Oct"));
+  const utc = await renderDigestEmail({ ...digest, timeZone: "UTC", events: [event] });
+  assert.ok(utc.text.includes("3 Oct"));
 });

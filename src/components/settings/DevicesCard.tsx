@@ -29,7 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fullDate } from "@/lib/format";
+import { fullDate, localDate } from "@/lib/format";
 import { api, keys, pushDevicesQuery, pushKeyQuery } from "@/lib/query/options";
 import type { PushDevice } from "@/lib/types";
 
@@ -125,13 +125,15 @@ export function DevicesCard() {
       const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" });
       await navigator.serviceWorker.ready;
       let sub = await reg.pushManager.getSubscription();
-      // A subscription made with older VAPID keys can't be reused.
+      let replaces: string | null = null;
+      // A subscription made with older VAPID keys can't be reused; the new one takes over its row.
       if (sub && !sameKey(sub.options.applicationServerKey, key)) {
+        replaces = sub.endpoint;
         await sub.unsubscribe();
         sub = null;
       }
       sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
-      await api<PushDevice>("/api/push/subscriptions", { method: "POST", body: JSON.stringify({ subscription: sub.toJSON() }) });
+      await api<PushDevice>("/api/push/subscriptions", { method: "POST", body: JSON.stringify({ subscription: sub.toJSON(), replaces }) });
       setBrowser((b) => (b ? { ...b, endpoint: sub.endpoint } : b));
       await refresh();
       toast.success("Notifications are on for this device");
@@ -281,7 +283,7 @@ function DeviceRow({ device, current, onChanged }: { device: PushDevice; current
           {current && <Badge variant="secondary">This device</Badge>}
         </div>
         <div className="text-xs text-muted-foreground">
-          Added {fullDate(device.createdAt.slice(0, 10))} ·{" "}
+          Added {fullDate(localDate(device.createdAt))} ·{" "}
           {device.lastSuccessAt ? `last notified ${ago(device.lastSuccessAt)}` : "no notifications yet"}
         </div>
       </div>

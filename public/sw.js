@@ -1,4 +1,5 @@
-// Service worker: shows Web Push notifications and opens the app when one is clicked.
+// Service worker: shows Web Push notifications, opens the app when one is clicked, and re-registers
+// a subscription the browser rotates.
 // No offline caching on purpose: the app always talks to the live server.
 // Payload (src/lib/server/push/send.ts): { title, body, url, tag }.
 
@@ -40,6 +41,34 @@ self.addEventListener("notificationclick", (event) => {
         return;
       }
       await self.clients.openWindow(url);
+    })(),
+  );
+});
+
+// The browser replaced this device's subscription (Firefox does this; Chrome when keys rotate).
+// Subscribe again if it didn't already, and tell the server so the device keeps getting pushes
+// instead of quietly dropping off the list when the old endpoint starts returning 410.
+// Same-origin fetch, so the session cookie goes along.
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    (async () => {
+      const old = event.oldSubscription;
+      let sub = event.newSubscription || (await self.registration.pushManager.getSubscription());
+      if (!sub) {
+        let key = old?.options?.applicationServerKey;
+        if (!key) {
+          const res = await fetch("/api/push/key", { credentials: "same-origin" });
+          key = res.ok ? (await res.json()).publicKey : null;
+        }
+        if (!key) return; // push isn't set up on the server any more
+        sub = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      }
+      await fetch("/api/push/subscriptions", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub.toJSON(), replaces: old?.endpoint ?? null }),
+      });
     })(),
   );
 });

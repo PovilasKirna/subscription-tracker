@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { openDb, run } from "../lib/server/db";
 import { deviceName } from "../lib/server/push/device";
 import { deliverPush, pushSetup, vapidSubject } from "../lib/server/push/send";
-import { parsePushSubscription } from "../lib/server/push/store";
+import { listPushSubscriptions, parsePushSubscription, savePushSubscription } from "../lib/server/push/store";
 
 const UA = {
   chromeWindows: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
@@ -69,4 +73,24 @@ test("VAPID subject falls back to MAIL_FROM, then an https APP_URL", () => {
   assert.equal(pushSetup({ vapid, mailFrom: "a@b.com", appUrl: "" }).configured, true);
   assert.match(pushSetup({ vapid: { ...vapid, privateKey: "" }, mailFrom: "a@b.com", appUrl: "" }).problem ?? "", /npm run vapid/);
   assert.match(pushSetup({ vapid, mailFrom: "", appUrl: "" }).problem ?? "", /VAPID_SUBJECT/);
+});
+
+test("a rotated subscription replaces its old row and keeps the creation date", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "subtracker-push-"));
+  const db = await openDb(`file:${join(dir, "push.db").replaceAll("\\", "/")}`);
+  const keys = { p256dh: "p", auth: "a" };
+  const ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+  await savePushSubscription(db, { endpoint: "https://push.example/old", keys }, ua);
+  await savePushSubscription(db, { endpoint: "https://push.example/other", keys }, ua);
+  await run(db, "UPDATE push_subscriptions SET created_at = '2026-09-01 10:00:00' WHERE endpoint = ?", ["https://push.example/old"]);
+
+  const device = await savePushSubscription(db, { endpoint: "https://push.example/new", keys }, ua, "https://push.example/old");
+  assert.equal(device.createdAt, "2026-09-01T10:00:00Z");
+  const endpoints = (await listPushSubscriptions(db)).map((r) => r.endpoint);
+  assert.deepEqual(endpoints.sort(), ["https://push.example/new", "https://push.example/other"]);
+
+  // Replacing itself (the browser kept the endpoint) is a plain refresh.
+  await savePushSubscription(db, { endpoint: "https://push.example/new", keys }, ua, "https://push.example/new");
+  assert.equal((await listPushSubscriptions(db)).length, 2);
+  db.close();
 });

@@ -180,7 +180,9 @@ export async function openDb(url = config.databaseUrl, authToken = config.databa
 
 // One client per process (survives dev hot reloads and warm serverless invocations).
 // Bump SCHEMA_VERSION when SCHEMA/COLUMNS change so a cached client gets migrated too.
-const SCHEMA_VERSION = 11;
+// 12 (not 11): dev already uses 11 for bank_accounts, and the same 10→11 edit on both sides would
+// merge silently and leave a client migrated at 11 without push_subscriptions.
+const SCHEMA_VERSION = 12;
 const g = globalThis as unknown as { __trackerDb?: Promise<Client>; __trackerDbVersion?: number };
 export function getDb(): Promise<Client> {
   if (!g.__trackerDb || g.__trackerDbVersion !== SCHEMA_VERSION) {

@@ -1,10 +1,10 @@
 import { Column, Heading, Hr, Link, Row, Section, Text } from "@react-email/components";
-import { fullDate, money, shortDate } from "../lib/format";
+import { fullDate, localDate, money, shortDate } from "../lib/format";
 import { colors, Layout, Lines, OpenButton, styles } from "./_components/Layout";
 import { absoluteUrl, type DigestEmailProps, plural, TEXT_CELL, TEXT_LABEL } from "./types";
 
 /** The weekly/monthly summary: totals first, then what's renewing, then what happened since the last one. */
-export default function DigestEmail({ frequency, events, summary, appUrl }: DigestEmailProps) {
+export default function DigestEmail({ frequency, events, summary, timeZone, appUrl }: DigestEmailProps) {
   const period = frequency === "weekly" ? "week" : "month";
   const m = (n: number, currency = summary.currency) => money(n, currency);
   const net = `${m(summary.netMonthlyCost)} / month`;
@@ -66,7 +66,7 @@ export default function DigestEmail({ frequency, events, summary, appUrl }: Dige
               <Text style={{ ...styles.body, fontSize: "13px", lineHeight: "20px" }}>
                 <Lines text={e.body} />
               </Text>
-              <Text style={styles.small}>{shortDate(e.at.slice(0, 10))}</Text>
+              <Text style={styles.small}>{shortDate(localDate(e.at, timeZone))}</Text>
             </Section>
           );
         })
@@ -95,6 +95,7 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
 
 DigestEmail.PreviewProps = {
   frequency: "weekly",
+  timeZone: "Europe/Vilnius",
   appUrl: "https://subs.example.com",
   summary: {
     currency: "EUR",

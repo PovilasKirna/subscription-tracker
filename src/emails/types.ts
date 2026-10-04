@@ -38,6 +38,8 @@ export type DigestEmailProps = {
   /** Events since the previous digest, newest first. May be empty: the digest is still sent. */
   events: DigestEvent[];
   summary: DigestSummary;
+  /** The user's IANA time zone (settings): event timestamps are shown as dates on that calendar. */
+  timeZone: string;
   appUrl?: string;
 };
 
