@@ -13,12 +13,8 @@ export const metadata: Metadata = {
   description: "Self-hosted subscription tracker for your Revolut account",
   robots: { index: false, follow: false },
   // Installed to the iPhone home screen it runs standalone, which iOS needs for Web Push.
-  appleWebApp: { capable: true, title: "Subscriptions", statusBarStyle: "default" },
-  // Listing icons here replaces the file-based app/icon.svg link, so it is listed too.
-  icons: {
-    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
-    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
-  },
+  // Icons come from the file conventions: app/icon.svg (tab) and app/apple-icon.png (home screen).
+  appleWebApp: { capable: true, title: site.name, statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {

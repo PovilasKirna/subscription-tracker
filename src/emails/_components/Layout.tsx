@@ -39,7 +39,7 @@ export function Layout({ preview, appUrl, children }: { preview: string; appUrl?
             {children}
           </Section>
           <Text style={{ ...styles.small, margin: "16px 4px" }}>
-            You get these emails because they're turned on in {APP_NAME}.{" "}
+            {`You get these emails because they're turned on in ${APP_NAME}. `}
             {settings && (
               <Link href={settings} style={{ color: colors.faint, textDecoration: "underline" }}>
                 Notification settings
@@ -78,7 +78,7 @@ export function OpenButton({ href }: { href: string }) {
           textDecoration: "none",
         }}
       >
-        Open {APP_NAME}
+        {`Open ${APP_NAME}`}
       </Button>
     </Section>
   );

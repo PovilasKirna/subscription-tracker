@@ -36,7 +36,17 @@ test("notification email: subject, link, line breaks and escaping", async () => 
 test("notification email without APP_URL has no broken relative links", async () => {
   const mail = await renderNotificationEmail({ title: "Hi", body: "Body", url: "/subscriptions" });
   assert.ok(!mail.html.includes('href="/subscriptions"'));
-  assert.ok(!/Open Subscriptions/.test(mail.html));
+  assert.ok(!/Open Hoard/.test(mail.html));
+});
+
+test("emails carry the app's name in the header, footer and button", async () => {
+  const mail = await renderNotificationEmail({ title: "Hi", body: "Body", url: "/", appUrl: APP });
+  assert.ok(mail.html.includes(">Hoard</p>"), "header");
+  for (const s of [mail.html, mail.text]) {
+    assert.ok(s.includes("turned on in Hoard."), "footer");
+    assert.ok(s.includes("Open Hoard"), "button");
+    assert.ok(!s.includes("Subscriptions"));
+  }
 });
 
 const digest: DigestEmailProps = DigestEmail.PreviewProps;

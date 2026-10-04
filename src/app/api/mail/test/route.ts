@@ -5,6 +5,7 @@ import { getMailer, mailStatus } from "@/lib/server/mail";
 import { renderNotificationEmail } from "@/lib/server/mail/templates";
 import { guard } from "@/lib/server/session";
 import { getSettings } from "@/lib/server/settings";
+import { site } from "@/lib/site";
 
 const EMAIL = /^[^\s@<>()",;]+@[^\s@<>()",;]+\.[^\s@<>()",;]+$/;
 
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest) {
   if (!EMAIL.test(recipient) || recipient.length > 254)
     return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   const email = await renderNotificationEmail({
-    title: "Test email from Subscriptions",
+    title: `Test email from ${site.name}`,
     body: "Email notifications work. Reminders and summaries you turn on will arrive at this address.",
     url: "/",
     // Same as real reminders and digests (configuredChannels), so the test shows exactly what they will.

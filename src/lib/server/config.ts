@@ -72,7 +72,7 @@ export const config = {
     resendApiKey: env.RESEND_API_KEY || "",
     /** SMTP connection URL, e.g. "smtps://user:pass@smtp.example.com:465". */
     smtpUrl: env.SMTP_URL || "",
-    /** Sender, e.g. "Subscriptions <notifications@example.com>". Must be on a verified domain for Resend. */
+    /** Sender, e.g. "Hoard <notifications@example.com>". Must be on a verified domain for Resend. */
     from: (env.MAIL_FROM || "").trim(),
   },
   /** Web Push (VAPID) keys from `npm run vapid`. */

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSaveSettings } from "@/lib/query/mutations";
 import { api, mailStatusQuery, settingsQuery } from "@/lib/query/options";
+import { site } from "@/lib/site";
 import type { MailProvider } from "@/lib/types";
 
 // Settings → Notifications → Email: which provider the server uses, the sender, the recipient
@@ -160,7 +161,7 @@ function ResendSteps({ open }: { open: boolean }) {
         <li>
           Create an API key with sending access and set <code className="text-xs">RESEND_API_KEY</code>, plus{" "}
           <code className="text-xs">MAIL_FROM</code> as an address on that domain (e.g.{" "}
-          <code className="text-xs">Subscriptions &lt;notifications@your-domain&gt;</code>). Restart or redeploy, then send a test email.
+          <code className="text-xs">{site.name} &lt;notifications@your-domain&gt;</code>). Restart or redeploy, then send a test email.
         </li>
       </ol>
       <p className="mt-2 text-muted-foreground">

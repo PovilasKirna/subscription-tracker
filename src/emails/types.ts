@@ -1,3 +1,5 @@
+import { site } from "../lib/site";
+
 // Inputs for the email templates. The notification runner fills these in; the templates only
 // lay them out, so they stay easy to preview (`npm run email:dev`) and to test.
 
@@ -43,7 +45,7 @@ export type DigestEmailProps = {
   appUrl?: string;
 };
 
-export const APP_NAME = "Subscriptions";
+export const APP_NAME = site.name;
 
 /** Class names on table cells so the plain-text version separates them ("Label: value", "a · b"). */
 export const TEXT_LABEL = "t-label";

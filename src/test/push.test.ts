@@ -63,10 +63,7 @@ test("delivery sorts outcomes; 404/410 mean the subscription is gone", async () 
 test("VAPID subject falls back to MAIL_FROM, then an https APP_URL", () => {
   const vapid = { publicKey: "pub", privateKey: "priv", subject: "" };
   assert.equal(vapidSubject({ vapid: { ...vapid, subject: "mailto:me@x.com" }, mailFrom: "a@b.com", appUrl: "" }), "mailto:me@x.com");
-  assert.equal(
-    vapidSubject({ vapid, mailFrom: "Subscriptions <notifications@example.com>", appUrl: "" }),
-    "mailto:notifications@example.com",
-  );
+  assert.equal(vapidSubject({ vapid, mailFrom: "Hoard <notifications@example.com>", appUrl: "" }), "mailto:notifications@example.com");
   assert.equal(vapidSubject({ vapid, mailFrom: "", appUrl: "https://subs.example.com" }), "https://subs.example.com");
   assert.equal(vapidSubject({ vapid, mailFrom: "", appUrl: "http://localhost:3000" }), "");
 

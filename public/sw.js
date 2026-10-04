@@ -13,7 +13,7 @@ self.addEventListener("push", (event) => {
   } catch {
     data = { body: event.data ? event.data.text() : "" };
   }
-  const title = data.title || "Subscriptions";
+  const title = data.title || "Hoard";
   event.waitUntil(
     self.registration.showNotification(title, {
       body: data.body || "",

@@ -84,7 +84,7 @@ Set **one** of these. When both are set, Resend is used.
 - `RESEND_API_KEY`: [Resend](https://resend.com) (free tier: 3,000 emails a month), called over its REST API.
 - `SMTP_URL`: any SMTP server, e.g. `smtps://user:app-password@smtp.gmail.com:465`.
 
-Also set `MAIL_FROM` (the sender, e.g. `Subscriptions <notifications@your-domain.com>`) and `APP_URL` (your public address, used for links in emails; without it emails carry no links into the app). Then, in **Settings → Notifications → Email**, save the address notifications go to and use **Send test email**. Nothing is emailed until an address is saved.
+Also set `MAIL_FROM` (the sender, e.g. `Hoard <notifications@your-domain.com>`) and `APP_URL` (your public address, used for links in emails; without it emails carry no links into the app). Then, in **Settings → Notifications → Email**, save the address notifications go to and use **Send test email**. Nothing is emailed until an address is saved.
 
 To send from your own domain with Resend: in Resend open **Domains → Add domain**. Resend shows a DKIM `TXT` record (`resend._domainkey`) and an `MX` plus an SPF `TXT` record on the `send` subdomain. Add them at your DNS host. With Hostinger that's **Domains → DNS / Nameservers → DNS records**. Click **Verify**, wait for the status to turn green (minutes, sometimes hours), then create an API key with sending access. Until the domain is verified, Resend only accepts mail from its test sender to your own address.
 

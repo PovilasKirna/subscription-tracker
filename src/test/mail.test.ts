@@ -5,7 +5,7 @@ import { RESEND_ENDPOINT, ResendMailer } from "../lib/server/mail/resend";
 import { SmtpMailer } from "../lib/server/mail/smtp";
 
 const none = { resendApiKey: "", smtpUrl: "", from: "" };
-const FROM = "Subscriptions <notifications@example.com>";
+const FROM = "Hoard <notifications@example.com>";
 
 test("mailer selection: Resend first, then SMTP, else email is off", () => {
   assert.equal(mailProvider(none), null);

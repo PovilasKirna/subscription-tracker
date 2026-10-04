@@ -31,6 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { fullDate, localDate } from "@/lib/format";
 import { api, keys, pushDevicesQuery, pushKeyQuery, settingsQuery } from "@/lib/query/options";
+import { site } from "@/lib/site";
 import type { PushDevice } from "@/lib/types";
 
 // Settings → Notifications → Devices: turn on Web Push for this browser/phone and manage the
@@ -221,7 +222,7 @@ function AddToHomeScreen() {
           <b className="text-foreground">Add to Home Screen</b>, then <b className="text-foreground">Add</b>.
         </li>
         <li>
-          Open Subscriptions from your Home Screen, come back here and tap <b className="text-foreground">Enable on this device</b>.
+          Open {site.name} from your Home Screen, come back here and tap <b className="text-foreground">Enable on this device</b>.
         </li>
       </ol>
     </div>
