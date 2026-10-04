@@ -98,6 +98,8 @@ export function ImportLog() {
         <CardDescription>
           {data.transactionCount.toLocaleString("en-GB")} transactions
           {data.firstDate && data.lastDate && ` from ${fullDate(data.firstDate)} to ${fullDate(data.lastDate)}`}
+          {data.hiddenTransactionCount > 0 &&
+            ` · ${data.hiddenTransactionCount.toLocaleString("en-GB")} hidden from switched-off bank accounts (still in backups)`}
         </CardDescription>
       </CardHeader>
       <CardContent>

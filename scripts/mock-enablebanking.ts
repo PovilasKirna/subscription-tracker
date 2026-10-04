@@ -8,8 +8,9 @@
 //
 // It implements the endpoints the app uses, verifies the RS256 JWT with the public half of the
 // key, shows a fake "Revolut" consent page, replays samples/revolut-sample.csv as bank
-// transactions (bank-style merchant names, ISO 20022 codes, pagination) and enforces the
-// 4-per-day limit on background (no PSU headers) fetches.
+// transactions (bank-style merchant names, ISO 20022 codes, pagination) on a main account plus a
+// small "Savings" account (to try the per-account Included switch), and enforces the 4-per-day
+// limit on background (no PSU headers) fetches.
 import { createHash, createPublicKey, createVerify, generateKeyPairSync, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -133,15 +134,51 @@ async function json(req: IncomingMessage) {
   return raw ? JSON.parse(raw) : {};
 }
 
+/** A second, smaller account (so the per-account "Included" switch can be tried): a monthly iCloud charge. */
+function loadSavingsTransactions(): EbTx[] {
+  const today = new Date();
+  const out: EbTx[] = [];
+  for (let m = 11; m >= 0; m--) {
+    const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - m, 14));
+    if (d > today) continue;
+    const date = d.toISOString().slice(0, 10);
+    out.push({
+      entry_reference: `icloud-${date}`,
+      transaction_amount: { amount: "2.99", currency: "EUR" },
+      credit_debit_indicator: "DBIT",
+      status: "BOOK",
+      booking_date: date,
+      value_date: date,
+      creditor: { name: "APPLE.COM/BILL" },
+      debtor: null,
+      remittance_information: ["iCloud+"],
+      bank_transaction_code: CODES.CARD_PAYMENT,
+      merchant_category_code: "5815",
+    });
+  }
+  return out;
+}
+
 // ---------- server ----------
-const ACCOUNT = {
-  uid: "", // set per session
-  name: "Revolut EUR",
-  currency: "EUR",
-  cash_account_type: "CACC",
-  account_id: { iban: "LT123250012345678901" },
-  identification_hash: "mock-revolut-eur-hash",
-};
+// Account uids are per session (`<prefix>-<session id>`); identification hashes are stable.
+const ACCOUNTS = [
+  {
+    prefix: "acc",
+    name: "Revolut EUR",
+    currency: "EUR",
+    cash_account_type: "CACC",
+    account_id: { iban: "LT123250012345678901" },
+    identification_hash: "mock-revolut-eur-hash",
+  },
+  {
+    prefix: "sav",
+    name: "Savings",
+    currency: "EUR",
+    cash_account_type: "SVGS",
+    account_id: { iban: "LT993250098765432109" },
+    identification_hash: "mock-revolut-savings-hash",
+  },
+];
 
 createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
@@ -194,7 +231,7 @@ createServer(async (req, res) => {
     sessions.set(session_id, { validUntil, status: "AUTHORIZED" });
     return send(res, 200, {
       session_id,
-      accounts: [{ ...ACCOUNT, uid: `acc-${session_id.slice(0, 8)}` }],
+      accounts: ACCOUNTS.map(({ prefix, ...a }) => ({ ...a, uid: `${prefix}-${session_id.slice(0, 8)}` })),
       access: { valid_until: validUntil },
     });
   }
@@ -211,7 +248,7 @@ createServer(async (req, res) => {
   const txMatch = path.match(/^\/accounts\/([^/]+)\/transactions$/);
   if (req.method === "GET" && txMatch) {
     const uid = decodeURIComponent(txMatch[1]);
-    if (![...sessions.keys()].some((id) => uid === `acc-${id.slice(0, 8)}`))
+    if (![...sessions.keys()].some((id) => ACCOUNTS.some((a) => uid === `${a.prefix}-${id.slice(0, 8)}`)))
       return fail(res, 401, "EXPIRED_SESSION", "Session expired or revoked");
     if (!hasPsuHeaders(req) && !url.searchParams.get("continuation_key")) {
       const recent = (backgroundCalls.get(uid) ?? []).filter((t) => t > Date.now() - 86400_000);
@@ -221,7 +258,7 @@ createServer(async (req, res) => {
     await new Promise((r) => setTimeout(r, Number(process.env.MOCK_BANK_DELAY_MS ?? 400))); // feel like a real bank
     const strategy = url.searchParams.get("strategy");
     const from = strategy === "longest" ? "0000-00-00" : (url.searchParams.get("date_from") ?? "0000-00-00");
-    const all = loadTransactions().filter((t) => t.booking_date >= from);
+    const all = (uid.startsWith("sav-") ? loadSavingsTransactions() : loadTransactions()).filter((t) => t.booking_date >= from);
     const offset = Number(url.searchParams.get("continuation_key") ?? 0);
     const page = all.slice(offset, offset + 100);
     const next = offset + 100 < all.length ? String(offset + 100) : null;
