@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import DigestEmail from "../emails/DigestEmail";
-import { absoluteUrl, type DigestEmailProps } from "../emails/types";
+import { absoluteUrl, type DigestEmailProps, planName } from "../emails/types";
 import { renderDigestEmail, renderNotificationEmail } from "../lib/server/mail/templates";
 
 const APP = "https://subs.example.com";
@@ -55,13 +55,13 @@ test("digest email: summary block, renewals and events", async () => {
   });
   assert.equal(mail.subject, "Weekly summary: 1 update");
   assert.match(mail.text, /Net monthly cost: €84\.37 \/ month/); // table cells stay apart in plain text
-  assert.match(mail.text, /Hostinger · 9 Oct 2026 · €47\.88/);
+  assert.match(mail.text, /^Hostinger · 9 Oct · €47\.88$/m); // one renewal per line
   for (const s of [mail.html, mail.text]) {
     assert.ok(s.includes("€84.37 / month"));
     assert.ok(s.includes("after €18.00 reimbursed"));
     assert.ok(s.includes("2 charges · €36.00"));
     assert.ok(s.includes("Hostinger"));
-    assert.ok(s.includes("9 Oct 2026"));
+    assert.ok(s.includes("9 Oct"));
   }
   assert.ok(!mail.html.includes("<img src=x"));
   assert.ok(mail.html.includes("&lt;img src=x onerror=alert(1)&gt;"));
@@ -87,4 +87,34 @@ test("digest event dates are on the user's calendar, not UTC's", async () => {
   assert.ok(!vilnius.text.includes("3 Oct"));
   const utc = await renderDigestEmail({ ...digest, timeZone: "UTC", events: [event] });
   assert.ok(utc.text.includes("3 Oct"));
+});
+
+test("digest renewals heading matches the window the list covers", async () => {
+  const weekly = await renderDigestEmail(digest);
+  assert.match(weekly.html, /Coming up this week/);
+  assert.match(weekly.text, /Coming up this week/);
+  assert.ok(!/Renewing next/.test(weekly.html));
+  const monthly = await renderDigestEmail({ ...digest, frequency: "monthly" });
+  assert.match(monthly.html, /Coming up this month/);
+});
+
+test("digest renewals drop the plan's price suffix: the amount column shows it", async () => {
+  assert.equal(planName("Apple (App Store) · 9.99"), "Apple (App Store)");
+  assert.equal(planName("Netflix"), "Netflix");
+  assert.equal(planName("Spotify · Family"), "Spotify · Family"); // only a trailing price
+  const mail = await renderDigestEmail(digest); // PreviewProps include "Apple (App Store) · 9.99"
+  assert.ok(!mail.html.includes("· 9.99"));
+  assert.match(mail.text, /^Apple \(App Store\) · 9 Oct · €9\.99$/m);
+});
+
+test("digest renewals are one table with fixed date and amount columns, so rows line up", async () => {
+  const mail = await renderDigestEmail(digest);
+  const section = mail.html.slice(mail.html.indexOf("Coming up this week"), mail.html.indexOf("Since your last summary"));
+  assert.equal(section.match(/<table/g)?.length, 1, "every renewal row in the same table");
+  assert.equal(section.match(/<tr/g)?.length, digest.summary.upcomingRenewals.length);
+  assert.match(section, /table-layout:fixed/);
+  assert.equal(section.match(/<td[^>]*width="64"/g)?.length, digest.summary.upcomingRenewals.length);
+  assert.equal(section.match(/<td align="right" width="80"/g)?.length, digest.summary.upcomingRenewals.length);
+  const summary = mail.html.slice(mail.html.indexOf("Net monthly cost"), mail.html.indexOf("Coming up this week"));
+  assert.equal(summary.match(/<table/g)?.length, 1, "the summary rows share one table too");
 });

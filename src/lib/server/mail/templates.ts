@@ -25,10 +25,14 @@ const suffix: TextFormatter = (elem, walk, builder, options) => {
   builder.addInline(options.suffix ?? " ");
 };
 
-/** Table cells run together in plain text ("Net monthly cost€84.37"); marked cells get a separator. */
+/**
+ * Table cells and rows run together in plain text ("Net monthly cost€84.37"): every row gets its
+ * own line and marked cells a separator.
+ */
 const textOptions = {
   formatters: { suffix },
   selectors: [
+    { selector: "tr", format: "block", options: { leadingLineBreaks: 1, trailingLineBreaks: 1 } },
     { selector: `td.${TEXT_LABEL}`, format: "suffix", options: { suffix: ": " } },
     { selector: `td.${TEXT_CELL}`, format: "suffix", options: { suffix: " · " } },
     { selector: "h1", options: { uppercase: false } },

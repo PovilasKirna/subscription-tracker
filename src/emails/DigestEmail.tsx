@@ -1,7 +1,8 @@
-import { Column, Heading, Hr, Link, Row, Section, Text } from "@react-email/components";
-import { fullDate, localDate, money, shortDate } from "../lib/format";
+import { Heading, Hr, Link, Section, Text } from "@react-email/components";
+import type { ReactNode } from "react";
+import { localDate, money, shortDate } from "../lib/format";
 import { colors, Layout, Lines, OpenButton, styles } from "./_components/Layout";
-import { absoluteUrl, type DigestEmailProps, plural, TEXT_CELL, TEXT_LABEL } from "./types";
+import { absoluteUrl, type DigestEmailProps, planName, plural, renewalsHeading, TEXT_CELL, TEXT_LABEL } from "./types";
 
 /** The weekly/monthly summary: totals first, then what's renewing, then what happened since the last one. */
 export default function DigestEmail({ frequency, events, summary, timeZone, appUrl }: DigestEmailProps) {
@@ -19,28 +20,48 @@ export default function DigestEmail({ frequency, events, summary, timeZone, appU
         Your {frequency} summary
       </Heading>
 
-      <Stat label="Net monthly cost" value={net} note={netNote} />
-      <Stat label="Upcoming renewals" value={renewals.length ? String(renewals.length) : "None"} />
-      <Stat label="Waiting for reimbursement" value={count ? `${plural(count, "charge")} · ${m(amount)}` : "None"} />
+      <DataTable>
+        <Stat label="Net monthly cost" value={net} note={netNote} />
+        <Stat label="Upcoming renewals" value={renewals.length ? String(renewals.length) : "None"} />
+        <Stat label="Waiting for reimbursement" value={count ? `${plural(count, "charge")} · ${m(amount)}` : "None"} />
+      </DataTable>
 
       {renewals.length > 0 && (
         <Section>
           <Heading as="h2" style={styles.h2}>
-            Renewing next {period}
+            {renewalsHeading(frequency)}
           </Heading>
-          {renewals.map((r) => (
-            <Row key={`${r.name}|${r.date}`}>
-              <Column className={TEXT_CELL} style={{ ...styles.body, color: colors.text }}>
-                {r.name}
-              </Column>
-              <Column className={TEXT_CELL} style={{ ...styles.body, fontSize: "13px" }}>
-                {fullDate(r.date)}
-              </Column>
-              <Column align="right" style={{ ...styles.body, color: colors.text }}>
-                {m(r.amount, r.currency)}
-              </Column>
-            </Row>
-          ))}
+          <DataTable>
+            {renewals.map((r, i) => {
+              const cell = {
+                ...styles.body,
+                padding: "6px 0",
+                verticalAlign: "top",
+                ...(i > 0 && { borderTop: `1px solid ${colors.border}` }),
+              };
+              return (
+                <tr key={`${r.name}|${r.date}`}>
+                  <td className={TEXT_CELL} style={{ ...cell, color: colors.text, paddingRight: "12px", wordBreak: "break-word" }}>
+                    {planName(r.name)}
+                  </td>
+                  <td
+                    className={TEXT_CELL}
+                    width={DATE_WIDTH}
+                    style={{ ...cell, width: `${DATE_WIDTH}px`, fontSize: "13px", whiteSpace: "nowrap" }}
+                  >
+                    {shortDate(r.date)}
+                  </td>
+                  <td
+                    align="right"
+                    width={AMOUNT_WIDTH}
+                    style={{ ...cell, width: `${AMOUNT_WIDTH}px`, color: colors.text, whiteSpace: "nowrap" }}
+                  >
+                    {m(r.amount, r.currency)}
+                  </td>
+                </tr>
+              );
+            })}
+          </DataTable>
         </Section>
       )}
 
@@ -79,17 +100,43 @@ export default function DigestEmail({ frequency, events, summary, timeZone, appU
   );
 }
 
-function Stat({ label, value, note }: { label: string; value: string; note?: string | null }) {
+// Fixed widths (in px) of the renewals' date and amount columns; the name takes the rest, so every
+// row's columns line up (also at phone width, where the name wraps). Dates are short ("9 Oct"): the
+// list never reaches past the end of the current week or month.
+const DATE_WIDTH = 64;
+const AMOUNT_WIDTH = 80;
+
+/**
+ * One table for a whole list, so its columns line up in every client (a react-email Row per line is
+ * a table of its own, sized to its own content). Fixed layout: the widths on the cells decide.
+ */
+function DataTable({ children }: { children: ReactNode }) {
   return (
-    <Row>
-      <Column className={TEXT_LABEL} style={{ ...styles.body, padding: "4px 0" }}>
+    <table
+      role="presentation"
+      width="100%"
+      cellPadding={0}
+      cellSpacing={0}
+      border={0}
+      style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse" }}
+    >
+      <tbody>{children}</tbody>
+    </table>
+  );
+}
+
+function Stat({ label, value, note }: { label: string; value: string; note?: string | null }) {
+  const cell = { ...styles.body, padding: "4px 0", verticalAlign: "top" } as const;
+  return (
+    <tr>
+      <td className={TEXT_LABEL} style={{ ...cell, paddingRight: "12px" }}>
         {label}
-      </Column>
-      <Column align="right" style={{ ...styles.body, padding: "4px 0", color: colors.text, fontWeight: 600 }}>
+      </td>
+      <td align="right" width="45%" style={{ ...cell, width: "45%", color: colors.text, fontWeight: 600 }}>
         {value}
         {note && <div style={{ ...styles.small, fontWeight: 400 }}>{note}</div>}
-      </Column>
-    </Row>
+      </td>
+    </tr>
   );
 }
 
@@ -101,7 +148,12 @@ DigestEmail.PreviewProps = {
     currency: "EUR",
     netMonthlyCost: 84.37,
     reimbursedMonthly: 18,
-    upcomingRenewals: [{ name: "Hostinger", date: "2026-10-09", amount: 47.88, currency: "EUR" }],
+    upcomingRenewals: [
+      { name: "Netflix", date: "2026-10-07", amount: 15.99, currency: "EUR" },
+      { name: "Apple (App Store) · 9.99", date: "2026-10-09", amount: 9.99, currency: "EUR" },
+      { name: "Hostinger", date: "2026-10-09", amount: 47.88, currency: "EUR" },
+      { name: "Revolut plan", date: "2026-10-11", amount: 7.99, currency: "EUR" },
+    ],
     outstandingReimbursements: { count: 2, amount: 36 },
   },
   events: [

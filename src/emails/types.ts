@@ -27,7 +27,7 @@ export type DigestSummary = {
   netMonthlyCost: number;
   /** Expected monthly reimbursements already subtracted above ("after €X reimbursed"); 0/absent hides it. */
   reimbursedMonthly?: number;
-  /** Renewals coming up in the next period. */
+  /** Charges expected from today to the end of the digest's week (weekly) or month (monthly). */
   upcomingRenewals: DigestRenewal[];
   /** Charges still waiting to be reimbursed. */
   outstandingReimbursements: { count: number; amount: number };
@@ -59,6 +59,15 @@ export function absoluteUrl(url: string | null | undefined, appUrl = ""): string
     return null; // relative, with nothing to resolve it against
   }
 }
+
+/**
+ * A subscription name for the email, without the " · 9.99" price suffix detection adds when one
+ * merchant has several plans: the amount column already shows the price.
+ */
+export const planName = (name: string) => name.replace(/ · \d+\.\d{2}$/, "");
+
+/** Heading of the digest's renewals list: it holds the charges from today to the end of the period. */
+export const renewalsHeading = (frequency: "weekly" | "monthly") => `Coming up this ${frequency === "weekly" ? "week" : "month"}`;
 
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
