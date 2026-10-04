@@ -81,7 +81,11 @@ test("marks a stopped subscription inactive and honours user overrides", () => {
   const det = detectSubscriptions(txs, none, "2025-12-01");
   assert.equal(det.subscriptions[0].status, "inactive");
   const key = det.subscriptions[0].key;
-  const ignored = detectSubscriptions(txs, new Map([[key, { key, display_name: null, category: null, status: "ignored" }]]), "2025-12-01");
+  const ignored = detectSubscriptions(
+    txs,
+    new Map([[key, { key, display_name: null, category: null, status: "ignored", color_slot: null }]]),
+    "2025-12-01",
+  );
   assert.equal(ignored.subscriptions.length, 0);
   assert.equal(ignored.ignored.length, 1);
 });
@@ -100,4 +104,20 @@ test("colour slots follow first-seen order, not rank", () => {
     history.series.map((s) => s.slot),
     [1, 2],
   );
+});
+
+test("a user-picked colour sticks and automatic slots skip it", () => {
+  const txs = [
+    ...monthly("Spotify", 11.99, 10, 14),
+    ...monthly("Lemon Gym", 34.99, 6, 1, 2025).map((t, i) => ({ ...t, date: `2025-${String(i + 5).padStart(2, "0")}-01` })),
+  ];
+  const gym = detectSubscriptions(txs, none, "2025-11-01").subscriptions.find((s) => s.name === "Lemon Gym");
+  assert.ok(gym);
+  const picked = new Map([[gym.key, { key: gym.key, display_name: null, category: null, status: null, color_slot: 1 }]]);
+  const det = detectSubscriptions(txs, picked, "2025-11-01");
+  const by = Object.fromEntries(det.subscriptions.map((s) => [s.name, s]));
+  assert.equal(by["Lemon Gym"].colorSlot, 1);
+  assert.equal(by["Lemon Gym"].colorChosen, true);
+  assert.equal(by.Spotify.colorSlot, 2); // slot 1 is taken, so the next free one
+  assert.equal(by.Spotify.colorChosen, false);
 });

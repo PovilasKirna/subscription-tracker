@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { CircleAlertIcon, LandmarkIcon, Link2Icon, Loader2Icon, RefreshCwIcon, UnlinkIcon } from "lucide-react";
 import { useQueryStates } from "nuqs";
 import { useEffect, useState } from "react";
@@ -9,12 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { daysUntil, fullDate } from "@/lib/format";
-import { useInvalidateAll } from "@/lib/query/mutations";
-import { api } from "@/lib/query/options";
-import { useLiveStatus } from "@/lib/query/useLiveStatus";
+import { useInvalidateAll, useResetAll } from "@/lib/query/mutations";
+import { api, statusQuery } from "@/lib/query/options";
 import { dataParams } from "@/lib/search-params";
 import type { BankSession } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { SYNC_TOAST_ID } from "./SyncWatcher";
 
 const COUNTRIES = {
   LT: "Lithuania",
@@ -54,8 +54,10 @@ function useConnect() {
 }
 
 export function BankCard() {
-  const { data } = useLiveStatus();
+  // Background syncs are polled and announced app-wide by <SyncWatcher />.
+  const { data } = useSuspenseQuery(statusQuery());
   const invalidate = useInvalidateAll();
+  const resetAll = useResetAll();
   const [{ bank, reason }, setParams] = useQueryStates(dataParams);
   const [country, setCountry] = useState<Country>("LT");
   const [aspsp, setAspsp] = useState<string | null>(null);
@@ -81,9 +83,9 @@ export function BankCard() {
   const sync = useMutation({
     mutationFn: () => api<SyncResult>("/api/bank/sync", { method: "POST" }),
     onSuccess: (s) => {
-      if (s.errors.length) toast.warning("Sync finished with problems", { description: s.errors.join("\n") });
-      else toast.success(s.inserted ? `${s.inserted} new transactions` : "Already up to date");
-      void invalidate();
+      if (s.errors.length) toast.warning("Sync finished with problems", { id: SYNC_TOAST_ID, description: s.errors.join("\n") });
+      else toast.success(s.inserted ? `${s.inserted} new transactions` : "Already up to date", { id: SYNC_TOAST_ID });
+      void resetAll();
     },
     onError: (e) => toast.error(e.message),
   });
