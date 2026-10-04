@@ -16,7 +16,7 @@ import type {
 } from "../types";
 import { reconcileBankAccounts, visibleTransactions } from "./bankAccounts";
 import { bankConfigured, config } from "./config";
-import { all, allAssignments, allExclusions, allOverrides, dataVersion, getDb, one, type TxRow } from "./db";
+import { all, allAssignments, allExclusions, allOverrides, dataVersion, getDb, type TxRow } from "./db";
 import { buildHistory, type Detection, detectSubscriptions, parseSubKey, sameAmount, websiteResolver } from "./detect";
 import { merchantName } from "./merchant";
 import { memoByVersion } from "./snapshot";
@@ -201,10 +201,21 @@ export async function getTransactions(filters: TransactionFilters): Promise<Tran
 
 export async function getDataStatus(): Promise<DataStatusPayload> {
   const db = await getDb();
-  const stats = (await one<{ n: number; first: string | null; last: string | null }>(
+  // One pass over the table gives both the totals and the per-account counts: this runs on every
+  // status poll (every 1.5s while syncing), and a remote database bills per row read.
+  const groups = await all<{ source: string; account: string | null; n: number; first: string; last: string }>(
     db,
-    "SELECT COUNT(*) AS n, MIN(date) AS first, MAX(date) AS last FROM transactions",
-  )) ?? { n: 0, first: null, last: null };
+    "SELECT source, account, COUNT(*) AS n, MIN(date) AS first, MAX(date) AS last FROM transactions GROUP BY source, account",
+  );
+  const stats = groups.reduce<{ n: number; first: string | null; last: string | null }>(
+    (acc, g) => ({
+      n: acc.n + Number(g.n),
+      first: acc.first === null || g.first < acc.first ? g.first : acc.first,
+      last: acc.last === null || g.last > acc.last ? g.last : acc.last,
+    }),
+    { n: 0, first: null, last: null },
+  );
+  const txCount = new Map(groups.filter((g) => g.source === "bank" && g.account !== null).map((g) => [g.account, Number(g.n)]));
   const sessions = await all<{
     session_id: string;
     aspsp_name: string;
@@ -216,11 +227,7 @@ export async function getDataStatus(): Promise<DataStatusPayload> {
     next_retry_at: string | null;
     sync_started_at: string | null;
   }>(db, "SELECT * FROM bank_sessions ORDER BY created_at DESC");
-  const [accounts, perAccount] = await Promise.all([
-    reconcileBankAccounts(db),
-    all<{ account: string; n: number }>(db, "SELECT account, COUNT(*) AS n FROM transactions WHERE source = 'bank' GROUP BY account"),
-  ]);
-  const txCount = new Map(perAccount.map((r) => [r.account, Number(r.n)]));
+  const accounts = await reconcileBankAccounts(db);
   const toAccount = (a: (typeof accounts)[number]): BankAccount => ({
     key: a.account_key,
     name: a.name,
