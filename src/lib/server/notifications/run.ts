@@ -4,6 +4,7 @@ import type { NotificationItem, NotificationsPayload, ReminderCharge } from "../
 import { config } from "../config";
 import { all, type Db, getDb, run } from "../db";
 import { detection } from "../queries";
+import { chargeTotalMinor } from "../reimburse";
 import { getSettings, getState, setState, swapState } from "../settings";
 import { configuredChannels, type NotificationChannel, type OutgoingNotification } from "./channels";
 import {
@@ -80,13 +81,16 @@ export async function loadSnapshot(db: Db): Promise<NotificationSnapshot> {
     const tx = txById.get(txId);
     const sub = subs.get(det.txToSub.get(txId) ?? "");
     if (!tx || !sub) continue;
+    // The whole day charge (e.g. €18 + a €0.50 fee), as the reimbursement API caps it, so "Got €X"
+    // never asks for more than can be recorded against this payment.
+    const amount = chargeTotalMinor(tx, txs, det.txToSub) / 100;
     pendingCharges.push({
       txId,
       subKey: sub.key,
       name: sub.name,
       date: tx.date,
-      amount: sub.charges.find((c) => c.date === tx.date)?.amount ?? -tx.amount_minor / 100,
-      expected: r.amount,
+      amount,
+      expected: Math.min(r.amount, amount),
       currency: sub.currency,
       sourceId: r.sourceId,
     });
