@@ -193,5 +193,5 @@ export function normalizeWebsite(input: string): string | null {
       .replace(/^[a-z][a-z0-9+.-]*:\/\//, "")
       .split(/[/?#:]/)[0] ?? ""
   ).replace(/^www\./, "");
-  return /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}$/.test(host) ? host : null;
+  return /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])$/.test(host) ? host : null;
 }

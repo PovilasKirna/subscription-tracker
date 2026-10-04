@@ -32,8 +32,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ key:
   if (body.cadence != null && !CADENCES.has(body.cadence)) {
     return NextResponse.json({ error: "Invalid cadence" }, { status: 400 });
   }
-  // An empty website clears it (back to the built-in logo, if any).
-  const websiteInput = typeof body.website === "string" ? body.website.trim() : "";
+  if (body.website != null && typeof body.website !== "string") {
+    return NextResponse.json({ error: "Invalid website" }, { status: 400 });
+  }
+  // An empty website (or null) clears it, back to the built-in logo if any.
+  const websiteInput = body.website?.trim() ?? "";
   const website = websiteInput ? normalizeWebsite(websiteInput) : null;
   if (websiteInput && !website) {
     return NextResponse.json({ error: "That doesn't look like a website address" }, { status: 400 });

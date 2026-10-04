@@ -19,14 +19,47 @@ type Logo = { body: ArrayBuffer; type: string };
 const cache = new Map<string, Promise<Logo | null>>();
 const MAX_CACHED = 500;
 
+/** The body, or null if it's empty or larger than MAX_BYTES (stops reading as soon as it is). */
+async function readCapped(res: Response): Promise<ArrayBuffer | null> {
+  if (Number(res.headers.get("content-length") ?? 0) > MAX_BYTES || !res.body) {
+    await res.body?.cancel();
+    return null;
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  if (!size) return null;
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body.buffer;
+}
+
 async function fetchLogo(domain: string): Promise<Logo | null> {
   for (const source of SOURCES) {
     try {
+      // Misses come back as non-OK (Google: 404 with a generic globe) or non-image (DuckDuckGo: empty text/plain).
       const res = await fetch(source(domain), { signal: AbortSignal.timeout(5000) });
       const type = res.headers.get("content-type")?.split(";")[0].trim() ?? "";
-      if (!res.ok || !IMAGE_TYPES.has(type)) continue;
-      const body = await res.arrayBuffer();
-      if (body.byteLength > 0 && body.byteLength <= MAX_BYTES) return { body, type };
+      if (!res.ok || !IMAGE_TYPES.has(type)) {
+        await res.body?.cancel();
+        continue;
+      }
+      const body = await readCapped(res);
+      if (body) return { body, type };
     } catch {
       // Timeout or network error: try the next source.
     }
@@ -38,10 +71,13 @@ function getLogo(domain: string): Promise<Logo | null> {
   let logo = cache.get(domain);
   if (!logo) {
     if (cache.size >= MAX_CACHED) cache.clear();
-    logo = fetchLogo(domain);
-    cache.set(domain, logo);
-    // Don't pin a miss: it may be a transient upstream failure.
-    void logo.then((l) => l ?? cache.delete(domain));
+    const pending = fetchLogo(domain);
+    cache.set(domain, pending);
+    // Don't pin a miss (it may be a transient upstream failure), but leave a newer entry alone.
+    void pending.then((l) => {
+      if (!l && cache.get(domain) === pending) cache.delete(domain);
+    });
+    logo = pending;
   }
   return logo;
 }

@@ -403,7 +403,18 @@ test("website input is reduced to a bare domain, junk is rejected", () => {
   assert.equal(normalizeWebsite("tv.apple.com"), "tv.apple.com");
   assert.equal(normalizeWebsite("  lemongym.lt:443 "), "lemongym.lt");
   assert.equal(normalizeWebsite("xn--80ak6aa92e.com"), "xn--80ak6aa92e.com");
-  for (const bad of ["", "hostinger", "not a site.com", "localhost", "127.0.0.1", "-bad-.com", "a..com"]) {
+  for (const bad of [
+    "",
+    "hostinger",
+    "not a site.com",
+    "localhost",
+    "127.0.0.1",
+    "-bad-.com",
+    "a..com",
+    "example.com-",
+    "example.c-",
+    "example.c",
+  ]) {
     assert.equal(normalizeWebsite(bad), null, bad);
   }
 });
