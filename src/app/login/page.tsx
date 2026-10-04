@@ -1,13 +1,15 @@
 "use client";
 
-import { LockIcon, RepeatIcon } from "lucide-react";
+import { LockIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, Suspense, useState } from "react";
+import { HoardMark } from "@/components/shell/HoardMark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { site } from "@/lib/site";
 
 function LoginForm() {
   const router = useRouter();
@@ -53,10 +55,8 @@ export default function LoginPage() {
     <div className="flex min-h-dvh flex-col items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <div className="mb-2 grid size-9 place-items-center rounded-lg bg-[var(--series-1)] text-white">
-            <RepeatIcon className="size-5" />
-          </div>
-          <CardTitle>Personal Finance Tracker</CardTitle>
+          <HoardMark className="mb-2 size-9" />
+          <CardTitle>{site.name}</CardTitle>
           <CardDescription>Private dashboard. Enter your password to continue.</CardDescription>
         </CardHeader>
         <CardContent>
