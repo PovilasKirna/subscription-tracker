@@ -188,3 +188,33 @@ export type DataStatusPayload = {
   sessions: BankSession[];
   imports: { id: number; at: string; source: string; inserted: number; updated: number; skipped: number; message: string | null }[];
 };
+
+/** A browser/device that receives push notifications. */
+export type PushDevice = {
+  endpoint: string;
+  /** e.g. "Chrome on Windows", "iPhone". */
+  name: string;
+  createdAt: string;
+  /** Last time the push service accepted a notification for it. */
+  lastSuccessAt: string | null;
+};
+
+export type PushDevicesPayload = {
+  /** VAPID keys are set, so notifications can be sent. */
+  configured: boolean;
+  /** What to fix when not configured. */
+  problem: string | null;
+  devices: PushDevice[];
+};
+
+export type MailProvider = "resend" | "smtp";
+
+export type MailStatusPayload = {
+  /** Which adapter is configured (Resend wins over SMTP); null = email disabled. */
+  provider: MailProvider | null;
+  from: string | null;
+  /** Emails can be sent (a provider and MAIL_FROM are set). */
+  ready: boolean;
+  /** What to fix when not ready. */
+  problem: string | null;
+};

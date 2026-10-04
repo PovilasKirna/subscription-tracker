@@ -123,6 +123,16 @@ const SCHEMA = `
     value  INTEGER NOT NULL
   );
   INSERT OR IGNORE INTO meta (key, value) VALUES ('data_version', 0);
+
+  -- Browsers/devices that receive Web Push notifications (one row per PushSubscription).
+  CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint        TEXT PRIMARY KEY,
+    keys_json       TEXT NOT NULL,
+    device_name     TEXT NOT NULL,
+    user_agent      TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    last_success_at TEXT
+  );
 ${["transactions", "overrides", "tx_exclusions", "tx_assignments"]
   .flatMap((table) =>
     ["INSERT", "UPDATE", "DELETE"].map(
@@ -170,7 +180,7 @@ export async function openDb(url = config.databaseUrl, authToken = config.databa
 
 // One client per process (survives dev hot reloads and warm serverless invocations).
 // Bump SCHEMA_VERSION when SCHEMA/COLUMNS change so a cached client gets migrated too.
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 const g = globalThis as unknown as { __trackerDb?: Promise<Client>; __trackerDbVersion?: number };
 export function getDb(): Promise<Client> {
   if (!g.__trackerDb || g.__trackerDbVersion !== SCHEMA_VERSION) {

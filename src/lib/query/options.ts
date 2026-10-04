@@ -9,6 +9,8 @@ import type {
   AssignOptionsPayload,
   DataStatusPayload,
   HistoryPayload,
+  MailStatusPayload,
+  PushDevicesPayload,
   SubscriptionDetailPayload,
   SubscriptionsPayload,
   SubscriptionsTablePayload,
@@ -43,6 +45,9 @@ export const keys = {
   status: ["status"] as const,
   subscriptionDetail: (key: string) => ["subscription-detail", key] as const,
   assignOptions: (txId: string) => ["assign-options", txId] as const,
+  pushDevices: ["push-devices"] as const,
+  pushKey: ["push-key"] as const,
+  mailStatus: ["mail-status"] as const,
 };
 
 export const subscriptionsQuery = () =>
@@ -79,3 +84,13 @@ export const assignOptionsQuery = (txId: string) =>
   });
 
 export const statusQuery = () => queryOptions({ queryKey: keys.status, queryFn: () => api<DataStatusPayload>("/api/status") });
+
+/** Devices that get push notifications, and whether push is set up on the server. */
+export const pushDevicesQuery = () =>
+  queryOptions({ queryKey: keys.pushDevices, queryFn: () => api<PushDevicesPayload>("/api/push/subscriptions") });
+
+/** The VAPID public key browsers subscribe with (null until push is set up). Fixed per deployment. */
+export const pushKeyQuery = () =>
+  queryOptions({ queryKey: keys.pushKey, queryFn: () => api<{ publicKey: string | null }>("/api/push/key"), staleTime: Infinity });
+
+export const mailStatusQuery = () => queryOptions({ queryKey: keys.mailStatus, queryFn: () => api<MailStatusPayload>("/api/mail") });

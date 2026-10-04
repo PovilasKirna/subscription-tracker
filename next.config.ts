@@ -12,7 +12,11 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   devIndicators: { position: "bottom-right" },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // Browsers check the service worker for updates; never let a cache pin an old one.
+      { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
+    ];
   },
 };
 
