@@ -10,27 +10,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, mailStatusQuery } from "@/lib/query/options";
+import { useSaveSettings } from "@/lib/query/mutations";
+import { api, mailStatusQuery, settingsQuery } from "@/lib/query/options";
 import type { MailProvider } from "@/lib/types";
 
-// Settings → Notifications → Email: which provider the server uses, the sender, the recipient,
-// a test email, and how to verify a sending domain with Resend. The recipient is a stored setting:
-// the page passes the saved value in (it may arrive after mount) and how to save a new one. Until
-// the settings store is wired in, there is no save action and the address only serves the test.
+// Settings → Notifications → Email: which provider the server uses, the sender, the recipient
+// (a stored setting, via /api/settings), a test email, and how to verify a sending domain with Resend.
 
 const PROVIDER_LABEL: Record<MailProvider, string> = { resend: "Resend", smtp: "SMTP" };
 const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function EmailCard({
-  recipient = "",
-  onSaveRecipient,
-}: {
-  /** The saved recipient address ("" when none). */
-  recipient?: string;
-  /** Stores a new recipient; without it the card can only send test emails. */
-  onSaveRecipient?: (to: string) => Promise<unknown>;
-}) {
+export function EmailCard() {
   const status = useQuery(mailStatusQuery());
+  const settings = useQuery(settingsQuery());
+  const recipient = settings.data?.emailRecipient ?? "";
   const [to, setTo] = useState(recipient);
   // Follow the saved value when it loads or changes elsewhere (an unsaved edit is replaced).
   const [savedRecipient, setSavedRecipient] = useState(recipient);
@@ -39,11 +32,9 @@ export function EmailCard({
     setTo(recipient);
   }
   const inputId = useId();
-  const save = useMutation({
-    mutationFn: (value: string) => onSaveRecipient?.(value) ?? Promise.resolve(),
-    onSuccess: (_, value) => toast.success(value ? "Recipient saved" : "Recipient removed"),
-    onError: (e) => toast.error("Couldn't save the recipient", { description: e.message }),
-  });
+  const save = useSaveSettings();
+  const saveRecipient = (value: string) =>
+    save.mutate({ emailRecipient: value }, { onSuccess: () => toast.success(value ? "Recipient saved" : "Recipient removed") });
   const test = useMutation({
     mutationFn: (recipient: string) => api("/api/mail/test", { method: "POST", body: JSON.stringify({ to: recipient }) }),
     onSuccess: (_, recipient) => toast.success("Test email sent", { description: `Check ${recipient} (and its spam folder).` }),
@@ -80,6 +71,14 @@ export function EmailCard({
               </dd>
               <dt className="text-muted-foreground">From</dt>
               <dd className="min-w-0 truncate">{s?.from ?? <span className="text-muted-foreground">Not set</span>}</dd>
+              <dt className="text-muted-foreground">Links to</dt>
+              <dd className="min-w-0 truncate">
+                {s?.appUrl ?? (
+                  <span className="text-muted-foreground">
+                    Nowhere: set <code className="text-xs">APP_URL</code> so emails link back to the app
+                  </span>
+                )}
+              </dd>
             </dl>
             {s?.problem && (
               <div className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3">
@@ -110,16 +109,21 @@ export function EmailCard({
                 <Button type="submit" variant="outline" disabled={!s?.ready || !valid || test.isPending}>
                   {test.isPending ? <Loader2Icon className="animate-spin" /> : <SendIcon />} Send test email
                 </Button>
-                {onSaveRecipient && (
-                  <Button
-                    type="button"
-                    disabled={!changed || (to.trim() !== "" && !valid) || save.isPending}
-                    onClick={() => save.mutate(to.trim())}
-                  >
-                    {save.isPending ? <Loader2Icon className="animate-spin" /> : <CheckIcon />} Save
-                  </Button>
-                )}
+                <Button
+                  type="button"
+                  disabled={!settings.data || !changed || (to.trim() !== "" && !valid) || save.isPending}
+                  onClick={() => saveRecipient(to.trim())}
+                >
+                  {save.isPending ? <Loader2Icon className="animate-spin" /> : <CheckIcon />} Save
+                </Button>
               </div>
+              <p className="text-xs text-muted-foreground">
+                {!recipient
+                  ? "No address saved yet, so no notification emails go out. Save one to turn them on."
+                  : changed
+                    ? `Not saved yet: emails still go to ${recipient}.`
+                    : "Immediate emails and the summary go here."}
+              </p>
             </form>
 
             {s?.provider !== "smtp" && <ResendSteps open={!s?.provider} />}

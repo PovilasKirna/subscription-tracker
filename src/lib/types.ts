@@ -314,6 +314,8 @@ export type MailStatusPayload = {
   ready: boolean;
   /** What to fix when not ready. */
   problem: string | null;
+  /** APP_URL: where links in emails lead (null = emails carry no links into the app). */
+  appUrl: string | null;
 };
 
 export type { NotificationType, Settings } from "./settings";

@@ -84,15 +84,26 @@ Set **one** of these. When both are set, Resend is used.
 - `RESEND_API_KEY`: [Resend](https://resend.com) (free tier: 3,000 emails a month), called over its REST API.
 - `SMTP_URL`: any SMTP server, e.g. `smtps://user:app-password@smtp.gmail.com:465`.
 
-Also set `MAIL_FROM` (the sender, e.g. `Subscriptions <notifications@your-domain.com>`) and `APP_URL` (your public address, used for links in emails).
+Also set `MAIL_FROM` (the sender, e.g. `Subscriptions <notifications@your-domain.com>`) and `APP_URL` (your public address, used for links in emails; without it emails carry no links into the app). Then, in **Settings → Notifications → Email**, save the address notifications go to and use **Send test email**. Nothing is emailed until an address is saved.
 
 To send from your own domain with Resend: in Resend open **Domains → Add domain**. Resend shows a DKIM `TXT` record (`resend._domainkey`) and an `MX` plus an SPF `TXT` record on the `send` subdomain. Add them at your DNS host. With Hostinger that's **Domains → DNS / Nameservers → DNS records**. Click **Verify**, wait for the status to turn green (minutes, sometimes hours), then create an API key with sending access. Until the domain is verified, Resend only accepts mail from its test sender to your own address.
 
 Email templates live in `src/emails/` and are built with React Email. `npm run email:dev` previews them at <http://localhost:3001>.
 
+What goes where is chosen per type in **Settings → Notifications**: push on or off, and email off, right away, or collected into the weekly or monthly summary email. Push is always immediate. Everything also appears under the bell.
+
+### Scheduler: the hourly tick
+
+Reminders, push notifications and the summary email go out when the app "ticks": it syncs banks that are due, then plans and sends notifications. Calls are cheap and safe to repeat, so tick hourly.
+
+- **Self-hosted:** a built-in timer ticks every hour while the server runs. Nothing to set up.
+- **Vercel:** set `CRON_SECRET` to a long random string (`openssl rand -hex 32`). `vercel.json` ticks once a day (the Hobby plan's limit), so add an hourly job at [cron-job.org](https://cron-job.org) (free): URL `https://<your-domain>/api/cron/tick`, schedule every hour, and under **Advanced → Headers** add `Authorization: Bearer <your CRON_SECRET>`. Settings → Notifications → Scheduler shows the last tick and whether calls arrive hourly.
+
+To tick by hand: `curl -H "Authorization: Bearer $CRON_SECRET" "https://<your-domain>/api/cron/tick?wait=1"` (`wait=1` returns the outcome instead of answering at once). `/api/cron/sync` still works, but only syncs.
+
 ## Deploy to Vercel (with your own domain)
 
-Vercel runs the app as serverless functions, so two things differ from self-hosting. The database lives in **Turso** (hosted libSQL, free tier). The scheduled sync runs as a **Vercel Cron** job instead of a timer.
+Vercel runs the app as serverless functions, so two things differ from self-hosting. The database lives in **Turso** (hosted libSQL, free tier). Scheduled work (bank sync and notifications) is triggered over HTTP at `/api/cron/tick` instead of by a timer.
 
 1. **Create the project:** run `npx vercel login`, then `npx vercel link` in this folder, or import the Git repo in the Vercel dashboard.
 2. **Add a database:** Vercel → your project → **Storage** → **Marketplace → Turso** → create a database. This adds `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. Any libSQL URL also works via `DATABASE_URL` / `DATABASE_AUTH_TOKEN`. Tables are created on first request.
@@ -102,7 +113,7 @@ Vercel runs the app as serverless functions, so two things differ from self-host
    |---|---|
    | `APP_PASSWORD` | your login password |
    | `SESSION_SECRET` | `openssl rand -hex 32` (required on Vercel) |
-   | `CRON_SECRET` | another random string; Vercel Cron sends it to `/api/cron/sync` |
+   | `CRON_SECRET` | another random string; Vercel Cron and cron-job.org send it to `/api/cron/tick` (see [Scheduler](#scheduler-the-hourly-tick)) |
    | `ENABLE_BANKING_APP_ID` | your Enable Banking application id |
    | `ENABLE_BANKING_PRIVATE_KEY` | the full contents of the `.pem` file |
    | `ENABLE_BANKING_REDIRECT_URL` | `https://<your-domain>/api/bank/callback` |
@@ -117,7 +128,7 @@ Vercel runs the app as serverless functions, so two things differ from self-host
 
 Notes:
 
-- On the Hobby plan, Vercel Cron runs at most once a day (`vercel.json` schedules 05:00 UTC). That's within Revolut's background limit, and **Sync now** works any time.
+- On the Hobby plan, Vercel Cron runs at most once a day (`vercel.json` ticks at 05:00 UTC). Add the hourly cron-job.org job from [Scheduler](#scheduler-the-hourly-tick) so reminders arrive on time. Hourly ticks stay within Revolut's background limit because a connection is only synced once it's `SYNC_INTERVAL_HOURS` old, and **Sync now** works any time.
 - CSV uploads are limited to about 4 MB on Vercel. For longer histories, export your statement in a few periods.
 - To move existing local data, re-import your CSV in the deployed app, or run `npm run seed -- your-statement.csv` with `DATABASE_URL` and `DATABASE_AUTH_TOKEN` set.
 - On the Hobby plan, Vercel only deploys commits whose author email belongs to your Vercel account. If a deployment shows **Blocked**, check `git config user.email` in this repo.

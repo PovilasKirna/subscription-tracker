@@ -1,7 +1,8 @@
 import webpush from "web-push";
+import type { PushDevicesPayload } from "../../types";
 import { config } from "../config";
 import { type Db, getDb } from "../db";
-import { deletePushSubscriptions, listPushSubscriptions, markPushDelivered, type PushTarget, toTarget } from "./store";
+import { deletePushSubscriptions, listPushSubscriptions, markPushDelivered, type PushTarget, toDevice, toTarget } from "./store";
 
 // Web Push via VAPID (an open standard: the browser vendor's push service relays our encrypted
 // message to the device; no account with anyone needed). public/sw.js turns it into a notification.
@@ -43,6 +44,12 @@ export function pushSetup(cfg: VapidConfig = { vapid: config.vapid, mailFrom: co
         ? "Set VAPID_SUBJECT (e.g. mailto:you@example.com), or MAIL_FROM / an https APP_URL."
         : null;
   return { configured: !problem, problem, vapid };
+}
+
+/** Settings → Notifications → Devices: whether push is set up, and the subscribed devices. */
+export async function pushDevices(db: Db): Promise<PushDevicesPayload> {
+  const { configured, problem } = pushSetup();
+  return { configured, problem, devices: (await listPushSubscriptions(db)).map(toDevice) };
 }
 
 export type DeliveryResult = {

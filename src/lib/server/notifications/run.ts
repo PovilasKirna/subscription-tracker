@@ -286,11 +286,11 @@ let chain: Promise<unknown> = Promise.resolve();
  * Plans, stores, resolves and delivers notifications. Runs one at a time per process (a run after
  * an import waits for any current one, so it always sees the imported data).
  */
-export function runNotifications(now?: Date, channels: NotificationChannel[] = configuredChannels()): Promise<RunResult> {
+export function runNotifications(now?: Date, channels?: NotificationChannel[]): Promise<RunResult> {
   const next = chain.then(async () => {
     const db = await getDb();
-    const [snapshot, settings] = await Promise.all([loadSnapshot(db), getSettings(db)]);
-    return processNotifications(db, { snapshot, settings, now: now ?? new Date(), channels, baseCurrency: config.baseCurrency });
+    const [snapshot, settings, ready] = await Promise.all([loadSnapshot(db), getSettings(db), channels ?? configuredChannels(db)]);
+    return processNotifications(db, { snapshot, settings, now: now ?? new Date(), channels: ready, baseCurrency: config.baseCurrency });
   });
   chain = next.catch(() => undefined);
   return next;

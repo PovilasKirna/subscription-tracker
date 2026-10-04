@@ -17,7 +17,7 @@ export function mailProvider(cfg: MailConfig = config.mail): MailProvider | null
   return null;
 }
 
-export function mailStatus(cfg: MailConfig = config.mail): MailStatusPayload {
+export function mailStatus(cfg: MailConfig = config.mail): Omit<MailStatusPayload, "appUrl"> {
   const provider = mailProvider(cfg);
   const from = cfg.from || null;
   const problem = !provider
@@ -26,6 +26,11 @@ export function mailStatus(cfg: MailConfig = config.mail): MailStatusPayload {
       ? "Set MAIL_FROM to the address emails are sent from."
       : null;
   return { provider, from, ready: !problem, problem };
+}
+
+/** Settings → Notifications → Email: the status plus where links in emails lead. */
+export function mailSetup(): MailStatusPayload {
+  return { ...mailStatus(), appUrl: config.appUrl || null };
 }
 
 /** The configured mailer, or null when email isn't set up. */

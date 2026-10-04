@@ -1,11 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { CheckIcon, CircleAlertIcon, CopyIcon, MailIcon, SmartphoneIcon, TimerIcon } from "lucide-react";
+import { CheckIcon, CircleAlertIcon, CopyIcon, TimerIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -180,36 +179,6 @@ export function DigestCard() {
         ) : (
           <Skeleton className="h-14 w-full" />
         )}
-      </CardContent>
-    </Card>
-  );
-}
-
-/** Push and email arrive with the delivery channels; until then this says so. */
-export function ChannelsCard() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Devices & email</CardTitle>
-        <CardDescription>Where push notifications and emails are delivered.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col divide-y text-sm">
-        {[
-          { icon: SmartphoneIcon, label: "Push notifications", note: "Phones and browsers that show notifications." },
-          { icon: MailIcon, label: "Email", note: "Immediate emails and the summary." },
-        ].map(({ icon: Icon, label, note }) => (
-          <div key={label} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-            <Icon className="size-4 shrink-0 text-muted-foreground" />
-            <div className="min-w-0 flex-1">
-              <div className="font-medium">{label}</div>
-              <div className="text-xs text-muted-foreground">{note}</div>
-            </div>
-            <Badge variant="outline" className="text-muted-foreground">
-              Not set up yet
-            </Badge>
-          </div>
-        ))}
-        <p className="pt-2.5 text-xs text-muted-foreground">Until then, notifications collect under the bell.</p>
       </CardContent>
     </Card>
   );

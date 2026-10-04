@@ -1,23 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/server/db";
-import { pushSetup } from "@/lib/server/push/send";
-import {
-  deletePushSubscriptions,
-  listPushSubscriptions,
-  parsePushSubscription,
-  savePushSubscription,
-  toDevice,
-} from "@/lib/server/push/store";
+import { pushDevices, pushSetup } from "@/lib/server/push/send";
+import { deletePushSubscriptions, parsePushSubscription, savePushSubscription } from "@/lib/server/push/store";
 import { guard } from "@/lib/server/session";
-import type { PushDevicesPayload } from "@/lib/types";
 
 // GET /api/push/subscriptions — devices that get push notifications, plus whether push is set up.
 export async function GET() {
   const denied = await guard();
   if (denied) return denied;
-  const { configured, problem } = pushSetup();
-  const devices = (await listPushSubscriptions(await getDb())).map(toDevice);
-  return NextResponse.json({ configured, problem, devices } satisfies PushDevicesPayload);
+  return NextResponse.json(await pushDevices(await getDb()));
 }
 
 // POST /api/push/subscriptions { subscription: PushSubscriptionJSON, replaces?: endpoint } — this browser
