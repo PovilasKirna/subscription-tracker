@@ -17,7 +17,8 @@ src/
   app/            routes: (app)/ pages, api/ route handlers, login
   charts/         every chart (visx). Pages import from "@/charts" only
   components/     page sections, skeletons, shell, shadcn ui/
-  lib/server/     db, detection, Revolut CSV parser, Enable Banking client, auth
+  emails/         email templates (React Email); preview with `npm run email:dev`
+  lib/server/     db, detection, Revolut CSV parser, Enable Banking client, auth, mail/, push/
   lib/query/      query options shared by server prefetch + client
   lib/search-params.ts   nuqs parsers shared by server + client
 ```
@@ -62,6 +63,33 @@ ENABLE_BANKING_API_URL=http://localhost:4010
 ENABLE_BANKING_KEY_PATH=./data/mock-enablebanking.pem
 ```
 
+## Notifications: push and email (optional)
+
+The app can reach you outside the browser in two ways. Both are off until you configure them, and neither needs a paid service.
+
+### Push notifications (Web Push)
+
+Web Push is an open standard: the browser's own push service (Google, Mozilla, Apple) relays an encrypted message to your device. The app signs it with a VAPID key pair; there is no account to create.
+
+1. Run `npm run vapid` once and put the printed `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` address or your https URL) in `.env` or your hosting's environment variables. Keep the keys: new keys silently unsubscribe every device.
+2. Open the app on each phone or computer and choose **Enable on this device**. Your browser asks for permission.
+3. **iPhone/iPad:** iOS (16.4 or later) only delivers push to apps on the Home Screen. In Safari tap **Share → Add to Home Screen**, open the app from there, then enable notifications. The web app manifest and icons make it install like an app.
+
+Push needs https (or `localhost`). Devices whose subscription expires are removed automatically. Sessions are sliding: the 30-day login cookie is renewed whenever fewer than 20 days remain, so an installed app that you open now and then stays signed in.
+
+### Email
+
+Set **one** of these. When both are set, Resend is used.
+
+- `RESEND_API_KEY`: [Resend](https://resend.com) (free tier: 3,000 emails a month), called over its REST API.
+- `SMTP_URL`: any SMTP server, e.g. `smtps://user:app-password@smtp.gmail.com:465`.
+
+Also set `MAIL_FROM` (the sender, e.g. `Subscriptions <notifications@your-domain.com>`) and `APP_URL` (your public address, used for links in emails).
+
+To send from your own domain with Resend: in Resend open **Domains → Add domain**. Resend shows a DKIM `TXT` record (`resend._domainkey`) and an `MX` plus an SPF `TXT` record on the `send` subdomain. Add them at your DNS host. With Hostinger that's **Domains → DNS / Nameservers → DNS records**. Click **Verify**, wait for the status to turn green (minutes, sometimes hours), then create an API key with sending access. Until the domain is verified, Resend only accepts mail from its test sender to your own address.
+
+Email templates live in `src/emails/` and are built with React Email. `npm run email:dev` previews them at <http://localhost:3001>.
+
 ## Deploy to Vercel (with your own domain)
 
 Vercel runs the app as serverless functions, so two things differ from self-hosting. The database lives in **Turso** (hosted libSQL, free tier). The scheduled sync runs as a **Vercel Cron** job instead of a timer.
@@ -79,6 +107,9 @@ Vercel runs the app as serverless functions, so two things differ from self-host
    | `ENABLE_BANKING_PRIVATE_KEY` | the full contents of the `.pem` file |
    | `ENABLE_BANKING_REDIRECT_URL` | `https://<your-domain>/api/bank/callback` |
    | `BASE_CURRENCY` | `EUR` (optional) |
+   | `APP_URL` | `https://<your-domain>` (links in emails) |
+   | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | from `npm run vapid` (optional, push notifications) |
+   | `RESEND_API_KEY` or `SMTP_URL`, `MAIL_FROM` | optional, email notifications (see above) |
 
 4. **Deploy:** `npx vercel --prod`.
 5. **Add your domain:** in Vercel → **Settings → Domains**, add e.g. `subs.example.com`. Then in Hostinger (**Domains → DNS / Nameservers → DNS records**), add the record Vercel shows. For a subdomain that's a `CNAME` from `subs` to `cname.vercel-dns.com`. For the apex domain it's an `A` record from `@` to the IP Vercel shows. HTTPS is issued automatically.
@@ -120,7 +151,8 @@ The container listens on `127.0.0.1:3000` and keeps everything in `./data` (`tra
 ### Security notes
 
 - Single-user login with a password from `APP_PASSWORD`. Sessions are HMAC-signed, `HttpOnly` and `SameSite=Lax` cookies, and login attempts are rate-limited.
-- Every page and API route is checked by `src/proxy.ts`, and each route handler checks again.
+- Every page and API route is checked by `src/proxy.ts`, and each route handler checks again. Only the login page, the legal pages, the web app manifest, the service worker (`/sw.js`) and the icons are public, because the browser fetches those without your cookie.
+- Push subscriptions are stored in your database. API keys stay in environment variables and are never sent to the browser.
 - The bank callback is authorized by a one-time `state` value that expires after an hour.
 - Your Enable Banking key and database never leave `data/`, which is gitignored and dockerignored.
 - Revolut credentials never touch this app. You approve access in Revolut's own app.
@@ -132,7 +164,9 @@ The container listens on `127.0.0.1:3000` and keeps everything in `./data` (`tra
 | `npm run dev` | Next dev server |
 | `npm run typecheck` | `next typegen` + `tsc --noEmit` |
 | `npm run lint` / `lint:fix` | Biome lint + format check |
-| `npm test` | Unit tests (`node:test`): CSV parsing, detection, auth |
+| `npm test` | Unit tests (`node:test`): CSV parsing, detection, auth, mail, push. `*.test.tsx` (email rendering) run in a second pass without the `react-server` condition |
+| `npm run vapid` | Print a new VAPID key pair for push notifications |
+| `npm run email:dev` | Preview the email templates (React Email) on port 3001 |
 | `npm run sample` / `seed` | Generate fake Revolut CSV / import a CSV into the DB |
 
 A Husky **pre-commit** hook runs Biome on the staged files (auto-fixes and re-stages them), then the typecheck and the tests.
