@@ -7,10 +7,13 @@ import { getDb } from "@/lib/server/db";
 import { getSchedulerStatus } from "@/lib/server/notifications/tick";
 import { getSettings } from "@/lib/server/settings";
 
-export default function NotificationSettingsPage() {
+// Awaited (small reads), so the page renders with the values instead of skeletons.
+export default async function NotificationSettingsPage() {
   const queryClient = getQueryClient();
-  void queryClient.prefetchQuery({ ...settingsQuery(), queryFn: async () => getSettings(await getDb()) });
-  void queryClient.prefetchQuery({ ...schedulerQuery(), queryFn: () => getSchedulerStatus() });
+  await Promise.all([
+    queryClient.prefetchQuery({ ...settingsQuery(), queryFn: async () => getSettings(await getDb()) }),
+    queryClient.prefetchQuery({ ...schedulerQuery(), queryFn: () => getSchedulerStatus() }),
+  ]);
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
       <SectionHeader href="/settings/notifications" />

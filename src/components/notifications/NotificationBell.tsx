@@ -180,7 +180,7 @@ function ReminderCharges({ charges }: { charges: ReminderCharge[] }) {
     <ul className="mx-3 mb-2.5 ml-13 flex flex-col gap-1.5 rounded-lg border bg-muted/30 p-2 text-xs">
       {charges.map((c) => (
         <li key={c.txId} className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="min-w-0 flex-1 truncate">
+          <span className="min-w-36 flex-1">
             <span className="font-medium">{c.name}</span>{" "}
             <span className="text-muted-foreground tabular-nums">
               · {shortDate(c.date)} · {money(c.amount, c.currency)}

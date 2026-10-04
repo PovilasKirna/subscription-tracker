@@ -6,9 +6,10 @@ import { settingsQuery } from "@/lib/query/options";
 import { getDb } from "@/lib/server/db";
 import { getSettings } from "@/lib/server/settings";
 
-export default function GeneralSettingsPage() {
+// Awaited (a tiny read), so the page renders with the values instead of a skeleton.
+export default async function GeneralSettingsPage() {
   const queryClient = getQueryClient();
-  void queryClient.prefetchQuery({ ...settingsQuery(), queryFn: async () => getSettings(await getDb()) });
+  await queryClient.prefetchQuery({ ...settingsQuery(), queryFn: async () => getSettings(await getDb()) });
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
       <SectionHeader href="/settings/general" />

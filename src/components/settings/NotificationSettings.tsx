@@ -66,7 +66,7 @@ export function PreferencesCard() {
             <div className="hidden gap-4 border-b pb-2 text-xs font-medium text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1fr)_4rem_auto]">
               <span>Type</span>
               <span className="text-center">Push</span>
-              <span className="w-[15.5rem]">Email</span>
+              <span className="sm:w-52">Email</span>
             </div>
             {NOTIFICATION_TYPES.map((type) => (
               <PreferenceRow key={type} type={type} pref={s.notifications[type]} onChange={(p) => set(type, p)} />
@@ -101,7 +101,7 @@ function PreferenceRow({
         <Switch checked={pref.push} onCheckedChange={(push) => onChange({ push })} aria-label={`Push: ${info.label}`} />
         <span className="text-xs text-muted-foreground sm:hidden">Push</span>
       </div>
-      <div className="justify-self-end sm:justify-self-auto">
+      <div className="justify-self-end sm:w-52 sm:justify-self-auto">
         <ToggleGroup
           variant="outline"
           size="sm"
@@ -111,7 +111,11 @@ function PreferenceRow({
           aria-label={`Email: ${info.label}`}
         >
           {EMAIL_OPTIONS.map((o) => (
-            <ToggleGroupItem key={o.value} value={o.value} className="px-2.5 data-pressed:bg-muted data-pressed:font-semibold">
+            <ToggleGroupItem
+              key={o.value}
+              value={o.value}
+              className="flex-1 px-2.5 text-muted-foreground data-pressed:bg-muted data-pressed:text-foreground"
+            >
               {o.label}
             </ToggleGroupItem>
           ))}
@@ -151,7 +155,11 @@ export function DigestCard() {
               aria-label="Summary email frequency"
             >
               {DIGEST_OPTIONS.map((o) => (
-                <ToggleGroupItem key={o.value} value={o.value} className="px-3 data-pressed:bg-muted data-pressed:font-semibold">
+                <ToggleGroupItem
+                  key={o.value}
+                  value={o.value}
+                  className="px-3 text-muted-foreground data-pressed:bg-muted data-pressed:text-foreground"
+                >
                   {o.label}
                 </ToggleGroupItem>
               ))}

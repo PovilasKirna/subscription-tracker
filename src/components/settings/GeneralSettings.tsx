@@ -111,7 +111,7 @@ function TimeZonePicker({ value, onChange }: { value: string; onChange: (tz: str
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] p-0">
         <Command className="p-0">
-          <CommandInput placeholder="Search time zones…" aria-label="Search time zones" />
+          <CommandInput autoFocus placeholder="Search time zones…" aria-label="Search time zones" />
           <CommandList className="max-h-64">
             <CommandEmpty>No time zone with that name.</CommandEmpty>
             <CommandGroup>

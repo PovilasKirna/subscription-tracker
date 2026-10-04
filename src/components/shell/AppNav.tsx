@@ -45,7 +45,7 @@ export function AppNav() {
         })}
       </nav>
       {/* Phones: pinned to the right end of the top bar, even when the links scroll. */}
-      <div className="sticky right-0 ml-auto bg-card pl-1 md:hidden">
+      <div className="sticky -right-3 -mr-3 ml-auto bg-card pr-3 pl-2 md:hidden">
         <NotificationBell />
       </div>
       <div className="hidden gap-3 px-2.5 pt-1 text-xs text-muted-foreground md:mt-auto md:flex">
