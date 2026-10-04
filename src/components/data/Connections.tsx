@@ -37,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { type ConnectionTone, connectionStatus, historyGap, sessionHealth, timeAgo } from "@/lib/bank";
+import { type ConnectionTone, connectionStatus, historyGap, needsReconnect, sessionHealth, timeAgo } from "@/lib/bank";
 import { fullDate, shortDate } from "@/lib/format";
 import { useInvalidateAll, useResetAll } from "@/lib/query/mutations";
 import { api, keys, statusQuery } from "@/lib/query/options";
@@ -375,7 +375,7 @@ function ConnectionDetail({ session: s, onDisconnected }: { session: BankSession
               <RefreshCwIcon className={cn(syncing && "animate-spin")} /> {syncing ? "Syncing…" : "Sync now"}
             </Button>
           )}
-          {health.level !== "ok" && (
+          {needsReconnect(s, today()) && (
             <Button onClick={() => connect.mutate({ name: s.aspsp, country: s.country })} disabled={connect.isPending}>
               {connect.isPending ? <Loader2Icon className="animate-spin" /> : <Link2Icon />} Reconnect
             </Button>

@@ -17,6 +17,15 @@ export function sessionHealth(s: BankSession, today: string): { level: "ok" | "w
   return { level: "ok", message: null };
 }
 
+/**
+ * Whether the user has to reconnect: the bank dropped access, or it runs out soon. Other warnings
+ * (a rate limit, a one-off bank error) clear on a later sync, so they don't offer a reconnect.
+ */
+export function needsReconnect(s: Pick<BankSession, "status" | "validUntil">, today: string): boolean {
+  if (s.status === "needs_reconnect") return true;
+  return s.validUntil !== null && daysUntil(s.validUntil.slice(0, 10), today) <= EXPIRY_WARNING_DAYS;
+}
+
 export type ConnectionTone = "syncing" | "good" | "warning" | "critical";
 
 /** Short status for a connection tile: Syncing / Healthy / Access expires in N days / Needs reconnect. */
