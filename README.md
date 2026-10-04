@@ -89,6 +89,25 @@ Notes:
 - On the Hobby plan, Vercel Cron runs at most once a day (`vercel.json` schedules 05:00 UTC). That's within Revolut's background limit, and **Sync now** works any time.
 - CSV uploads are limited to about 4 MB on Vercel. For longer histories, export your statement in a few periods.
 - To move existing local data, re-import your CSV in the deployed app, or run `npm run seed -- your-statement.csv` with `DATABASE_URL` and `DATABASE_AUTH_TOKEN` set.
+- On the Hobby plan, Vercel only deploys commits whose author email belongs to your Vercel account. If a deployment shows **Blocked**, check `git config user.email` in this repo.
+
+### Dev and prod environments
+
+| | Local | Dev (Vercel Preview) | Prod (Vercel Production) |
+|---|---|---|---|
+| Deploys from | `npm run dev` | any branch except `main` (e.g. `dev`) | `main` |
+| Database | `data/tracker.db` (sample data) | its own Turso database, seeded with sample data | your real Turso database |
+| Bank sync | mock (`npm run mock:bank`) | off | Enable Banking + daily cron |
+| Access | localhost | app password + Vercel deployment protection | app password |
+
+Each environment has its own variables in Vercel (**Settings → Environment Variables**, scoped to *Preview* or *Production*), so a dev deployment can never reach production data. Preview needs `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` (from connecting the dev database with only *Preview* ticked), `APP_PASSWORD` and `SESSION_SECRET`. Leave the Enable Banking variables and `CRON_SECRET` unset. Cron jobs only run in production.
+
+To fill the dev database with sample data, pull the Preview variables into a file outside the repo and seed:
+
+```bash
+npx vercel env pull ../preview.env --environment=preview
+npx tsx --env-file=../preview.env scripts/seed.ts
+```
 
 ## Self-hosting
 
