@@ -27,6 +27,11 @@ const sub = (
     amount,
     monthlyCost: amount,
     yearlyCost: amount * 12,
+    reimbursement: null,
+    reimbursementPeriods: [],
+    netMonthlyCost: amount,
+    totalReimbursed: 0,
+    pendingReimbursements: 0,
     firstCharge: "2025-01-01",
     lastCharge: "2026-06-01",
     nextCharge,
@@ -111,6 +116,20 @@ test("subscriptions table: sorting by name, amount and next charge (nulls last b
   assert.deepEqual(names(querySubscriptions(det, params("sort=nextCharge"))), ["Gym", "iCloud", "Netflix", "Adobe", "Spotify"]);
   assert.deepEqual(names(querySubscriptions(det, params("sort=nextCharge&dir=desc"))), ["Adobe", "Netflix", "iCloud", "Gym", "Spotify"]);
   assert.deepEqual(names(querySubscriptions(det, params("sort=status&dir=desc"))), ["Adobe", "Spotify", "Gym", "Netflix", "iCloud"]);
+});
+
+test("subscriptions table: sorting by monthly cost uses the net cost the column shows", () => {
+  // Gross: iCloud 2.99 < Netflix 15.99 < Gym 30. Net: the gym is fully reimbursed and Netflix half.
+  const reimbursed = {
+    ...det,
+    subscriptions: det.subscriptions.map((s) =>
+      s.name === "Gym" ? { ...s, netMonthlyCost: 0 } : s.name === "Netflix" ? { ...s, netMonthlyCost: 8 } : s,
+    ),
+  };
+  const q = "sort=monthlyCost&status=active,late";
+  assert.deepEqual(names(querySubscriptions(det, params(q))), ["iCloud", "Netflix", "Gym"]);
+  assert.deepEqual(names(querySubscriptions(reimbursed, params(q))), ["Gym", "iCloud", "Netflix"]);
+  assert.deepEqual(names(querySubscriptions(reimbursed, params(`${q}&dir=desc`))), ["Netflix", "iCloud", "Gym"]);
 });
 
 test("subscriptions table: paginates and clamps out-of-range pages", () => {

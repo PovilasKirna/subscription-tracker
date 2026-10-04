@@ -50,7 +50,7 @@ export function querySubscriptions(
   const compare: Record<SubscriptionFilters["sort"], (a: SubscriptionRow, b: SubscriptionRow) => number> = {
     name: (a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }),
     amount: (a, b) => a.amount - b.amount,
-    monthlyCost: (a, b) => a.monthlyCost - b.monthlyCost,
+    monthlyCost: (a, b) => a.netMonthlyCost - b.netMonthlyCost, // what the column shows
     nextCharge: (a, b) => (a.nextCharge ?? "").localeCompare(b.nextCharge ?? ""),
     status: (a, b) => SUB_STATUSES.indexOf(a.rowStatus) - SUB_STATUSES.indexOf(b.rowStatus),
   };

@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { ColorChoice } from "../color";
 import type { OverrideStatus } from "../server/db";
-import type { Cadence } from "../types";
+import type { Cadence, ReimbursementMode } from "../types";
 import { api, keys } from "./options";
 
 export type OverrideInput = {
@@ -76,6 +76,78 @@ export function useExclusion() {
   return useMutation({
     mutationFn: ({ txId, exclude }: { txId: string; exclude: boolean }) =>
       api(`/api/exclusions/${encodeURIComponent(txId)}`, { method: exclude ? "PUT" : "DELETE" }),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(e.message),
+  });
+}
+
+/** Record what came back for one charge (0 = not reimbursed), or forget it with `amount` null. */
+export function useReimbursement() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({ txId, amount }: { txId: string; amount: number | null }) =>
+      api(
+        `/api/reimbursements/${encodeURIComponent(txId)}`,
+        amount === null ? { method: "DELETE" } : { method: "PUT", body: JSON.stringify({ amount }) },
+      ),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(e.message),
+  });
+}
+
+export type SourceInput = { name: string; mode: ReimbursementMode; reminderDay: number | null };
+
+export type PeriodInput = {
+  subKey: string;
+  /** YYYY-MM-DD the period applies from. */
+  startsOn: string;
+} & (
+  | { stop: true }
+  | {
+      /** Expected back per charge, major units. */
+      amount: number;
+      /** An existing source, or a new one to create; neither = the default "Salary". */
+      sourceId?: number;
+      newSource?: SourceInput;
+    }
+);
+
+/** Start a reimbursement period (set up, change or stop) from a chosen date. */
+export function useReimbursementPeriod() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (input: PeriodInput) => api("/api/reimbursements/periods", { method: "PUT", body: JSON.stringify(input) }),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(e.message),
+  });
+}
+
+export function useDeleteReimbursementPeriod() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (id: number) => api(`/api/reimbursements/periods/${id}`, { method: "DELETE" }),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(e.message),
+  });
+}
+
+/** Add a source (no `id`) or edit one. Resolves to its `{ id }`. */
+export function useSaveSource() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({ id, ...body }: SourceInput & { id?: number }) =>
+      id === undefined
+        ? api<{ id: number }>("/api/reimbursements/sources", { method: "POST", body: JSON.stringify(body) })
+        : api(`/api/reimbursements/sources/${id}`, { method: "PUT", body: JSON.stringify(body) }).then(() => ({ id })),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(e.message),
+  });
+}
+
+export function useDeleteSource() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (id: number) => api(`/api/reimbursements/sources/${id}`, { method: "DELETE" }),
     onSuccess: invalidate,
     onError: (e) => toast.error(e.message),
   });

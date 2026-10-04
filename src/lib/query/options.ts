@@ -9,6 +9,7 @@ import type {
   AssignOptionsPayload,
   DataStatusPayload,
   HistoryPayload,
+  ReimbursementSourcesPayload,
   SubscriptionDetailPayload,
   SubscriptionsPayload,
   SubscriptionsTablePayload,
@@ -43,6 +44,7 @@ export const keys = {
   status: ["status"] as const,
   subscriptionDetail: (key: string) => ["subscription-detail", key] as const,
   assignOptions: (txId: string) => ["assign-options", txId] as const,
+  reimbursementSources: ["reimbursement-sources"] as const,
 };
 
 export const subscriptionsQuery = () =>
@@ -79,3 +81,10 @@ export const assignOptionsQuery = (txId: string) =>
   });
 
 export const statusQuery = () => queryOptions({ queryKey: keys.status, queryFn: () => api<DataStatusPayload>("/api/status") });
+
+/** Reimbursement sources with the subscriptions using each. */
+export const reimbursementSourcesQuery = () =>
+  queryOptions({
+    queryKey: keys.reimbursementSources,
+    queryFn: () => api<ReimbursementSourcesPayload>("/api/reimbursements/sources"),
+  });

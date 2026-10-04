@@ -101,10 +101,11 @@ export function SpendSection() {
   const cur = data.baseCurrency;
   const fmt = (n: number) => money(n, cur);
   const fmtAxis = (n: number) => money(n, cur, { cents: false });
+  const reimbursed = data.reimbursed.reduce((sum, v) => sum + v, 0);
   return (
     <ChartCard
       title="Monthly recurring spend"
-      description={`Stacked by subscription, last ${months} months`}
+      description={`Stacked by subscription, last ${months} months${reimbursed > 0 ? ` · ${money(reimbursed, cur)} reimbursed` : ""}`}
       className={cn(isPending && "opacity-60 transition-opacity")}
       controls={<RangeToggle label="Range" value={months} options={HISTORY_RANGES} suffix="m" onChange={(m) => setParams({ months: m })} />}
       chart={

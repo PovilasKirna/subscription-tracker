@@ -4,8 +4,10 @@ import type { SubscriptionFilters, TransactionFilters } from "../search-params";
 import type {
   AssignOptionsPayload,
   BankAccount,
+  ChargeReimbursement,
   DataStatusPayload,
   HistoryPayload,
+  ReimbursementSourcesPayload,
   RelatedTransaction,
   Subscription,
   SubscriptionDetailPayload,
@@ -16,9 +18,20 @@ import type {
 } from "../types";
 import { reconcileBankAccounts, visibleTransactions } from "./bankAccounts";
 import { bankConfigured, config } from "./config";
-import { all, allAssignments, allExclusions, allOverrides, dataVersion, getDb, type TxRow } from "./db";
+import {
+  all,
+  allAssignments,
+  allExclusions,
+  allOverrides,
+  allReimbursementData,
+  dataVersion,
+  getDb,
+  type ReimbursementData,
+  type TxRow,
+} from "./db";
 import { buildHistory, type Detection, detectSubscriptions, parseSubKey, sameAmount, websiteResolver } from "./detect";
 import { merchantName } from "./merchant";
+import { applyReimbursements, chargeTotalMinor, summarizeSources } from "./reimburse";
 import { memoByVersion } from "./snapshot";
 import { querySubscriptions } from "./subscriptionTable";
 import { isSyncing, syncCutoff } from "./sync";
@@ -39,23 +52,44 @@ const today = () => new Date().toISOString().slice(0, 10);
 export const detection = cache(
   memoByVersion(
     async () => `${await dataVersion(await getDb())}|${today()}`,
-    async (version): Promise<{ txs: TxRow[]; det: Detection; excluded: Set<string>; assigned: Map<string, string> }> => {
+    async (
+      version,
+    ): Promise<{
+      txs: TxRow[];
+      det: Detection;
+      excluded: Set<string>;
+      assigned: Map<string, string>;
+      reimbursement: ReimbursementData;
+      /** Payment id → reimbursement of the charge it stands for (see applyReimbursements). */
+      reimbursedTx: Map<string, ChargeReimbursement>;
+    }> => {
       const day = version.slice(version.indexOf("|") + 1);
       const db = await getDb();
-      const [txs, overrides, excluded, assigned] = await Promise.all([
+      const [txs, overrides, excluded, assigned, reimbursement] = await Promise.all([
         visibleTransactions(db),
         allOverrides(db),
         allExclusions(db),
         allAssignments(db),
+        allReimbursementData(db),
       ]);
-      return { txs, excluded, assigned, det: detectSubscriptions(txs, overrides, day, config.baseCurrency, excluded, assigned) };
+      const det = detectSubscriptions(txs, overrides, day, config.baseCurrency, excluded, assigned);
+      const reimbursedTx = applyReimbursements(det, txs, reimbursement, day);
+      return { txs, excluded, assigned, det, reimbursement, reimbursedTx };
     },
   ),
 );
 
 type WebsiteOf = ReturnType<typeof websiteResolver>;
 
-const toItem = (t: TxRow, subscriptionKey: string | null, websiteOf: WebsiteOf): TransactionItem => ({
+const toItem = (
+  t: TxRow,
+  subscriptionKey: string | null,
+  websiteOf: WebsiteOf,
+  reimbursement?: ChargeReimbursement,
+  chargeMinor?: number,
+): TransactionItem => ({
+  ...(reimbursement && { reimbursement }),
+  ...(chargeMinor !== undefined && chargeMinor !== -t.amount_minor && { chargeTotal: chargeMinor / 100 }),
   id: t.id,
   date: t.date,
   description: t.description,
@@ -108,7 +142,7 @@ function relatedTransactions(
 
 /** Everything the subscription drawer shows: the subscription, its charges, excluded and related ones. */
 export async function getSubscriptionDetail(key: string): Promise<SubscriptionDetailPayload> {
-  const { txs, det, excluded, assigned } = await detection();
+  const { txs, det, excluded, assigned, reimbursedTx } = await detection();
   const active = det.subscriptions.find((s) => s.key === key);
   const ignored = det.ignored.find((s) => s.key === key);
   const subscription = active ?? ignored ?? null;
@@ -127,7 +161,11 @@ export async function getSubscriptionDetail(key: string): Promise<SubscriptionDe
           (ignored && t.merchant_key === merchantKey && t.currency === currency && !excluded.has(t.id) && t.amount_minor < 0),
       )
       .sort(newestFirst)
-      .map((t) => toItem(t, active ? key : null, websiteOf)),
+      .map((t) => {
+        if (!active) return toItem(t, null, websiteOf);
+        const r = reimbursedTx.get(t.id);
+        return toItem(t, key, websiteOf, r, r && chargeTotalMinor(t, counted, det.txToSub));
+      }),
     excluded: txs
       .filter((t) => excluded.has(t.id) && ((t.merchant_key === merchantKey && t.currency === currency) || assigned.get(t.id) === key))
       .sort(newestFirst)
@@ -191,6 +229,12 @@ export async function getSubscriptionsTable(filters: SubscriptionFilters): Promi
 export async function getHistory(months = 12): Promise<HistoryPayload> {
   const { txs, det } = await detection();
   return buildHistory(txs, det, config.baseCurrency, today(), Math.min(Math.max(months, 3), 36));
+}
+
+/** Reimbursement sources with the subscriptions that use them. */
+export async function getReimbursementSources(): Promise<ReimbursementSourcesPayload> {
+  const { det, reimbursement } = await detection();
+  return { sources: summarizeSources([...reimbursement.sources.values()], reimbursement, det) };
 }
 
 /** Filtered, sorted, paginated page for the transactions data table (see transactionTable.ts). */

@@ -1,7 +1,7 @@
 "use client";
 
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { TrendingUpIcon } from "lucide-react";
+import { CircleAlertIcon, TrendingUpIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { fullDate, money } from "@/lib/format";
 import { computeStats } from "@/lib/insights";
@@ -22,10 +22,23 @@ export function StatTiles() {
             {money(s.monthly, cur)}
             <span className="ml-1 text-base font-medium tracking-normal text-muted-foreground">/mo</span>
           </div>
-          <div className="mt-2 text-[13px] text-[var(--text-muted)]">{money(s.dueNext30, cur)} due in the next 30 days</div>
+          <div className="mt-2 text-[13px] text-[var(--text-muted)]">
+            {s.reimbursedMonthly > 0 && `after ${money(s.reimbursedMonthly, cur)} reimbursed · `}
+            {money(s.dueNext30, cur)} due in the next 30 days
+          </div>
+          {s.pendingReimbursements > 0 && (
+            <div className="mt-1 flex items-center gap-1.5 text-[13px] text-[var(--text-muted)]">
+              <CircleAlertIcon className="size-3.5 shrink-0 text-[var(--status-warning)]" aria-hidden />
+              {s.pendingReimbursements} pending reimbursement{s.pendingReimbursements > 1 ? "s" : ""}
+            </div>
+          )}
         </CardContent>
       </Card>
-      <Tile label="Yearly projection" value={money(s.yearly, cur, { cents: false })} sub="at today's prices" />
+      <Tile
+        label="Yearly projection"
+        value={money(s.yearly, cur, { cents: false })}
+        sub={s.reimbursedMonthly > 0 ? "at today's prices, after reimbursements" : "at today's prices"}
+      />
       <Tile
         label="Active subscriptions"
         value={String(s.activeCount + s.lateCount)}

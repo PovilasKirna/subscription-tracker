@@ -1,7 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { BadgeCheckIcon } from "lucide-react";
+import { BadgeCheckIcon, CircleAlertIcon, HandCoinsIcon } from "lucide-react";
 import { ChargeSparkline } from "@/charts";
 import { DataTableColumnHeader } from "@/components/data-table";
 import { MerchantIcon } from "@/components/MerchantIcon";
@@ -36,6 +36,16 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
                   {s.priceChanges.length} price change{s.priceChanges.length > 1 ? "s" : ""}
                 </Badge>
               )}
+              {s.pendingReimbursements > 0 ? (
+                <Badge variant="outline" className="h-4 gap-0.5 px-1 text-[10px]" title="Reimbursements with nothing recorded yet">
+                  <CircleAlertIcon className="text-[var(--status-warning)]" aria-hidden />
+                  {s.pendingReimbursements} pending
+                </Badge>
+              ) : (
+                s.reimbursement && (
+                  <HandCoinsIcon className="size-3.5" aria-label={`Reimbursed ${money(s.reimbursement.amount, s.currency)} per charge`} />
+                )
+              )}
             </div>
           </div>
         </div>
@@ -61,8 +71,11 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       accessorKey: "monthlyCost",
       meta: { label: "Per month", className: "hidden text-right sm:table-cell" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Per month" className="justify-end" />,
-      cell: ({ row }) => (
-        <span className="tabular block text-right text-muted-foreground">{money(row.original.monthlyCost, row.original.currency)}</span>
+      cell: ({ row: { original: s } }) => (
+        <span className="tabular block text-right text-muted-foreground">
+          {money(s.netMonthlyCost, s.currency)}
+          {s.reimbursement && <span className="block text-xs">of {money(s.monthlyCost, s.currency)}</span>}
+        </span>
       ),
     },
     {

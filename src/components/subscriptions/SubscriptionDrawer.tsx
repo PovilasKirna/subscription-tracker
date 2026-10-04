@@ -2,8 +2,11 @@
 
 import { useSuspenseQuery } from "@tanstack/react-query";
 import {
+  BanIcon,
   CheckIcon,
   ChevronDownIcon,
+  CircleXIcon,
+  HandCoinsIcon,
   MinusCircleIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -35,12 +38,14 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CADENCE_LABEL, fullDate, money, monthYearLabel, relativeDays } from "@/lib/format";
-import { useAssign, useExclusion, useOverride } from "@/lib/query/mutations";
+import { useAssign, useExclusion, useOverride, useReimbursement } from "@/lib/query/mutations";
 import { subscriptionDetailQuery } from "@/lib/query/options";
+import { expectedFor } from "@/lib/reimbursement";
 import { CADENCES, subscriptionDrawerParams } from "@/lib/search-params";
 import type { Cadence, RelatedTransaction, Subscription, TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ColorPicker } from "./ColorPicker";
+import { ReimbursedNote, ReimbursementAmountDialog, ReimbursementSection, reimbursementToast } from "./Reimbursement";
 import { StatusBadge } from "./StatusBadge";
 import { SubscriptionActions } from "./SubscriptionActions";
 
@@ -106,8 +111,13 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
           <>
             <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Stat label="Price">{fmt(s.amount)}</Stat>
-              <Stat label="Per month">{fmt(s.monthlyCost)}</Stat>
-              <Stat label="Per year">{fmt(s.yearlyCost)}</Stat>
+              <Stat label="Per month">
+                {fmt(s.netMonthlyCost)}
+                {s.reimbursement && (
+                  <span className="block text-xs font-normal text-muted-foreground">{fmt(s.monthlyCost)} before reimbursement</span>
+                )}
+              </Stat>
+              <Stat label="Per year">{fmt(s.reimbursement ? s.netMonthlyCost * 12 : s.yearlyCost)}</Stat>
               <Stat label="Next charge">
                 {s.nextCharge ? (
                   <>
@@ -118,12 +128,20 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
                   "—"
                 )}
               </Stat>
-              <Stat label="Spent so far">{fmt(s.totalSpent)}</Stat>
+              <Stat label="Spent so far">
+                {/* Net of what came back (recorded + assumed); the gross underneath when they differ. */}
+                {fmt(s.totalSpent - s.totalReimbursed)}
+                {s.totalReimbursed > 0 && (
+                  <span className="block text-xs font-normal text-muted-foreground">{fmt(s.totalSpent)} before reimbursement</span>
+                )}
+              </Stat>
               <Stat label="Since">
                 {fullDate(s.firstCharge)}
                 <span className="block text-xs font-normal text-muted-foreground">{s.chargeCount} charges</span>
               </Stat>
             </dl>
+
+            <ReimbursementSection sub={s} transactions={data.transactions} today={data.today} ignored={data.ignored} />
 
             <section>
               <h3 className="mb-2 text-sm font-medium">Charge history</h3>
@@ -200,6 +218,10 @@ function ChargeList({
   muted?: boolean;
 }) {
   const exclusion = useExclusion();
+  const reimbursement = useReimbursement();
+  const [editing, setEditing] = useState<TransactionItem | null>(null);
+  const reimburse = (tx: TransactionItem, amount: number | null) =>
+    reimbursement.mutate({ txId: tx.id, amount }, { onSuccess: () => toast.success(reimbursementToast(amount, tx.currency)) });
   const run = (tx: TransactionItem) =>
     exclusion.mutate(
       { txId: tx.id, exclude: action === "exclude" },
@@ -214,7 +236,10 @@ function ChargeList({
           <li key={tx.id} className="flex items-center gap-3 px-3 py-2 text-sm">
             <span className="tabular w-24 shrink-0 text-muted-foreground">{fullDate(tx.date)}</span>
             <span className={cn("min-w-0 flex-1 truncate", muted && "line-through")}>{tx.description}</span>
-            <span className="tabular shrink-0 font-medium">{money(Math.abs(tx.amount), tx.currency)}</span>
+            <span className="tabular shrink-0 text-right font-medium">
+              {money(Math.abs(tx.amount), tx.currency)}
+              <ReimbursedNote tx={tx} />
+            </span>
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -225,9 +250,12 @@ function ChargeList({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-60">
                 {action === "exclude" ? (
-                  <DropdownMenuItem variant="destructive" onClick={() => run(tx)}>
-                    <MinusCircleIcon /> Remove from subscription
-                  </DropdownMenuItem>
+                  <>
+                    {tx.reimbursement && <ReimbursementItems tx={tx} onRecord={reimburse} onOther={() => setEditing(tx)} />}
+                    <DropdownMenuItem variant="destructive" onClick={() => run(tx)}>
+                      <MinusCircleIcon /> Remove from subscription
+                    </DropdownMenuItem>
+                  </>
                 ) : (
                   <DropdownMenuItem onClick={() => run(tx)}>
                     <PlusCircleIcon /> Include again
@@ -239,7 +267,50 @@ function ChargeList({
         ))}
         {!items.length && <li className="px-3 py-4 text-center text-sm text-muted-foreground">No charges.</li>}
       </ul>
+      {editing && <ReimbursementAmountDialog tx={editing} onOpenChange={(open) => !open && setEditing(null)} />}
     </section>
+  );
+}
+
+/** A charge's reimbursement actions: record the expected amount, another amount, nothing, or clear it. */
+function ReimbursementItems({
+  tx,
+  onRecord,
+  onOther,
+}: {
+  tx: TransactionItem;
+  onRecord: (tx: TransactionItem, amount: number | null) => void;
+  onOther: () => void;
+}) {
+  const r = tx.reimbursement;
+  if (!r) return null;
+  const expected = expectedFor(tx);
+  const recorded = r.status === "recorded";
+  return (
+    <>
+      <DropdownMenuGroup>
+        <DropdownMenuLabel>Reimbursement</DropdownMenuLabel>
+        {expected !== null && expected > 0 && !(recorded && r.amount === expected) && (
+          <DropdownMenuItem onClick={() => onRecord(tx, expected)}>
+            <HandCoinsIcon /> Reimbursed {money(expected, tx.currency)}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={onOther}>
+          <PencilIcon /> {expected !== null ? "Reimbursed another amount…" : "Mark as reimbursed…"}
+        </DropdownMenuItem>
+        {r.status !== "none" && !(recorded && r.amount === 0) && (
+          <DropdownMenuItem onClick={() => onRecord(tx, 0)}>
+            <BanIcon /> Not reimbursed
+          </DropdownMenuItem>
+        )}
+        {recorded && (
+          <DropdownMenuItem onClick={() => onRecord(tx, null)}>
+            <CircleXIcon /> Clear what you recorded
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuGroup>
+      <DropdownMenuSeparator />
+    </>
   );
 }
 
