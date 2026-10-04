@@ -2,8 +2,11 @@ import "server-only";
 import { cache } from "react";
 import type { SubscriptionFilters, TransactionFilters } from "../search-params";
 import type {
+  AssignOptionsPayload,
   DataStatusPayload,
   HistoryPayload,
+  RelatedTransaction,
+  Subscription,
   SubscriptionDetailPayload,
   SubscriptionsPayload,
   SubscriptionsTablePayload,
@@ -11,8 +14,9 @@ import type {
   TransactionsPayload,
 } from "../types";
 import { bankConfigured, config } from "./config";
-import { all, allExclusions, allOverrides, allTransactions, dataVersion, getDb, one, type TxRow } from "./db";
-import { buildHistory, type Detection, detectSubscriptions } from "./detect";
+import { all, allAssignments, allExclusions, allOverrides, allTransactions, dataVersion, getDb, one, type TxRow } from "./db";
+import { buildHistory, type Detection, detectSubscriptions, parseSubKey, sameAmount } from "./detect";
+import { merchantName } from "./merchant";
 import { memoByVersion } from "./snapshot";
 import { querySubscriptions } from "./subscriptionTable";
 import { isSyncing } from "./sync";
@@ -29,14 +33,19 @@ const today = () => new Date().toISOString().slice(0, 10);
  * triggers on any write) or the day changes. A cache hit costs one tiny query, and React's
  * per-request cache dedupes even that when one render calls several queries. Read-only.
  */
-const detection = cache(
+export const detection = cache(
   memoByVersion(
     async () => `${await dataVersion(await getDb())}|${today()}`,
     async (version): Promise<{ txs: TxRow[]; det: Detection; excluded: Set<string> }> => {
       const day = version.slice(version.indexOf("|") + 1);
       const db = await getDb();
-      const [txs, overrides, excluded] = await Promise.all([allTransactions(db), allOverrides(db), allExclusions(db)]);
-      return { txs, excluded, det: detectSubscriptions(txs, overrides, day, config.baseCurrency, excluded) };
+      const [txs, overrides, excluded, assigned] = await Promise.all([
+        allTransactions(db),
+        allOverrides(db),
+        allExclusions(db),
+        allAssignments(db),
+      ]);
+      return { txs, excluded, det: detectSubscriptions(txs, overrides, day, config.baseCurrency, excluded, assigned) };
     },
   ),
 );
@@ -53,14 +62,51 @@ const toItem = (t: TxRow, subscriptionKey: string | null): TransactionItem => ({
   subscriptionKey,
 });
 
-/** Everything the subscription drawer shows: the subscription, its charges, and excluded ones. */
+const newestFirst = (a: TxRow, b: TxRow) => b.date.localeCompare(a.date);
+/** Enough to spot a plan change or a stray charge without flooding the list with shopping. */
+const MAX_RELATED = 40;
+
+/**
+ * Outgoing payments to any of `merchants` (in `currency`) that aren't in `exceptKey`, newest
+ * first. `similar` marks the ones priced like one of `amounts` (minor units, negative).
+ */
+function relatedTransactions(
+  txs: TxRow[],
+  det: Detection,
+  excluded: ReadonlySet<string>,
+  match: { merchants: ReadonlySet<string>; currency: string; amounts: number[]; exceptKey?: string; exceptId?: string },
+): RelatedTransaction[] {
+  const names = new Map(det.subscriptions.map((s) => [s.key, s.name]));
+  return txs
+    .filter(
+      (t) =>
+        t.amount_minor < 0 &&
+        t.currency === match.currency &&
+        match.merchants.has(t.merchant_key) &&
+        t.id !== match.exceptId &&
+        !excluded.has(t.id) &&
+        (match.exceptKey === undefined || det.txToSub.get(t.id) !== match.exceptKey),
+    )
+    .sort(newestFirst)
+    .slice(0, MAX_RELATED)
+    .map((t) => {
+      const subscriptionKey = det.txToSub.get(t.id) ?? null;
+      return {
+        ...toItem(t, subscriptionKey),
+        similar: match.amounts.some((a) => sameAmount(t.amount_minor, a)),
+        subscriptionName: subscriptionKey ? (names.get(subscriptionKey) ?? null) : null,
+      };
+    });
+}
+
+/** Everything the subscription drawer shows: the subscription, its charges, excluded and related ones. */
 export async function getSubscriptionDetail(key: string): Promise<SubscriptionDetailPayload> {
   const { txs, det, excluded } = await detection();
   const active = det.subscriptions.find((s) => s.key === key);
   const ignored = det.ignored.find((s) => s.key === key);
   const subscription = active ?? ignored ?? null;
-  const [merchantKey, currency] = key.split("|");
-  const newestFirst = (a: TxRow, b: TxRow) => b.date.localeCompare(a.date);
+  const { merchantKey, currency } = parseSubKey(key);
+  const counted = txs.filter((t) => det.txToSub.get(t.id) === key);
   return {
     baseCurrency: config.baseCurrency,
     today: today(),
@@ -78,6 +124,48 @@ export async function getSubscriptionDetail(key: string): Promise<SubscriptionDe
       .filter((t) => excluded.has(t.id) && t.merchant_key === merchantKey && t.currency === currency)
       .sort(newestFirst)
       .map((t) => toItem(t, null)),
+    related: active
+      ? relatedTransactions(txs, det, excluded, {
+          merchants: new Set([merchantKey, ...counted.map((t) => t.merchant_key)]),
+          currency,
+          amounts: counted.map((t) => t.amount_minor),
+          exceptKey: key,
+        })
+      : [],
+  };
+}
+
+/** Name of a subscription started from this payment (what detection would call the merchant). */
+const nameFor = (t: TxRow) => merchantName(t.merchant_key, t.description);
+
+/** What the "Add to subscription" dialog offers for one payment. Null if it doesn't exist. */
+export async function getAssignOptions(txId: string): Promise<AssignOptionsPayload | null> {
+  const { txs, det, excluded } = await detection();
+  const tx = txs.find((t) => t.id === txId);
+  if (!tx) return null;
+  const currentKey = det.txToSub.get(tx.id);
+  const toTarget = (s: Subscription) => ({
+    key: s.key,
+    name: s.name,
+    amount: s.amount,
+    currency: s.currency,
+    cadence: s.cadence,
+    status: s.status,
+    sameMerchant: s.merchantKey === tx.merchant_key,
+  });
+  return {
+    transaction: toItem(tx, currentKey ?? null),
+    newName: nameFor(tx),
+    targets: det.subscriptions
+      .filter((s) => s.currency === tx.currency && s.key !== currentKey)
+      .map(toTarget)
+      .sort((a, b) => Number(b.sameMerchant) - Number(a.sameMerchant) || a.name.localeCompare(b.name, "en", { sensitivity: "base" })),
+    related: relatedTransactions(txs, det, excluded, {
+      merchants: new Set([tx.merchant_key]),
+      currency: tx.currency,
+      amounts: [tx.amount_minor],
+      exceptId: tx.id,
+    }),
   };
 }
 

@@ -11,6 +11,8 @@ export async function GET() {
     exportedAt: new Date().toISOString(),
     transactions: await allTransactions(db),
     overrides: await all(db, "SELECT * FROM overrides"),
+    exclusions: await all(db, "SELECT * FROM tx_exclusions"),
+    assignments: await all(db, "SELECT * FROM tx_assignments"),
   };
   return new NextResponse(JSON.stringify(body, null, 2), {
     headers: {
