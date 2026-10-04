@@ -17,7 +17,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
     <HydrationBoundary state={dehydrate(queryClient)}>
       <PageHeader
         title="Transactions"
-        description="Search, filter and sort everything imported. Use a row's menu to track or untrack a subscription."
+        description="Search, filter and sort everything imported. Use a row's menu to add a payment to a subscription or take it out."
       />
       <Suspense fallback={<TransactionsTableSkeleton />}>
         <TransactionsTable />

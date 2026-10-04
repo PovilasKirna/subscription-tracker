@@ -34,6 +34,7 @@ const sub = (
     status,
     confidence: 0.9,
     confirmed: false,
+    pinned: false,
     known: true,
     colorSlot: null,
     priceChanges: [],

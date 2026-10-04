@@ -27,6 +27,8 @@ export type Subscription = {
   /** 0..1 — how sure the detector is this is a real subscription. */
   confidence: number;
   confirmed: boolean;
+  /** The user assigned charges by hand; membership no longer depends on detection. */
+  pinned: boolean;
   known: boolean;
   /**
    * Fixed categorical colour slot (1–7) for the 7 biggest subscriptions, ordered by first-seen
@@ -120,6 +122,32 @@ export type SubscriptionDetailPayload = {
   transactions: TransactionItem[];
   /** Charges from the same merchant that the user removed from the subscription. */
   excluded: TransactionItem[];
+  /** Other payments to the same merchant that aren't counted here (e.g. after a plan change). */
+  related: RelatedTransaction[];
+};
+
+/** A payment that could belong to a subscription but isn't counted in it. */
+export type RelatedTransaction = TransactionItem & {
+  /** Same price as the charge or subscription it's being compared with. */
+  similar: boolean;
+  /** Name of the subscription it currently counts towards, if any. */
+  subscriptionName: string | null;
+};
+
+/** A subscription offered as a target in the "Add to subscription" dialog. */
+export type AssignTarget = Pick<Subscription, "key" | "name" | "amount" | "currency" | "cadence" | "status"> & {
+  /** Same merchant as the transaction being added (listed first). */
+  sameMerchant: boolean;
+};
+
+export type AssignOptionsPayload = {
+  transaction: TransactionItem;
+  /** Name a new subscription started from this payment would get. */
+  newName: string;
+  /** Subscriptions in the same currency, same-merchant ones first. */
+  targets: AssignTarget[];
+  /** Other outgoing payments to the same merchant, newest first. */
+  related: RelatedTransaction[];
 };
 
 export type BankSession = {
