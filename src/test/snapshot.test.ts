@@ -80,10 +80,17 @@ test("memoByVersion does not cache failures", async () => {
 
 test("saveOverride changes only the fields it is given", async () => {
   const key = "spotify|EUR";
-  const row = () => one<Override>(db, "SELECT key, display_name, category, status, color_slot FROM overrides WHERE key = ?", [key]);
+  const row = () =>
+    one<Override>(db, "SELECT key, display_name, category, status, color_slot, cadence FROM overrides WHERE key = ?", [key]);
   await saveOverride(db, key, { color_slot: 5 });
   await saveOverride(db, key, { display_name: "Spotify Family" }); // a rename must not undo the colour
-  assert.deepEqual({ ...(await row()) }, { key, display_name: "Spotify Family", category: null, status: null, color_slot: 5 });
+  assert.deepEqual(
+    { ...(await row()) },
+    { key, display_name: "Spotify Family", category: null, status: null, color_slot: 5, cadence: null },
+  );
   await saveOverride(db, key, { color_slot: null }); // explicit null resets just that field
-  assert.deepEqual({ ...(await row()) }, { key, display_name: "Spotify Family", category: null, status: null, color_slot: null });
+  assert.deepEqual(
+    { ...(await row()) },
+    { key, display_name: "Spotify Family", category: null, status: null, color_slot: null, cadence: null },
+  );
 });
