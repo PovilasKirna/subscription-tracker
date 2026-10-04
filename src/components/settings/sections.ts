@@ -1,4 +1,4 @@
-import { DatabaseIcon, HandCoinsIcon, type LucideIcon, UserIcon } from "lucide-react";
+import { BellIcon, DatabaseIcon, GlobeIcon, HandCoinsIcon, type LucideIcon, UserIcon } from "lucide-react";
 
 export type SettingsSection = { href: string; label: string; description: string; icon: LucideIcon };
 
@@ -15,6 +15,18 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     label: "Reimbursements",
     description: "Where money for your subscriptions comes back from, and whether you have to ask for it.",
     icon: HandCoinsIcon,
+  },
+  {
+    href: "/settings/notifications",
+    label: "Notifications",
+    description: "What you're told about, how, and the scheduler that sends it.",
+    icon: BellIcon,
+  },
+  {
+    href: "/settings/general",
+    label: "General",
+    description: "Your time zone and when reminders and summaries arrive.",
+    icon: GlobeIcon,
   },
   {
     href: "/settings/account",

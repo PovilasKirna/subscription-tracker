@@ -1,5 +1,5 @@
 import { type FetchWindow, fetchWindow, reconcileBankAccounts } from "./bankAccounts";
-import { bankConfigured } from "./config";
+import { bankConfigured, config } from "./config";
 import { all, getDb, type InsertStats, insertTransactions, logImport, one, run, type TxRow } from "./db";
 import { accountKey, BankApiError, type EbAccount, fetchTransactions, getSessionStatus, type PsuContext } from "./enableBanking";
 
@@ -31,6 +31,9 @@ const RATE_LIMIT_BACKOFF = 6 * 3_600_000; // Enable Banking's advice after ASPSP
 const isoDate = (t: number) => new Date(t).toISOString().slice(0, 10);
 
 let running: Promise<SyncResult> | null = null;
+
+/** Scheduled syncs are spaced at least this far apart, so hourly ticks stay within the bank's background quota. */
+export const minSyncIntervalHours = () => Math.max(6, config.syncIntervalHours);
 
 /** Sync markers older than this are from runs that crashed mid-way and are ignored. */
 export const syncCutoff = () => new Date(Date.now() - 10 * 60_000).toISOString();

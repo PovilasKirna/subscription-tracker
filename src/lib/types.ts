@@ -1,6 +1,7 @@
 // Shapes shared between route handlers, server prefetching and client components.
 
 import type { SeriesColor } from "./color";
+import type { NotificationType } from "./settings";
 
 export type Cadence = "weekly" | "monthly" | "quarterly" | "semiannual" | "yearly";
 export type SubStatus = "active" | "late" | "inactive" | "cancelled";
@@ -284,3 +285,62 @@ export type DataStatusPayload = {
   hiddenTransactionCount: number;
   imports: { id: number; at: string; source: string; inserted: number; updated: number; skipped: number; message: string | null }[];
 };
+
+export type { NotificationType, Settings } from "./settings";
+
+/** One charge a reimbursement reminder asks about, with where it stands now. */
+export type ReminderCharge = {
+  txId: string;
+  subKey: string;
+  name: string;
+  date: string;
+  /** Charged, positive. */
+  amount: number;
+  /** Expected back. */
+  expected: number;
+  currency: string;
+  /** `pending` = nothing recorded yet; `recorded` = `recorded` came back (0 = not reimbursed); `gone` = no longer a charge. */
+  status: "pending" | "recorded" | "gone";
+  recorded: number | null;
+};
+
+/** An entry in the in-app notification feed (the bell). */
+export type NotificationItem = {
+  id: number;
+  type: NotificationType;
+  title: string;
+  body: string;
+  /** App path it opens. */
+  url: string | null;
+  createdAt: string;
+  read: boolean;
+  /** Dealt with (e.g. every charge recorded, the bank reconnected); shown dimmed. */
+  resolved: boolean;
+  /** Reimbursement reminders: the charges it lists. */
+  charges?: ReminderCharge[];
+};
+
+export type NotificationsPayload = {
+  items: NotificationItem[];
+  /** Neither read nor resolved. */
+  unread: number;
+};
+
+export type SchedulerHealth = "never" | "stale" | "waiting" | "hourly" | "infrequent";
+
+/** Settings → Notifications → Scheduler: is something calling /api/cron/tick? */
+export type SchedulerStatusPayload = {
+  health: SchedulerHealth;
+  lastTickAt: string | null;
+  /** Typical minutes between recent ticks. */
+  typicalGapMinutes: number | null;
+  /** Outcome of the last tick (null before the first). */
+  lastResult: { at: string; ok: boolean; error: string | null; source: TickSource } | null;
+  /** CRON_SECRET is set, so the tick URL accepts calls (its value is never sent to the browser). */
+  cronSecretSet: boolean;
+  /** Self-hosted: an hourly timer inside the server ticks by itself. */
+  builtInTimer: boolean;
+};
+
+/** Who ran a tick: the HTTP endpoint (cron-job.org, Vercel Cron) or the self-hosted timer. */
+export type TickSource = "http" | "timer";

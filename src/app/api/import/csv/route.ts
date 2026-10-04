@@ -1,6 +1,7 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 import { config } from "@/lib/server/config";
 import { getDb, insertTransactions, logImport } from "@/lib/server/db";
+import { runNotificationsQuietly } from "@/lib/server/notifications/run";
 import { CsvFormatError, parseRevolutCsv } from "@/lib/server/revolutCsv";
 import { guard } from "@/lib/server/session";
 
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
     stats.skipped += skipped;
     const name = req.headers.get("x-file-name")?.slice(0, 120);
     await logImport(db, "csv", stats, name ?? undefined);
+    if (stats.inserted || stats.updated) after(() => runNotificationsQuietly("after CSV import"));
     return NextResponse.json(stats);
   } catch (e) {
     if (e instanceof CsvFormatError) return NextResponse.json({ error: e.message }, { status: 400 });

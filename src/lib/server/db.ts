@@ -160,6 +160,32 @@ const SCHEMA = `
     message   TEXT
   );
 
+  -- Preferences (Settings → General / Notifications) and small bits of scheduler state, one JSON
+  -- value per key. Defaults live in code (src/lib/settings.ts), so only changed values are stored.
+  CREATE TABLE IF NOT EXISTS settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- The in-app feed (and what push/email delivered). dedupe_key makes planning idempotent;
+  -- silent rows only record the first-run baseline and are never shown. Kept for 90 days.
+  CREATE TABLE IF NOT EXISTS notifications (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    dedupe_key   TEXT NOT NULL UNIQUE,
+    type         TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    body         TEXT NOT NULL,
+    data_json    TEXT NOT NULL DEFAULT '{}',
+    silent       INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL,
+    read_at      TEXT,
+    resolved_at  TEXT,
+    pushed_at    TEXT,
+    emailed_at   TEXT
+  );
+  CREATE INDEX IF NOT EXISTS notifications_created ON notifications(created_at);
+
   -- Bumped by triggers on every write that detection depends on, so a cached detection
   -- snapshot can be reused until the data changes (works across server instances).
   CREATE TABLE IF NOT EXISTS meta (
@@ -222,7 +248,7 @@ export async function openDb(url = config.databaseUrl, authToken = config.databa
 
 // One client per process (survives dev hot reloads and warm serverless invocations).
 // Bump SCHEMA_VERSION when SCHEMA/COLUMNS change so a cached client gets migrated too.
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 const g = globalThis as unknown as { __trackerDb?: Promise<Client>; __trackerDbVersion?: number };
 export function getDb(): Promise<Client> {
   if (!g.__trackerDb || g.__trackerDbVersion !== SCHEMA_VERSION) {

@@ -3,6 +3,7 @@
 import { LayoutDashboardIcon, ListIcon, RepeatIcon, SettingsIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
@@ -16,11 +17,13 @@ export function AppNav() {
   const pathname = usePathname();
   return (
     <aside className="sticky top-0 z-20 flex items-center gap-1 overflow-x-auto border-b bg-card px-3 py-2 md:h-dvh md:flex-col md:items-stretch md:border-r md:border-b-0 md:px-3 md:py-5">
-      <div className="mr-2 flex items-center gap-2.5 px-2 font-semibold md:mr-0 md:mb-5">
+      <div className="mr-2 flex items-center gap-2.5 px-2 font-semibold md:mr-0 md:mb-5 md:pr-0">
         <span className="grid size-7 place-items-center rounded-lg bg-[var(--series-1)] text-white">
           <RepeatIcon className="size-4" />
         </span>
         <span className="hidden md:inline">Subscriptions</span>
+        {/* Desktop: beside the app name at the top of the sidebar. */}
+        <NotificationBell className="-my-1 ml-auto hidden md:inline-flex" />
       </div>
       <nav className="flex gap-1 md:flex-col">
         {LINKS.map(({ href, label, icon: Icon }) => {
@@ -41,6 +44,10 @@ export function AppNav() {
           );
         })}
       </nav>
+      {/* Phones: pinned to the right end of the top bar, even when the links scroll. */}
+      <div className="sticky -right-3 -mr-3 ml-auto bg-card pr-3 pl-2 md:hidden">
+        <NotificationBell />
+      </div>
       <div className="hidden gap-3 px-2.5 pt-1 text-xs text-muted-foreground md:mt-auto md:flex">
         <Link href="/privacy" className="hover:text-foreground">
           Privacy
