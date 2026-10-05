@@ -1,7 +1,9 @@
 "use client";
 
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
 import {
+  BanknoteIcon,
   BellIcon,
   CalendarClockIcon,
   CheckCheckIcon,
@@ -14,13 +16,14 @@ import {
   SettingsIcon,
   SparklesIcon,
   TrendingUpIcon,
+  XIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogClose, DialogOverlay, DialogPortal, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { timeAgo } from "@/lib/bank";
 import { money, shortDate } from "@/lib/format";
@@ -33,12 +36,15 @@ import { cn } from "@/lib/utils";
 // The in-app feed: a bell with the unread count (neither read nor resolved) and a panel, newest
 // first. Opening it marks nothing; clicking an entry marks it read and opens what it's about.
 // Reimbursement reminders can be settled right here, charge by charge.
+// The panel is a modal dialog laid out by CSS alone (no matchMedia, so the server and the first
+// client render agree): the whole screen on phones, a sheet from the right from `md`.
 
 const ICONS: Record<NotificationType, LucideIcon> = {
   reimbursement_reminder: HandCoinsIcon,
   bank_attention: LandmarkIcon,
   price_increase: TrendingUpIcon,
   yearly_renewal: CalendarClockIcon,
+  upcoming_charge: BanknoteIcon,
   new_subscription: SparklesIcon,
   subscription_overdue: ClockAlertIcon,
   sync_error: RefreshCwOffIcon,
@@ -49,6 +55,7 @@ export function NotificationBell({ className }: { className?: string }) {
   const feed = useQuery(notificationsQuery());
   const markRead = useMarkRead();
   const router = useRouter();
+  const closeRef = useRef<HTMLButtonElement>(null);
   const unread = feed.data?.unread ?? 0;
 
   const openItem = (n: NotificationItem) => {
@@ -60,8 +67,8 @@ export function NotificationBell({ className }: { className?: string }) {
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
         render={
           <Button
             variant="ghost"
@@ -81,50 +88,78 @@ export function NotificationBell({ className }: { className?: string }) {
             {unread > 9 ? "9+" : unread}
           </span>
         )}
-      </PopoverTrigger>
-      {/* Height is capped by the space Base UI measures below the trigger, so it never runs off a phone screen. */}
-      <PopoverContent align="end" className="max-h-[min(40rem,var(--available-height))] w-[min(24rem,calc(100vw-1.5rem))] gap-0 p-0">
-        <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
-          <h2 className="font-medium">Notifications</h2>
-          <Button variant="ghost" size="xs" disabled={!unread || markRead.isPending} onClick={() => markRead.mutate("all")}>
-            <CheckCheckIcon /> Mark all read
-          </Button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          {feed.isPending ? (
-            <div className="flex flex-col gap-3 p-3">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-            </div>
-          ) : feed.error ? (
-            <p className="p-4 text-sm text-destructive">{feed.error.message}</p>
-          ) : feed.data.items.length === 0 ? (
-            <div className="flex flex-col items-center gap-1.5 px-6 py-10 text-center">
-              <BellIcon className="size-6 text-muted-foreground/60" aria-hidden />
-              <p className="font-medium">You're all caught up</p>
-              <p className="text-xs text-muted-foreground">
-                Reimbursement reminders, price increases, renewals and bank issues will show up here.
-              </p>
-            </div>
-          ) : (
-            <ul className="divide-y">
-              {feed.data.items.map((n) => (
-                <FeedItem key={n.id} n={n} onOpen={() => openItem(n)} />
-              ))}
-            </ul>
+      </DialogTrigger>
+      <DialogPortal>
+        {/* Hidden under the panel on phones; from md it dims the page beside the sheet and closes it on a click. */}
+        <DialogOverlay className="motion-reduce:animate-none" />
+        <DialogPrimitive.Popup
+          initialFocus={closeRef}
+          className={cn(
+            // Phones: the whole screen, padded for the notch and the home indicator.
+            "fixed inset-0 z-50 flex flex-col bg-popover text-sm text-popover-foreground outline-none",
+            "pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]",
+            // md+: a full-height sheet on the right, floating above the page.
+            "md:left-auto md:w-[26rem] md:max-w-[calc(100vw-3rem)] md:border-l md:pl-0 md:shadow-[0_8px_28px_rgb(0_0_0/0.14)]",
+            // Rises in on phones, slides in from the right from md; with reduced motion it only fades.
+            "[--panel-from:translate3d(0,1.5rem,0)] md:[--panel-from:translate3d(100%,0,0)] motion-reduce:[--panel-from:none]",
+            "transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-opacity motion-reduce:duration-150",
+            "data-starting-style:transform-(--panel-from) data-starting-style:opacity-0 data-ending-style:transform-(--panel-from) data-ending-style:opacity-0 data-ending-style:duration-200",
           )}
-        </div>
-        <div className="border-t px-3 py-2">
-          <Link
-            href="/settings/notifications"
-            onClick={() => setOpen(false)}
-            className="inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
-          >
-            <SettingsIcon className="size-3.5" /> Notification settings
-          </Link>
-        </div>
-      </PopoverContent>
-    </Popover>
+        >
+          <div className="flex min-h-14 shrink-0 items-center gap-2 border-b py-1.5 pr-1.5 pl-4 md:min-h-12">
+            <DialogTitle className="min-w-0 flex-1 text-base">Notifications</DialogTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="pointer-coarse:h-11"
+              disabled={!unread || markRead.isPending}
+              onClick={() => markRead.mutate("all")}
+            >
+              <CheckCheckIcon /> Mark all read
+            </Button>
+            <DialogClose
+              ref={closeRef}
+              render={<Button variant="ghost" size="icon" className="size-11 md:pointer-fine:size-8" aria-label="Close" />}
+            >
+              <XIcon />
+            </DialogClose>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {feed.isPending ? (
+              <div className="flex flex-col gap-3 p-4">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            ) : feed.error ? (
+              <p className="p-4 text-sm text-destructive-text">{feed.error.message}</p>
+            ) : feed.data.items.length === 0 ? (
+              <div className="flex flex-col items-center gap-1.5 px-6 py-12 text-center">
+                <BellIcon className="size-6 text-muted-foreground/60" aria-hidden />
+                <p className="font-medium">You're all caught up</p>
+                <p className="text-xs text-muted-foreground">
+                  Upcoming charges, reimbursement reminders, price increases, renewals and bank issues will show up here.
+                </p>
+              </div>
+            ) : (
+              <ul className="divide-y">
+                {feed.data.items.map((n) => (
+                  <FeedItem key={n.id} n={n} onOpen={() => openItem(n)} />
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="shrink-0 border-t px-4 py-2">
+            <Link
+              href="/settings/notifications"
+              onClick={() => setOpen(false)}
+              className="inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring pointer-coarse:min-h-11"
+            >
+              <SettingsIcon className="size-3.5" /> Notification settings
+            </Link>
+          </div>
+        </DialogPrimitive.Popup>
+      </DialogPortal>
+    </Dialog>
   );
 }
 
@@ -136,7 +171,7 @@ function FeedItem({ n, onOpen }: { n: NotificationItem; onOpen: () => void }) {
       <button
         type="button"
         onClick={onOpen}
-        className="flex w-full gap-3 px-3 py-2.5 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-muted/60"
+        className="flex w-full gap-3 px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
       >
         <span className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-muted", fresh && "text-foreground")}>
           <Icon className="size-3.5" aria-hidden />
@@ -179,7 +214,7 @@ function ReminderCharges({ charges }: { charges: ReminderCharge[] }) {
     );
   };
   return (
-    <ul className="mx-3 mb-2.5 ml-13 flex flex-col gap-1.5 rounded-lg border bg-muted/30 p-2 text-xs">
+    <ul className="mr-4 mb-3 ml-14 flex flex-col gap-1.5 rounded-lg border bg-muted/30 p-2 text-xs">
       {charges.map((c) => (
         <li key={c.txId} className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="min-w-36 flex-1">
@@ -190,10 +225,21 @@ function ReminderCharges({ charges }: { charges: ReminderCharge[] }) {
           </span>
           {c.status === "pending" ? (
             <span className="flex gap-1">
-              <Button size="xs" disabled={busy !== null} onClick={() => mark(c, c.expected)}>
+              <Button
+                size="xs"
+                className="pointer-coarse:h-11 pointer-coarse:px-3"
+                disabled={busy !== null}
+                onClick={() => mark(c, c.expected)}
+              >
                 Got {money(c.expected, c.currency)}
               </Button>
-              <Button size="xs" variant="outline" disabled={busy !== null} onClick={() => mark(c, 0)}>
+              <Button
+                size="xs"
+                variant="outline"
+                className="pointer-coarse:h-11 pointer-coarse:px-3"
+                disabled={busy !== null}
+                onClick={() => mark(c, 0)}
+              >
                 Not reimbursed
               </Button>
             </span>

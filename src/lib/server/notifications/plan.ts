@@ -65,7 +65,7 @@ export type NotificationData = {
   expired?: boolean;
   /** sync_error: the last successful sync when it failed. */
   lastSyncAt?: string | null;
-  /** yearly_renewal / subscription_overdue: the charge date it is about. */
+  /** yearly_renewal / upcoming_charge / subscription_overdue: the charge date it is about. */
   date?: string;
   /** reimbursement_reminder: the charges it asked about. */
   charges?: Omit<PendingCharge, "sourceId">[];
@@ -87,6 +87,8 @@ export const CATCH_UP_DAYS = 2;
 export const NEW_SUBSCRIPTION_WINDOW_DAYS = 35;
 export const NEW_SUBSCRIPTION_MAX_CHARGES = 5;
 export const RENEWAL_NOTICE_DAYS = 7;
+/** Every other cadence gets a shorter heads-up (a daily run still creates it 3 days ahead). */
+export const UPCOMING_CHARGE_NOTICE_DAYS = 3;
 export const BANK_EXPIRY_NOTICE_DAYS = 7;
 /** Older price changes / missed charges aren't news any more (and stay below the 90-day retention). */
 export const PRICE_CHANGE_WINDOW_DAYS = 35;
@@ -245,6 +247,18 @@ function subscriptionEvents(snapshot: NotificationSnapshot, settings: Settings, 
       });
     }
 
+    // Monthly, weekly… charges: a short heads-up, today included (the yearly ones have their own above).
+    if (s.status === "active" && s.cadence !== "yearly" && next && next >= today && next <= addDays(today, UPCOMING_CHARGE_NOTICE_DAYS)) {
+      const left = daysBetween(today, next);
+      out.push({
+        dedupeKey: `upcoming:${s.key}:${next}`,
+        type: "upcoming_charge",
+        title: `${s.name} charges ${left === 0 ? "today" : left === 1 ? "tomorrow" : `in ${left} days`}`,
+        body: `${CADENCE_LABEL[s.cadence]} charge of about ${m(s.amount)} on ${fullDate(next)}.`,
+        data: { url, subKey: s.key, date: next },
+      });
+    }
+
     if (s.status === "late" && next && next >= addDays(today, -OVERDUE_WINDOW_DAYS)) {
       out.push({
         dedupeKey: `overdue:${s.key}:${next}`,
@@ -293,6 +307,7 @@ export function isResolved(n: { type: NotificationType; data: NotificationData }
     case "sync_error":
       return !session?.lastError || session.lastSyncAt !== (data.lastSyncAt ?? null);
     case "yearly_renewal":
+    case "upcoming_charge":
       // Charged (the next charge moved on), cancelled or gone.
       return sub?.status !== "active" || sub.nextCharge !== data.date;
     case "subscription_overdue":
