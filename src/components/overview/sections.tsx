@@ -20,7 +20,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { fullDate, money, monthLabel, monthYearLabel } from "@/lib/format";
 import { addMonths, isLive, type MerchantSpend, projectChargesBetween, spendByMerchant } from "@/lib/insights";
 import { historyQuery, subscriptionsQuery } from "@/lib/query/options";
-import { HISTORY_RANGES, MERCHANT_RANGES, overviewParams, RENEWAL_MONTHS_AHEAD } from "@/lib/search-params";
+import { OVERVIEW_RANGES, type OverviewRange, overviewParams, RENEWAL_MONTHS_AHEAD } from "@/lib/search-params";
 import type { HistoryPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -42,26 +42,17 @@ function toMonthlySpend(h: HistoryPayload): { rows: MonthlySpend<LayerKey>[]; se
 /** "12m" stays "12m"; "ytd" reads "YTD". */
 const rangeLabel = (r: string) => (r === "ytd" ? "YTD" : r);
 
-function RangeToggle<V extends string>({
-  value,
-  options,
-  onChange,
-  label,
-}: {
-  value: V;
-  options: readonly V[];
-  onChange: (v: V) => void;
-  label: string;
-}) {
+/** The Overview period (?range=). Both spend charts read and set the same param, so they always agree. */
+function RangeToggle({ value, onChange, label }: { value: OverviewRange; onChange: (v: OverviewRange) => void; label: string }) {
   return (
     <ToggleGroup
       variant="outline"
       size="sm"
       value={[value]}
-      onValueChange={(v: string[]) => v[0] && onChange(v[0] as V)}
+      onValueChange={(v: string[]) => v[0] && onChange(v[0] as OverviewRange)}
       aria-label={label}
     >
-      {options.map((o) => (
+      {OVERVIEW_RANGES.map((o) => (
         <ToggleGroupItem key={o} value={o} className="px-2 text-xs">
           {rangeLabel(o)}
         </ToggleGroupItem>
@@ -99,15 +90,13 @@ export function SpendSection() {
   const fmtAxis = (n: number) => money(n, cur, { cents: false });
   const reimbursed = data.reimbursed.reduce((sum, v) => sum + v, 0);
   const spent = data.totals.reduce((sum, v) => sum + v, 0);
-  const span = range === "ytd" ? "year to date" : `last ${Number.parseInt(range, 10)} months`;
+  const span = range === "ytd" ? "year to date" : "last 12 months";
   return (
     <ChartCard
       title="Monthly recurring spend"
       description={`${money(spent, cur)} ${span}, stacked by subscription${reimbursed > 0 ? ` · ${money(reimbursed, cur)} reimbursed` : ""}`}
       className={cn(isPending && "opacity-60 transition-opacity")}
-      controls={
-        <RangeToggle label="Range" value={range} options={HISTORY_RANGES} onChange={(r) => setParams({ range: r === "12m" ? null : r })} />
-      }
+      controls={<RangeToggle label="Spend range" value={range} onChange={(r) => setParams({ range: r === "12m" ? null : r })} />}
     >
       <SpendColumns
         data={rows}
@@ -202,7 +191,7 @@ const merchantSubsidised = (d: MerchantSpend) => d.subsidised;
 
 export function MerchantSection() {
   const [isPending, startTransition] = useTransition();
-  const [{ merchants: range }, setParams] = useQueryStates(overviewParams, { startTransition });
+  const [{ range }, setParams] = useQueryStates(overviewParams, { startTransition });
   const { data } = useSuspenseQuery(subscriptionsQuery());
   const merchants = useMemo(() => spendByMerchant(data, range), [data, range]);
   if (!data.subscriptions.length) return null;
@@ -216,14 +205,7 @@ export function MerchantSection() {
       title="Spend by merchant"
       description={`${money(total - subsidised, cur)} paid by you ${span}${subsidised > 0 ? ` · ${money(subsidised, cur)} subsidised` : ""}`}
       className={cn(isPending && "opacity-60 transition-opacity")}
-      controls={
-        <RangeToggle
-          label="Range"
-          value={range}
-          options={MERCHANT_RANGES}
-          onChange={(r) => setParams({ merchants: r === "12m" ? null : r })}
-        />
-      }
+      controls={<RangeToggle label="Merchant range" value={range} onChange={(r) => setParams({ range: r === "12m" ? null : r })} />}
     >
       {merchants.length ? (
         <SpendByMerchant
