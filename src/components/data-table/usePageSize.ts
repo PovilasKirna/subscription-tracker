@@ -11,12 +11,17 @@ const PHONE_QUERY = "(max-width: 767px)";
  * always wins; otherwise phones get a shorter page. The server can't see the viewport, so the first
  * render (server and hydration) uses the desktop default and a phone switches right after mount,
  * inside a transition so the rows already on screen stay put (dimmed) until the shorter page loads.
- * Checked once on mount: rotating a device doesn't reshuffle the page under the reader.
+ * The query's `change` event is followed, so crossing `md` (resize, rotation) keeps the default
+ * matching the active layout.
  */
 export function usePageSize(explicit: PageSize | null) {
   const [phone, setPhone] = useState(false);
   useEffect(() => {
-    if (window.matchMedia(PHONE_QUERY).matches) startTransition(() => setPhone(true));
+    const mql = window.matchMedia(PHONE_QUERY);
+    const sync = () => startTransition(() => setPhone(mql.matches));
+    sync();
+    mql.addEventListener("change", sync);
+    return () => mql.removeEventListener("change", sync);
   }, []);
   const fallback = effectivePageSize(null, phone);
   return {

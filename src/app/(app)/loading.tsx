@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 export default function Loading() {
   return (
     <div aria-busy="true">
-      <div className="mb-5 hidden min-h-12 items-center bg-card shadow-[0_0_0_100vmax_var(--color-card),0_1px_0_100vmax_var(--color-border)] [clip-path:inset(0_-100vmax_-1px)] md:flex">
+      <div className="mb-5 hidden min-h-12 items-center bg-card py-2 shadow-[0_0_0_100vmax_var(--color-card),0_1px_0_100vmax_var(--color-border)] [clip-path:inset(0_-100vmax_-1px)] md:sticky md:top-0 md:z-20 md:flex">
         <Skeleton className="h-5 w-32" />
       </div>
       <TableSkeleton rows={10} />
