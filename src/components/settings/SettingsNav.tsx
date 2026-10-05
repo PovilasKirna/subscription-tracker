@@ -15,7 +15,7 @@ export function SettingsNav() {
   const pathname = usePathname();
   return (
     <nav aria-label="Settings sections" className="hidden md:block">
-      <ul className="sticky top-7 flex flex-col gap-1">
+      <ul className="sticky top-17 flex flex-col gap-1">
         {SETTINGS_SECTIONS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
@@ -70,15 +70,9 @@ export function SettingsIndex() {
   );
 }
 
-/** "Settings" page title. On a section page on phones it is visually replaced by the back link + section title. */
+/** "Settings" page title: the sticky bar from `md` up; on phones the top bar names the page instead. */
 export function SettingsHeader() {
-  const pathname = usePathname();
-  const onSection = pathname !== "/settings";
-  return (
-    <div className={cn(onSection && "max-md:sr-only")}>
-      <PageHeader title="Settings" />
-    </div>
-  );
+  return <PageHeader title="Settings" />;
 }
 
 /** Title block at the top of one settings section, with a way back to the section list on phones. */

@@ -90,8 +90,8 @@ function PreferenceRow({
   const id = useId();
   const info = NOTIFICATION_TYPE_INFO[type];
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 border-b py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_4rem_auto]">
-      <div className="col-span-2 min-w-0 sm:col-span-1">
+    <div className="grid grid-cols-1 items-center gap-x-4 gap-y-2 border-b py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_4rem_auto]">
+      <div className="min-w-0">
         <div id={`${id}-label`} className="font-medium">
           {info.label}
         </div>
@@ -101,7 +101,7 @@ function PreferenceRow({
         <Switch checked={pref.push} onCheckedChange={(push) => onChange({ push })} aria-label={`Push: ${info.label}`} />
         <span className="text-xs text-muted-foreground sm:hidden">Push</span>
       </div>
-      <div className="justify-self-end sm:w-72 sm:justify-self-auto">
+      <div className="min-w-0 sm:w-72">
         <ToggleGroup
           variant="outline"
           size="sm"
@@ -116,7 +116,7 @@ function PreferenceRow({
             <ToggleGroupItem
               key={o.value}
               value={o.value}
-              className="flex-auto text-muted-foreground group-data-[spacing=0]/toggle-group:px-3.5 data-pressed:bg-muted data-pressed:text-foreground"
+              className="flex-auto text-muted-foreground group-data-[spacing=0]/toggle-group:px-2 data-pressed:bg-muted data-pressed:text-foreground min-[400px]:group-data-[spacing=0]/toggle-group:px-3.5"
             >
               {o.label}
             </ToggleGroupItem>

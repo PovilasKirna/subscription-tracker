@@ -174,7 +174,7 @@ A quiet paper-and-ink neutral system with a single blue signal, a gold logo, and
 
 ### Hierarchy
 - **Display** (600, 48px, line-height 1, tracking −0.025em): the one hero figure per screen, e.g. the Overview's monthly total. One per page.
-- **Headline** (600, 24px, tracking −0.025em): page titles (`PageHeader` h1).
+- **Headline** (600, 24px, tracking −0.025em): large display headings. Page titles (`PageHeader` h1) are 600/16px in the top bar, with no subtitle.
 - **Stat** (600, 26px, tracking −0.025em): secondary stat-tile values.
 - **Title** (500, 16px): card and chart titles.
 - **Body** (400, 14px): default UI text, table cells, descriptions.
@@ -185,9 +185,10 @@ A quiet paper-and-ink neutral system with a single blue signal, a gold logo, and
 
 ## Layout
 
-- **Shell:** on `md` (768px) and up, a fixed 224px left rail (`AppNav`, sticky, full height) beside a `minmax(0,1fr)` main column. Below `md`, the shell splits into a 48px sticky top bar (Hoard mark + bell) and a fixed bottom tab bar with all four destinations, each an icon over a 12px label, at least 56px tall, padded for the safe area. Nothing in the shell ever scrolls sideways.
+- **Shell:** on `md` (768px) and up, a fixed 224px left rail (`AppNav`, sticky, full height) beside a `minmax(0,1fr)` main column. Below `md`, the shell splits into a 48px sticky top bar (Hoard mark, muted "Hoard /" and the page title, bell on the right; the page's `h1` is screen-reader only there and its actions sit in a right-aligned row above the content) and a fixed bottom tab bar with all four destinations, each an icon over a 12px label, at least 56px tall, padded for the safe area. Nothing in the shell ever scrolls sideways.
+- **Page bar (`md` and up):** `PageHeader` is a slim sticky bar (min 48px, `bg-card`, bottom border) at the top of the main column with the `h1` on the left and page actions on the right. Its background and border bleed to the column edges via a clipped box-shadow, so it never causes horizontal scroll; the rail paints over the left bleed.
 - **Skip link:** a "Skip to content" link is the first focus stop and targets `<main id="main">`.
-- **Main column:** max width 1240px, centered. Side padding 16px on mobile and 32px from `md`; top padding 20px/28px; bottom padding 64px.
+- **Main column:** max width 1240px, centered. Side padding 16px on mobile and 32px from `md`; top padding 20px on mobile and none from `md` (the page bar sits flush); bottom padding 64px.
 - **Rhythm:** 16px gap between cards and tiles; 16px card padding (12px for `size="sm"` cards); 20px under the page header.
 - **Overview:** row 1 is the stat row: the monthly total (1.4fr) and three stat tiles, as one row from `lg` (phones: total and price increase span both columns). Row 2 is Monthly recurring spend (1.55fr) beside Upcoming renewals; row 3 is the timeline beside spend by merchant. On phones, renewals come before spend. Time-based nudges (overdue, price increases, renewals, reimbursements) belong in the notification feed under the bell, not in an Overview card.
 - **Data lists:** tables switch to two-line list rows when their card is narrower than 36rem (a container query, not a viewport breakpoint). Line 1 carries the name and the money; line 2 carries the date, status or type. The row menu is a separate 44px target, and a "Sort:" menu replaces column headers. Wider cards show the table, adding columns as the card grows.

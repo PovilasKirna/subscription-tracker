@@ -19,27 +19,44 @@ const LINKS = [
 
 const isActive = (pathname: string, href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
+/** The current page's name for the phone top bar: the tab's label, or the settings section on a section page. */
+function pageTitle(pathname: string) {
+  const section = SETTINGS_SECTIONS.find(({ href }) => pathname === href || pathname.startsWith(`${href}/`));
+  if (section) return section.label;
+  return LINKS.find(({ href }) => isActive(pathname, href))?.label;
+}
+
 /**
  * The app shell's navigation. From `md` up it's a left rail; on phones it splits into a compact
- * top bar (brand and bell) and a fixed bottom tab bar, so nothing ever scrolls sideways.
+ * top bar (brand, page title and bell) and a fixed bottom tab bar, so nothing ever scrolls sideways.
+ * The phone title comes from the pathname, so it switches with the route and never waits on the page.
  */
 export function AppNav() {
   const pathname = usePathname();
+  const title = pageTitle(pathname);
   return (
     <>
-      {/* Phones: brand on the left, bell on the right. Never scrolls. */}
+      {/* Phones: "Hoard / Page" on the left (the page's own h1 is screen-reader only here), bell on the right. Never scrolls. */}
       <header className="sticky top-0 z-30 border-b bg-card pt-[env(safe-area-inset-top)] md:hidden">
         <div className="flex h-12 items-center justify-between gap-2 pr-[max(0.25rem,env(safe-area-inset-right))] pl-[max(1rem,env(safe-area-inset-left))]">
-          <div className="flex items-center gap-2.5 font-semibold">
-            <HoardMark className="size-7" />
-            <span>{site.name}</span>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <HoardMark className="size-7 shrink-0" />
+            <span className={cn("shrink-0", title ? "text-muted-foreground" : "font-semibold")}>{site.name}</span>
+            {title && (
+              <>
+                <span aria-hidden className="-mx-1 shrink-0 text-muted-foreground/60">
+                  /
+                </span>
+                <span className="min-w-0 truncate font-semibold">{title}</span>
+              </>
+            )}
           </div>
-          <NotificationBell />
+          <NotificationBell className="shrink-0" />
         </div>
       </header>
 
       {/* Desktop and tablet: the left rail. */}
-      <aside className="hidden md:sticky md:top-0 md:flex md:h-dvh md:flex-col md:border-r md:bg-card md:py-5 md:pr-3 md:pl-[max(0.75rem,env(safe-area-inset-left))]">
+      <aside className="hidden md:sticky md:top-0 md:z-30 md:flex md:h-dvh md:flex-col md:border-r md:bg-card md:py-5 md:pr-3 md:pl-[max(0.75rem,env(safe-area-inset-left))]">
         <div className="mb-5 flex items-center gap-2.5 px-2 font-semibold">
           <HoardMark className="size-7" />
           <span>{site.name}</span>

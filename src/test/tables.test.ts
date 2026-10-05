@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createLoader } from "nuqs/server";
 import { applyFilters, countFacets, type FilterDef } from "../components/data-table/filters";
-import { loadTransactionParams } from "../lib/search-params";
+import { clientPerPageParam, effectivePageSize, loadTransactionParams, PAGE_SIZES, PHONE_PAGE_SIZE } from "../lib/search-params";
 import type { TxRow } from "../lib/server/db";
 import { detectSubscriptions } from "../lib/server/detect";
 import { merchantKey } from "../lib/server/merchant";
@@ -27,6 +28,7 @@ const tx = (
   state: "COMPLETED",
 });
 const params = (qs = "") => loadTransactionParams(new URLSearchParams(qs));
+const loadClient = createLoader({ perPage: clientPerPageParam });
 
 const rows = [
   tx("2026-01-05", -15.99, "Netflix.com"),
@@ -110,4 +112,22 @@ test("client table helpers filter and count facets", () => {
   const facets = countFacets(data, defs, { kind: ["a"] });
   assert.deepEqual(facets.kind, { a: 2, b: 1 });
   assert.deepEqual(facets.size, { s: 1, l: 1 });
+});
+
+test("page size: an explicit ?perPage wins, otherwise phones get 10 and everything else 25", () => {
+  assert.equal(effectivePageSize(null, false), 25);
+  assert.equal(effectivePageSize(null, true), 10);
+  assert.equal(effectivePageSize(50, true), 50);
+  assert.equal(effectivePageSize(25, true), 25);
+  assert.equal(effectivePageSize(10, false), 10);
+  assert.ok(PAGE_SIZES.includes(PHONE_PAGE_SIZE));
+});
+
+test("the client perPage param has no default, so an absent one reads as null", () => {
+  const { perPage } = loadClient(new URLSearchParams(""));
+  assert.equal(perPage, null);
+  assert.equal(loadClient(new URLSearchParams("perPage=50")).perPage, 50);
+  assert.equal(loadClient(new URLSearchParams("perPage=7")).perPage, null);
+  // The server loader still defaults to 25 so prefetch and desktop agree.
+  assert.equal(loadTransactionParams(new URLSearchParams("")).perPage, 25);
 });
