@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { type HistoryRange, rangeMonths, type SubscriptionFilters, type TransactionFilters } from "../search-params";
+import { type OverviewRange, rangeMonths, type SubscriptionFilters, type TransactionFilters } from "../search-params";
 import type {
   AssignOptionsPayload,
   BankAccount,
@@ -226,7 +226,7 @@ export async function getSubscriptionsTable(filters: SubscriptionFilters): Promi
   return querySubscriptions({ today: today(), subscriptions: det.subscriptions, ignored: det.ignored }, filters);
 }
 
-export async function getHistory(range: HistoryRange = "12m"): Promise<HistoryPayload> {
+export async function getHistory(range: OverviewRange = "12m"): Promise<HistoryPayload> {
   const { txs, det } = await detection();
   const now = today();
   return buildHistory(txs, det, config.baseCurrency, now, Math.min(Math.max(rangeMonths(range, now), 1), 36));
