@@ -16,3 +16,4 @@ export { DataTablePagination } from "./DataTablePagination";
 export { DataTableSearch, DataTableToolbar } from "./DataTableToolbar";
 export { DataTableViewOptions } from "./DataTableViewOptions";
 export * from "./filters";
+export { usePageSize } from "./usePageSize";

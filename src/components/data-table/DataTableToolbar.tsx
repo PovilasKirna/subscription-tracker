@@ -20,13 +20,13 @@ export function DataTableSearch({ value, onChange, placeholder = "Search…", de
     return () => clearTimeout(t);
   }, [draft, value, onChange, debounceMs]);
   return (
-    <div className="relative w-full sm:w-72">
+    <div className="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
       <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         placeholder={placeholder}
-        className="h-8 pl-8"
+        className="h-8 pl-8 pointer-coarse:h-11"
         aria-label={placeholder}
       />
     </div>
@@ -55,19 +55,18 @@ export function DataTableToolbar<TData>({
   const active = Boolean(search?.value) || Boolean(filters && Object.values(filters.selection).some((v) => v?.length));
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {search && <DataTableSearch {...search} />}
-      {filters && (
-        <>
-          <DataTableFilterMenu {...filters} />
-          <DataTableFilterChips {...filters} />
-        </>
-      )}
+      {/* Search grows; the filter button stays fixed beside it at every width. Chips wrap below on phones. */}
+      <div className="flex w-full items-center gap-2 sm:w-auto">
+        {search && <DataTableSearch {...search} />}
+        {filters && <DataTableFilterMenu {...filters} />}
+      </div>
+      {filters && <DataTableFilterChips {...filters} />}
       {active && onReset && (
-        <Button variant="ghost" size="sm" onClick={onReset}>
+        <Button variant="ghost" size="sm" className="pointer-coarse:h-11" onClick={onReset}>
           Clear filters <XIcon />
         </Button>
       )}
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-2 empty:hidden">
         {children}
         {table && <DataTableViewOptions table={table} />}
       </div>

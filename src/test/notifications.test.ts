@@ -129,6 +129,11 @@ test("settings: defaults fill in anything missing or invalid; patches are valida
   assert.ok("error" in parseSettingsPatch({ deliveryHour: 24 }));
   assert.ok("error" in parseSettingsPatch({ deliveryHour: 8.5 }));
   assert.ok("error" in parseSettingsPatch({ colour: "red" }));
+  // A type added later needs no stored row (no migration): it takes its default until changed.
+  assert.deepEqual(stored.notifications.upcoming_charge, { push: false, email: "off" });
+  assert.deepEqual(parseSettingsPatch({ notifications: { upcoming_charge: { push: true } } }), {
+    patch: { notifications: { upcoming_charge: { push: true } } },
+  });
   assert.ok("error" in parseSettingsPatch({ notifications: { birthday: { push: true } } }));
   assert.ok("error" in parseSettingsPatch({ notifications: { sync_error: { email: "sometimes" } } }));
   assert.ok("error" in parseSettingsPatch({ emailRecipient: "not-an-email" }));
@@ -351,6 +356,44 @@ test("yearly renewal: 7 days ahead for yearly subscriptions only", () => {
   assert.deepEqual(plan("2026-10-20T12:00:00Z", [sub({ key: "spotify|EUR", nextCharge: "2026-10-25" })]), []);
 });
 
+test("upcoming charge: 3 days ahead for every cadence but yearly, today included", () => {
+  const netflix = sub({ key: "netflix|EUR", name: "Netflix", amount: 15.99, nextCharge: "2026-10-23" });
+  const plan = (now: string, subs = [netflix], known: ReadonlySet<string> | null = new Set(["netflix|EUR"])) =>
+    planNotifications(snapshot({ subscriptions: subs, knownSubscriptions: known }), settings(), at(now));
+  assert.deepEqual(plan("2026-10-19T12:00:00Z"), []); // 4 days ahead
+  const [r] = plan("2026-10-20T12:00:00Z");
+  assert.equal(r.type, "upcoming_charge");
+  assert.equal(r.dedupeKey, "upcoming:netflix|EUR:2026-10-23");
+  assert.equal(r.title, "Netflix charges in 3 days");
+  assert.equal(r.body, "Monthly charge of about €15.99 on 23 Oct 2026.");
+  assert.deepEqual(r.data, { url: "/subscriptions?sub=netflix%7CEUR", subKey: "netflix|EUR", date: "2026-10-23" });
+  assert.ok(!r.silent);
+  // One key per charge: every day of the window plans the same one, so it's stored once.
+  assert.equal(plan("2026-10-22T12:00:00Z")[0].dedupeKey, r.dedupeKey);
+  assert.equal(plan("2026-10-22T12:00:00Z")[0].title, "Netflix charges tomorrow");
+  assert.equal(plan("2026-10-23T12:00:00Z")[0].title, "Netflix charges today");
+  assert.deepEqual(plan("2026-10-24T12:00:00Z"), []); // the date passed without the charge: overdue's job
+  // Day boundary in the user's zone: 19 Oct 21:30 UTC is already the 20th in Vilnius.
+  assert.equal(plan("2026-10-19T21:30:00Z").length, 1);
+  // Actionable, so not silent even on the very first run.
+  assert.ok(!plan("2026-10-20T12:00:00Z", [netflix], null)[0].silent);
+  // Weekly and quarterly too; the next charge's cadence names it.
+  const gym = sub({ key: "gym|EUR", name: "Gym", cadence: "weekly", amount: 9, nextCharge: "2026-10-21" });
+  assert.equal(plan("2026-10-20T12:00:00Z", [gym])[0].body, "Weekly charge of about €9.00 on 21 Oct 2026.");
+  assert.equal(plan("2026-10-20T12:00:00Z", [{ ...gym, cadence: "quarterly" }]).length, 1);
+  // Yearly ones get their 7-day renewal notice instead, never both.
+  const yearly = plan("2026-10-20T12:00:00Z", [{ ...netflix, cadence: "yearly" }]);
+  assert.deepEqual(
+    yearly.map((c) => c.type),
+    ["yearly_renewal"],
+  );
+  // Not for late, inactive or cancelled subscriptions, nor without a next charge.
+  for (const status of ["late", "inactive", "cancelled"] as const) {
+    assert.ok(!plan("2026-10-20T12:00:00Z", [{ ...netflix, status }]).some((c) => c.type === "upcoming_charge"));
+  }
+  assert.deepEqual(plan("2026-10-20T12:00:00Z", [{ ...netflix, nextCharge: null }]), []);
+});
+
 const fresh = { firstCharge: "2026-08-15", lastCharge: "2026-10-15", nextCharge: "2026-11-15", chargeCount: 3 };
 
 test("new subscription: only ones not seen before, never during the baseline", () => {
@@ -434,6 +477,13 @@ test("isResolved: renewals and overdue charges once the charge arrives; informat
   const gym = sub({ key: "gym|EUR", status: "late", nextCharge: "2026-10-05" });
   assert.equal(isResolved(overdue, snapshot({ subscriptions: [gym] })), false);
   assert.equal(isResolved(overdue, snapshot({ subscriptions: [{ ...gym, status: "active", nextCharge: "2026-11-05" }] })), true);
+  const upcoming = { type: "upcoming_charge" as const, data: { url: null, subKey: "netflix|EUR", date: "2026-10-23" } };
+  const netflix = sub({ key: "netflix|EUR", nextCharge: "2026-10-23" });
+  assert.equal(isResolved(upcoming, snapshot({ subscriptions: [netflix] })), false);
+  assert.equal(isResolved(upcoming, snapshot({ subscriptions: [{ ...netflix, nextCharge: "2026-11-23" }] })), true); // charged
+  assert.equal(isResolved(upcoming, snapshot({ subscriptions: [{ ...netflix, status: "late" }] })), true); // overdue takes over
+  assert.equal(isResolved(upcoming, snapshot({ subscriptions: [{ ...netflix, status: "cancelled" }] })), true);
+  assert.equal(isResolved(upcoming, snapshot({ subscriptions: [] })), true);
   assert.equal(isResolved({ type: "price_increase", data: { url: null, subKey: "gym|EUR" } }, snapshot()), false);
   assert.equal(isResolved({ type: "new_subscription", data: { url: null, subKey: "x|EUR" } }, snapshot()), false);
 });
@@ -684,8 +734,10 @@ test("runner: a failed delivery is retried by the next run; the digest goes out 
   const log: Sent[] = [];
   const digests: DigestInput[] = [];
   const lost = { ...session, status: "needs_reconnect" as const, lastError: "Revoked" };
+  // Charging next month, so no upcoming-charge notice joins the bank one.
+  const a = sub({ key: "a|EUR", nextCharge: "2026-11-05" });
   const input = (now: string) => ({
-    snapshot: snapshot({ subscriptions: [sub({ key: "a|EUR" })], bankSessions: [lost], knownSubscriptions: new Set(["a|EUR"]) }),
+    snapshot: snapshot({ subscriptions: [a], bankSessions: [lost], knownSubscriptions: new Set(["a|EUR"]) }),
     settings: settings(), // no email recipient: email isn't ready
     now: at(now),
     baseCurrency: "EUR",
@@ -749,4 +801,59 @@ test("runner: a failed first digest gives its slot back, so the next run sends i
   assert.equal(digests.length, 2);
   // Every run notes when it happened, for the catch-up rule.
   assert.equal(await getState(db, "state.lastRun"), "2026-10-12T07:00:00.000Z");
+});
+
+test("runner: upcoming charges reach the feed from the first run, even from a daily cron before the delivery hour", async () => {
+  await run(db, "DELETE FROM notifications");
+  await run(db, "DELETE FROM settings");
+  const log: Sent[] = [];
+  const netflix = sub({ key: "netflix|EUR", name: "Netflix", nextCharge: "2026-10-08" });
+  const input = (now: string, subs = [netflix], known: ReadonlySet<string> | null = null) => ({
+    snapshot: snapshot({ subscriptions: subs, knownSubscriptions: known }),
+    settings: settings({ emailRecipient: "me@example.com", digestFrequency: "off" }),
+    now: at(now),
+    baseCurrency: "EUR",
+  });
+  // Vercel's daily cron at 05:00 UTC (08:00 in Vilnius, before the 09:00 delivery hour), on the
+  // very first run (the baseline): stored, not silent, and only in the app (push and email are off by default).
+  let r = await processNotifications(db, { ...input("2026-10-05T05:00:00Z"), channels: fakeChannels(log) });
+  assert.equal(r.created, 1);
+  assert.equal(log.length, 0);
+  const row = await one<{ type: string; title: string; silent: number; read_at: string | null; resolved_at: string | null }>(
+    db,
+    "SELECT type, title, silent, read_at, resolved_at FROM notifications WHERE dedupe_key = 'upcoming:netflix|EUR:2026-10-08'",
+  );
+  assert.deepEqual(
+    { ...row },
+    { type: "upcoming_charge", title: "Netflix charges in 3 days", silent: 0, read_at: null, resolved_at: null },
+  );
+  // The next days plan the same charge: nothing new.
+  r = await processNotifications(db, {
+    ...input("2026-10-06T05:00:00Z", [netflix], new Set(["netflix|EUR"])),
+    channels: fakeChannels(log),
+  });
+  assert.equal(r.created, 0);
+  // Opted in to push: a new one goes to the devices too.
+  await saveSettings(db, { notifications: { upcoming_charge: { push: true } } });
+  const spotify = sub({ key: "spotify|EUR", name: "Spotify", nextCharge: "2026-10-07" });
+  r = await processNotifications(db, {
+    ...input("2026-10-06T06:00:00Z", [netflix, spotify], new Set(["netflix|EUR", "spotify|EUR"])),
+    settings: await getSettings(db),
+    channels: fakeChannels(log),
+  });
+  assert.equal(r.created, 1);
+  assert.deepEqual(
+    log.map((l) => `${l.kind}:${l.n.title}`),
+    ["push:Spotify charges tomorrow"],
+  );
+  // Charged: the next charge moves on, so both resolve.
+  r = await processNotifications(db, {
+    ...input("2026-10-08T12:00:00Z", [
+      { ...netflix, lastCharge: "2026-10-08", nextCharge: "2026-11-08" },
+      { ...spotify, lastCharge: "2026-10-07", nextCharge: "2026-11-07" },
+    ]),
+    channels: [],
+  });
+  assert.equal(r.resolved, 2);
+  await run(db, "DELETE FROM settings");
 });

@@ -19,10 +19,7 @@ export default async function SubscriptionsPage({ searchParams }: { searchParams
   if (sub) void queryClient.prefetchQuery({ ...subscriptionDetailQuery(sub), queryFn: () => getSubscriptionDetail(sub) });
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      <PageHeader
-        title="Subscriptions"
-        description="Detected from your recurring charges. Open one for details, its charges and actions."
-      />
+      <PageHeader title="Subscriptions" />
       <Suspense fallback={<TableSkeleton rows={12} />}>
         <SubscriptionsTable />
       </Suspense>

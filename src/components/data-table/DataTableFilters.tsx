@@ -52,15 +52,27 @@ export function DataTableFilterMenu(props: DataTableFilterProps) {
   const active = props.defs.filter((d) => props.selection[d.key]?.length).length;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
-        <ListFilterIcon /> Filter
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="outline"
+            aria-label={active ? `Filter, ${active} active` : "Filter"}
+            className="relative max-sm:w-8 max-sm:px-0 pointer-coarse:h-11 pointer-coarse:max-sm:w-11"
+          />
+        }
+      >
+        <ListFilterIcon />
+        <span className="hidden sm:inline">Filter</span>
         {active > 0 && (
-          <Badge variant="secondary" className="tabular ml-0.5 h-4.5 min-w-4.5 rounded-full px-1 text-xs">
+          <Badge
+            variant="secondary"
+            className="tabular absolute -top-1.5 -right-1.5 h-4.5 min-w-4.5 rounded-full px-1 text-xs ring-2 ring-background sm:static sm:ml-0.5 sm:ring-0"
+          >
             {active}
           </Badge>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48">
+      <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Filter by</DropdownMenuLabel>
           {props.defs.map((def) => (

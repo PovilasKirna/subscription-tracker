@@ -3,12 +3,12 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useQueryStates } from "nuqs";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import { DataTable, DataTablePagination, DataTableToolbar, useDataTable } from "@/components/data-table";
+import { DataTable, DataTablePagination, DataTableToolbar, useDataTable, usePageSize } from "@/components/data-table";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { localDate } from "@/lib/format";
 import { transactionsQuery } from "@/lib/query/options";
-import { PAGE_SIZES, TX_SORT_COLUMNS, transactionParams } from "@/lib/search-params";
+import { DEFAULT_PAGE_SIZE, PAGE_SIZES, TX_SORT_COLUMNS, transactionClientParams } from "@/lib/search-params";
 import { transactionColumns } from "./columns";
 import { TRANSACTION_FILTERS } from "./filters";
 import { TransactionMobileRow } from "./TransactionMobileRow";
@@ -21,7 +21,9 @@ import { TransactionRowActions } from "./TransactionRowActions";
  */
 export function TransactionsTable() {
   const [isPending, startTransition] = useTransition();
-  const [params, setParams] = useQueryStates(transactionParams, { startTransition, history: "replace" });
+  const [urlParams, setParams] = useQueryStates(transactionClientParams, { startTransition, history: "replace" });
+  const { perPage, toParam } = usePageSize(urlParams.perPage);
+  const params = useMemo(() => ({ ...urlParams, perPage }), [urlParams, perPage]);
   const { data } = useSuspenseQuery(transactionsQuery(params));
 
   // Warm the next page in the background so paging forward is instant.
@@ -52,8 +54,8 @@ export function TransactionsTable() {
       }),
     pagination: { pageIndex: data.page - 1, pageSize: params.perPage },
     onPaginationChange: ({ pageIndex, pageSize }) => {
-      const perPage = PAGE_SIZES.find((s) => s === pageSize) ?? 25;
-      void setParams({ perPage, page: perPage !== params.perPage || pageIndex === 0 ? null : pageIndex + 1 });
+      const size = PAGE_SIZES.find((s) => s === pageSize) ?? DEFAULT_PAGE_SIZE;
+      void setParams({ perPage: toParam(size), page: size !== perPage || pageIndex === 0 ? null : pageIndex + 1 });
     },
   });
 
@@ -91,9 +93,9 @@ export function TransactionsTable() {
 export function TransactionsTableSkeleton() {
   return (
     <div className="flex flex-col gap-3" role="status" aria-busy="true" aria-label="Loading transactions">
-      <div className="flex flex-wrap gap-2">
-        <Skeleton className="h-8 w-full sm:w-72" />
-        <Skeleton className="h-8 w-20" />
+      <div className="flex gap-2">
+        <Skeleton className="h-8 min-w-0 flex-1 sm:w-72 sm:flex-none" />
+        <Skeleton className="h-8 w-8 shrink-0 sm:w-20" />
       </div>
       <Card className="py-0">
         <CardContent className="flex flex-col px-4">

@@ -15,10 +15,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
   void queryClient.prefetchQuery({ ...transactionsQuery(filters), queryFn: () => getTransactions(filters) });
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      <PageHeader
-        title="Transactions"
-        description="Search, filter and sort everything imported. Use a row's menu to add a payment to a subscription or take it out."
-      />
+      <PageHeader title="Transactions" />
       <Suspense fallback={<TransactionsTableSkeleton />}>
         <TransactionsTable />
       </Suspense>

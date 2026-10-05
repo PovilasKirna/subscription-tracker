@@ -44,7 +44,14 @@ type Row = {
 
 const COLUMNS = "id, dedupe_key, type, title, body, data_json, created_at, read_at, resolved_at, pushed_at, emailed_at";
 /** Types whose subject can be dealt with (see isResolved); the others are only ever read. */
-const RESOLVABLE: NotificationType[] = ["reimbursement_reminder", "bank_attention", "sync_error", "yearly_renewal", "subscription_overdue"];
+const RESOLVABLE: NotificationType[] = [
+  "reimbursement_reminder",
+  "bank_attention",
+  "sync_error",
+  "yearly_renewal",
+  "upcoming_charge",
+  "subscription_overdue",
+];
 
 function parseData(json: string): NotificationData {
   try {
