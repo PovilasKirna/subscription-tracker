@@ -1,4 +1,5 @@
 import type { ExpectedCharge } from "@/charts/types";
+import type { MerchantRange } from "./search-params";
 import type { Subscription, SubscriptionsPayload } from "./types";
 
 // Pure derivations from the subscriptions payload, run identically on the server (SSR) and client.
@@ -8,7 +9,7 @@ const toTime = (d: string) => Date.parse(`${d}T00:00:00Z`);
 const toIso = (t: number) => new Date(t).toISOString().slice(0, 10);
 const MONTHS: Record<Subscription["cadence"], number> = { weekly: 0, monthly: 1, quarterly: 3, semiannual: 6, yearly: 12 };
 
-function addMonths(date: string, months: number): string {
+export function addMonths(date: string, months: number): string {
   const d = new Date(toTime(date));
   const day = d.getUTCDate();
   d.setUTCDate(1);
@@ -17,19 +18,30 @@ function addMonths(date: string, months: number): string {
   d.setUTCDate(Math.min(day, last));
   return toIso(d.getTime());
 }
-const advance = (s: Subscription, date: string) => (MONTHS[s.cadence] ? addMonths(date, MONTHS[s.cadence]) : toIso(toTime(date) + 7 * DAY));
+/**
+ * The `n`th charge after `anchor` (n = 0 is `anchor` itself). Always counted from the anchor, never
+ * from the previous charge, so a short month's clamp (Jan 31 → Feb 28) doesn't carry into March.
+ */
+const nthCharge = (s: Subscription, anchor: string, n: number) =>
+  MONTHS[s.cadence] ? addMonths(anchor, n * MONTHS[s.cadence]) : toIso(toTime(anchor) + n * 7 * DAY);
 
 export const isLive = (s: Subscription) => s.status === "active" || s.status === "late";
 
 /** Every charge we expect from live subscriptions in [today, today + days). */
 export function projectCharges(subs: readonly Subscription[], today: string, days: number): ExpectedCharge[] {
-  const end = toIso(toTime(today) + days * DAY);
+  return projectChargesBetween(subs, today, toIso(toTime(today) + days * DAY));
+}
+
+/** Every charge we expect from live subscriptions in [from, to) (dates YYYY-MM-DD, `from` not in the past). */
+export function projectChargesBetween(subs: readonly Subscription[], from: string, to: string): ExpectedCharge[] {
   const out: ExpectedCharge[] = [];
   for (const s of subs) {
     if (!isLive(s) || !s.nextCharge) continue;
-    let d = s.nextCharge;
-    while (d < today) d = advance(s, d);
-    for (; d < end; d = advance(s, d)) {
+    const anchor = s.nextCharge;
+    let n = 0;
+    let d = anchor;
+    while (d < from) d = nthCharge(s, anchor, ++n);
+    for (; d < to; d = nthCharge(s, anchor, ++n)) {
       out.push({ date: d, key: s.key, name: s.name, amount: s.amount, currency: s.currency, color: s.color });
     }
   }
@@ -78,20 +90,41 @@ export function computeStats(p: SubscriptionsPayload): Stats {
   };
 }
 
-export type MerchantSpend = { merchantKey: Subscription["merchantKey"]; name: string; total: number };
+export type MerchantSpend = {
+  merchantKey: Subscription["merchantKey"];
+  name: string;
+  /** Everything charged. */
+  total: number;
+  /** The part of `total` paid back (recorded + assumed reimbursements). */
+  subsidised: number;
+};
 
-/** Subscription spend per merchant over the last `months` months (plans of one merchant merged). */
-export function spendByMerchant(p: SubscriptionsPayload, months = 12): MerchantSpend[] {
-  const since = addMonths(p.today, -months);
+/**
+ * Subscription spend per merchant (plans of one merchant merged) over the last 12 months, or
+ * since January 1st ("ytd"), with what was reimbursed split out.
+ */
+export function spendByMerchant(p: SubscriptionsPayload, range: MerchantRange = "12m"): MerchantSpend[] {
+  // Inclusive lower bound: the day after a year ago, or New Year's Day.
+  const since = range === "ytd" ? `${p.today.slice(0, 4)}-01-01` : toIso(toTime(addMonths(p.today, -12)) + DAY);
   const by = new Map<string, MerchantSpend>();
   for (const s of p.subscriptions) {
     if (s.currency !== p.baseCurrency) continue;
-    const total = s.charges.filter((c) => c.date > since).reduce((sum, c) => sum + c.amount, 0);
+    let total = 0;
+    let subsidised = 0;
+    for (const c of s.charges) {
+      if (c.date < since) continue;
+      total += c.amount;
+      const r = c.reimbursement;
+      if (r?.status === "recorded" || r?.status === "assumed") subsidised += r.amount;
+    }
     if (total <= 0) continue;
     const name = s.name.split(" · ")[0];
     const cur = by.get(s.merchantKey);
-    if (cur) cur.total += total;
-    else by.set(s.merchantKey, { merchantKey: s.merchantKey, name, total });
+    if (cur) {
+      cur.total += total;
+      cur.subsidised += subsidised;
+    } else by.set(s.merchantKey, { merchantKey: s.merchantKey, name, total, subsidised });
   }
-  return [...by.values()].map((m) => ({ ...m, total: Math.round(m.total * 100) / 100 }));
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  return [...by.values()].map((m) => ({ ...m, total: round2(m.total), subsidised: round2(Math.min(m.subsidised, m.total)) }));
 }

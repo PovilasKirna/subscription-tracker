@@ -316,6 +316,8 @@ export type MailStatusPayload = {
   problem: string | null;
   /** APP_URL: where links in emails lead (null = emails carry no links into the app). */
   appUrl: string | null;
+  /** The domain MAIL_FROM sends from, e.g. "example.com" (null = no sender set). */
+  senderDomain: string | null;
 };
 
 export type { NotificationType, Settings } from "./settings";

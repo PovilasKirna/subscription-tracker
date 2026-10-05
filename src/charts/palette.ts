@@ -2,7 +2,9 @@ import type { SeriesColor } from "./types";
 
 // Palette colours are CSS custom properties (light + dark live in globals.css), never raw hex here.
 // Only a colour the user picked themselves arrives as hex, and is used as-is in both themes.
-export const seriesColor = (color: SeriesColor): string =>
+/** A series colour, or any CSS colour a chart derives itself (e.g. a `color-mix()` of a slot). */
+export type Paint = SeriesColor | (string & {});
+export const seriesColor = (color: Paint): string =>
   typeof color === "string" ? color : color ? `var(--series-${color})` : "var(--series-other)";
 
 /** The preset colours a user can pick for a subscription, in slot order (`--series-1` … `--series-8`). */

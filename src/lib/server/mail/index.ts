@@ -17,7 +17,7 @@ export function mailProvider(cfg: MailConfig = config.mail): MailProvider | null
   return null;
 }
 
-export function mailStatus(cfg: MailConfig = config.mail): Omit<MailStatusPayload, "appUrl"> {
+export function mailStatus(cfg: MailConfig = config.mail): Omit<MailStatusPayload, "appUrl" | "senderDomain"> {
   const provider = mailProvider(cfg);
   const from = cfg.from || null;
   const problem = !provider
@@ -30,7 +30,13 @@ export function mailStatus(cfg: MailConfig = config.mail): Omit<MailStatusPayloa
 
 /** Settings → Notifications → Email: the status plus where links in emails lead. */
 export function mailSetup(): MailStatusPayload {
-  return { ...mailStatus(), appUrl: config.appUrl || null };
+  return { ...mailStatus(), appUrl: config.appUrl || null, senderDomain: senderDomain(config.mail.from) };
+}
+
+/** "Hoard <notifications@example.com>" → "example.com"; null when there's no address. */
+export function senderDomain(from: string): string | null {
+  const m = /@([^\s@<>]+)>?\s*$/.exec(from.trim());
+  return m ? m[1].toLowerCase() : null;
 }
 
 /** The configured mailer, or null when email isn't set up. */

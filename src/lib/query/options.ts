@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import {
+  type HistoryRange,
   type SubscriptionFilters,
   serializeSubscriptionParams,
   serializeTransactionParams,
@@ -44,7 +45,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export const keys = {
   subscriptions: ["subscriptions"] as const,
   subscriptionsTable: (filters: SubscriptionFilters) => ["subscriptions-table", filters] as const,
-  history: (months: number) => ["history", months] as const,
+  history: (range: HistoryRange) => ["history", range] as const,
   transactions: (filters: TransactionFilters) => ["transactions", filters] as const,
   status: ["status"] as const,
   subscriptionDetail: (key: string) => ["subscription-detail", key] as const,
@@ -68,8 +69,8 @@ export const subscriptionsTableQuery = (filters: SubscriptionFilters) =>
     queryFn: () => api<SubscriptionsTablePayload>(`/api/subscriptions/table${serializeSubscriptionParams(filters)}`),
   });
 
-export const historyQuery = (months: number) =>
-  queryOptions({ queryKey: keys.history(months), queryFn: () => api<HistoryPayload>(`/api/history?months=${months}`) });
+export const historyQuery = (range: HistoryRange) =>
+  queryOptions({ queryKey: keys.history(range), queryFn: () => api<HistoryPayload>(`/api/history?range=${range}`) });
 
 export const transactionsQuery = (filters: TransactionFilters) =>
   queryOptions({
