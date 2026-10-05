@@ -289,8 +289,9 @@ export function OverviewWidgets() {
       place();
       hitTest();
     };
+    // Only a real release commits; a cancelled pointer (gesture arbitration, an interrupted touch) snaps back.
     const onUp = (ev: globalThis.PointerEvent) => {
-      if (ev.pointerId === drag.current?.pointerId) end(true);
+      if (ev.pointerId === drag.current?.pointerId) end(ev.type === "pointerup");
     };
     // Once a touch drag has started, keep the page from scrolling under the finger.
     const onTouchMove = (ev: TouchEvent) => {

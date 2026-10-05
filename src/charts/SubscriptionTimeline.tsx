@@ -10,6 +10,7 @@ import { Bar, Circle, Line } from "@visx/shape";
 import { type KeyboardEvent, type MouseEvent, useMemo, useState } from "react";
 import { ChartTooltip, TooltipRow, useChartTooltip, useRovingFocus } from "./ChartTooltip";
 import { axisLabel, fitLabel, focusRing, isOther, MIN_TEXT, marks, otherOutline, seriesColor, tokens } from "./palette";
+import { timelineRowLabel } from "./timelineLabel";
 import type { Accessor, TimelineCharge, TimelineRow, Today } from "./types";
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
@@ -151,19 +152,7 @@ function Timeline<T extends TimelineRow>({
   };
 
   /** Everything the tooltip and marks show, as one sentence for screen readers. */
-  const rowLabel = (row: T) => {
-    const latest = row.charges.at(-1);
-    const changes = row.priceChanges.map(
-      (pc) => `${formatMoney(pc.from, row.currency)} to ${formatMoney(pc.to, row.currency)} on ${formatDate(pc.date)}`,
-    );
-    return [
-      `${row.name}: ${row.charges.length} charges from ${formatDate(row.firstCharge)} to ${formatDate(row.lastCharge)}`,
-      latest && `latest ${formatMoney(latest.amount, row.currency)}`,
-      changes.length && `price changes: ${changes.join("; ")}`,
-    ]
-      .filter(Boolean)
-      .join(", ");
-  };
+  const rowLabel = (row: T) => timelineRowLabel(row, { money: formatMoney, date: formatDate }, from);
 
   const onMove = (row: T, e: MouseEvent<SVGRectElement>) => {
     const p = localPoint(e);
