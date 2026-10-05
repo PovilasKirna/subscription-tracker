@@ -3,6 +3,7 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { ChevronLeftIcon, ChevronRightIcon, UploadIcon } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQueryStates } from "nuqs";
 import { useMemo, useTransition } from "react";
 import {
@@ -23,6 +24,9 @@ import { historyQuery, subscriptionsQuery } from "@/lib/query/options";
 import { OVERVIEW_RANGES, type OverviewRange, overviewParams, RENEWAL_MONTHS_AHEAD } from "@/lib/search-params";
 import type { HistoryPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { CHART_SLOT } from "./layout";
+import { drawerHref } from "./links";
+import { RenewalAgenda } from "./RenewalAgenda";
 
 /** Stack-layer key; a template literal so it can never collide with `month` / `total`. */
 type LayerKey = `s:${number}`;
@@ -53,7 +57,7 @@ function RangeToggle({ value, onChange, label }: { value: OverviewRange; onChang
       aria-label={label}
     >
       {OVERVIEW_RANGES.map((o) => (
-        <ToggleGroupItem key={o} value={o} className="px-2 text-xs">
+        <ToggleGroupItem key={o} value={o} className="px-2 text-[12.5px] pointer-coarse:h-11 pointer-coarse:min-w-11">
           {rangeLabel(o)}
         </ToggleGroupItem>
       ))}
@@ -95,7 +99,7 @@ export function SpendSection() {
     <ChartCard
       title="Monthly recurring spend"
       description={`${money(spent, cur)} ${span}, stacked by subscription${reimbursed > 0 ? ` · ${money(reimbursed, cur)} reimbursed` : ""}`}
-      className={cn(isPending && "opacity-60 transition-opacity")}
+      className={cn(CHART_SLOT.spend, isPending && "opacity-60 transition-opacity")}
       controls={<RangeToggle label="Spend range" value={range} onChange={(r) => setParams({ range: r === "12m" ? null : r })} />}
     >
       <SpendColumns
@@ -131,18 +135,26 @@ export function RenewalsSection() {
     <ChartCard
       title="Upcoming renewals"
       description={`${charges.length} charge${charges.length === 1 ? "" : "s"} · ${money(total, data.baseCurrency)} ${when}`}
-      className={cn(isPending && "opacity-60 transition-opacity")}
+      className={cn(CHART_SLOT.renewals, isPending && "opacity-60 transition-opacity")}
       controls={
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon-sm" aria-label="Previous month" disabled={ahead === 0} onClick={() => go(ahead - 1)}>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            className="pointer-coarse:size-11"
+            aria-label="Previous month"
+            disabled={ahead === 0}
+            onClick={() => go(ahead - 1)}
+          >
             <ChevronLeftIcon />
           </Button>
-          <span className="w-18 text-center text-xs font-medium tabular-nums" aria-live="polite">
+          <span className="w-20 text-center text-[12.5px] font-medium tabular-nums" aria-live="polite">
             {monthYearLabel(month)}
           </span>
           <Button
             variant="outline"
             size="icon-sm"
+            className="pointer-coarse:size-11"
             aria-label="Next month"
             disabled={ahead >= RENEWAL_MONTHS_AHEAD}
             onClick={() => go(ahead + 1)}
@@ -152,18 +164,32 @@ export function RenewalsSection() {
         </div>
       }
     >
-      <RenewalCalendar
-        charges={charges}
-        today={data.today}
-        month={month}
-        formatMoney={(a, c) => money(a, c, { cents: false })}
-        formatDate={fullDate}
-      />
+      <div className="hidden md:block">
+        <RenewalCalendar
+          charges={charges}
+          today={data.today}
+          month={month}
+          formatMoney={(a, c) => money(a, c, { cents: false })}
+          formatAmount={money}
+          formatDate={fullDate}
+        />
+      </div>
+      {/* Phones get a list that names each charge; the month grid needs room to be legible. */}
+      <div className="md:hidden">
+        <RenewalAgenda
+          charges={charges}
+          today={data.today}
+          emptyLabel={
+            ahead === 0 ? "Nothing else expected to charge this month." : `Nothing expected to charge in ${monthYearLabel(month)}.`
+          }
+        />
+      </div>
     </ChartCard>
   );
 }
 
 export function TimelineSection() {
+  const router = useRouter();
   const { data } = useSuspenseQuery(subscriptionsQuery());
   // Live subscriptions first, then by first-seen date (stable order).
   const rows = useMemo(
@@ -179,6 +205,7 @@ export function TimelineSection() {
         formatMoney={money}
         formatDate={fullDate}
         formatTick={(d) => monthYearLabel(d.toISOString().slice(0, 7))}
+        onSelect={(key) => router.push(drawerHref(key))}
       />
     </ChartCard>
   );

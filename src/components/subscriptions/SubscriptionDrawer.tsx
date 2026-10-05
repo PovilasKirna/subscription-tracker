@@ -231,7 +231,7 @@ function ChargeList({
     <section>
       <h3 className="text-sm font-medium">{title}</h3>
       {hint && <p className="mt-0.5 mb-2 text-xs text-muted-foreground">{hint}</p>}
-      <ul className={cn("mt-2 divide-y rounded-lg border", muted && "opacity-70")}>
+      <ul className={cn("mt-2 divide-y rounded-lg border", muted && "text-muted-foreground")}>
         {items.map((tx) => (
           <li key={tx.id} className="flex items-center gap-3 px-3 py-2 text-sm">
             <span className="tabular w-24 shrink-0 text-muted-foreground">{fullDate(tx.date)}</span>

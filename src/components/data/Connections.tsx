@@ -157,7 +157,7 @@ export function Connections() {
             <button
               type="button"
               onClick={() => setAdding(true)}
-              className="flex size-full min-h-[104px] flex-col items-center justify-center gap-1.5 rounded-xl border-[1.5px] border-dashed p-4 text-center text-sm text-muted-foreground opacity-70 outline-none transition-[opacity,background-color,border-color,color] hover:border-[var(--series-1)] hover:bg-muted/50 hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="flex size-full min-h-[104px] flex-col items-center justify-center gap-1.5 rounded-xl border-[1.5px] border-dashed p-4 text-center text-sm text-muted-foreground outline-none transition-[background-color,border-color,color] hover:border-[var(--series-1)] hover:bg-muted/50 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
             >
               <PlusIcon className="size-5" />
               <span className="font-medium">Add connection</span>
@@ -179,14 +179,14 @@ function ConnectionTile({ session: s, onOpen }: { session: BankSession; onOpen: 
       type="button"
       onClick={onOpen}
       aria-label={`${s.aspsp}: ${status.label}. Open details`}
-      className="group flex size-full items-start gap-3 rounded-xl border bg-card p-3.5 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="group flex size-full items-start gap-3 rounded-xl border bg-card p-3.5 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
     >
       <BankLogo name={s.aspsp} />
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{s.aspsp}</div>
         <div className="mt-0.5 flex items-center gap-1.5 text-xs">
           <StatusDot tone={status.tone} />
-          <span className={cn(status.tone === "critical" ? "text-destructive" : "text-foreground")}>{status.label}</span>
+          <span className={cn(status.tone === "critical" ? "text-destructive-text" : "text-foreground")}>{status.label}</span>
         </div>
         <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
           {/* "x min ago" can tick over between server render and hydration. */}
@@ -195,7 +195,7 @@ function ConnectionTile({ session: s, onOpen }: { session: BankSession; onOpen: 
           <div>{accountCount(s.accounts.length)}</div>
         </div>
       </div>
-      <ChevronRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+      <ChevronRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground motion-safe:group-hover:translate-x-0.5" />
     </button>
   );
 }
@@ -257,7 +257,7 @@ function AddConnectionDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                   <Skeleton className="h-7 w-full" />
                 </div>
               ) : banks.error ? (
-                <p className="p-3 text-sm text-destructive">{banks.error.message}</p>
+                <p className="p-3 text-sm text-destructive-text">{banks.error.message}</p>
               ) : (
                 <>
                   <CommandEmpty>No bank with that name in {COUNTRIES[country]}.</CommandEmpty>
@@ -326,7 +326,7 @@ function ConnectionDetail({ session: s, onDisconnected }: { session: BankSession
             <DrawerTitle className="truncate text-lg">{s.aspsp}</DrawerTitle>
             <DrawerDescription className="flex items-center gap-1.5 text-xs">
               <StatusDot tone={status.tone} />
-              <span className={cn(status.tone === "critical" && "text-destructive")}>{status.label}</span>
+              <span className={cn(status.tone === "critical" && "text-destructive-text")}>{status.label}</span>
             </DrawerDescription>
           </div>
         </div>
@@ -341,7 +341,7 @@ function ConnectionDetail({ session: s, onDisconnected }: { session: BankSession
             className={cn(
               "flex items-start gap-2 rounded-lg border p-3 text-sm",
               health.level === "error"
-                ? "border-destructive/30 bg-destructive/5 text-destructive"
+                ? "border-destructive/30 bg-destructive/5 text-destructive-text"
                 : "bg-muted/40 text-[var(--text-secondary)]",
             )}
           >
@@ -400,7 +400,7 @@ function ConnectionDetail({ session: s, onDisconnected }: { session: BankSession
         </section>
 
         <section className="mt-auto flex flex-col gap-2 rounded-lg border border-destructive/30 p-3">
-          <h3 className="text-sm font-semibold text-destructive">Danger zone</h3>
+          <h3 className="text-sm font-semibold text-destructive-text">Danger zone</h3>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="min-w-0 flex-1 basis-48 text-xs text-muted-foreground">
               Stop syncing and revoke the bank's access. Imported transactions stay.

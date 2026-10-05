@@ -58,7 +58,7 @@ export function SourceFields({
               <label
                 key={mode}
                 className={cn(
-                  "flex cursor-pointer flex-col gap-1 rounded-lg border p-2.5 transition-colors hover:bg-muted/50 has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
+                  "flex cursor-pointer flex-col gap-1 rounded-lg border p-2.5 transition-colors hover:bg-muted/50 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-solid has-focus-visible:outline-ring",
                   checked && "border-primary bg-primary/5 hover:bg-primary/5",
                 )}
               >

@@ -42,7 +42,7 @@ export function GeneralSettings() {
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         {settings.error ? (
-          <p className="text-sm text-destructive">{settings.error.message}</p>
+          <p className="text-sm text-destructive-text">{settings.error.message}</p>
         ) : !s ? (
           <Skeleton className="h-28 w-full" />
         ) : (

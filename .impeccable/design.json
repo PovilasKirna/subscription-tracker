@@ -1,0 +1,265 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-05T13:40:12Z",
+  "title": "Design System: Hoard",
+  "extensions": {
+    "colorMeta": {
+      "signal-blue": {
+        "role": "primary",
+        "displayName": "Signal Blue",
+        "canonical": "#2a78d6",
+        "tonalRamp": ["#0f2a4d", "#16407a", "#1d56a6", "#2a78d6", "#5593e0", "#80aee9", "#abc9f2", "#d6e4f8"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#0b0b0b",
+        "tonalRamp": ["#0b0b0b", "#1a1a19", "#2c2c2a", "#52514e", "#898781", "#c3c2b7", "#e1e0d9", "#f9f9f7"]
+      },
+      "graphite": {
+        "role": "neutral",
+        "displayName": "Graphite",
+        "canonical": "#52514e"
+      },
+      "ash": {
+        "role": "neutral",
+        "displayName": "Ash",
+        "canonical": "#6f6d68"
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "#f9f9f7"
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "canonical": "#fcfcfb"
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(0.145 0 0 / 10%)"
+      },
+      "primary-ink": {
+        "role": "neutral",
+        "displayName": "Primary Ink",
+        "canonical": "oklch(0.205 0 0)"
+      },
+      "status-good": {
+        "role": "status",
+        "displayName": "Status Good",
+        "canonical": "#0ca30c"
+      },
+      "status-warning": {
+        "role": "status",
+        "displayName": "Status Warning",
+        "canonical": "#fab219"
+      },
+      "status-serious": {
+        "role": "status",
+        "displayName": "Status Serious",
+        "canonical": "#ec835a"
+      },
+      "status-critical": {
+        "role": "status",
+        "displayName": "Status Critical",
+        "canonical": "#d03b3b"
+      },
+      "delta-good": {
+        "role": "status",
+        "displayName": "Delta Good",
+        "canonical": "#006300"
+      },
+      "delta-bad": {
+        "role": "status",
+        "displayName": "Delta Bad",
+        "canonical": "#b42828"
+      },
+      "destructive-text": {
+        "role": "status",
+        "displayName": "Destructive Text",
+        "canonical": "#b42828"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The single hero money figure per screen (monthly total)."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page titles."
+      },
+      "stat": {
+        "displayName": "Stat",
+        "purpose": "Secondary stat-tile values."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card and chart titles."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default UI text, tables, descriptions."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Sublines, status badges, tooltips. Never below 12px."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float",
+        "value": "0 8px 28px rgb(0 0 0 / 0.14)",
+        "purpose": "Chart tooltips and floating panels only; resting surfaces are flat."
+      }
+    ],
+    "motion": [
+      {
+        "name": "color-transition",
+        "value": "color/background 150ms ease",
+        "purpose": "Hover and active fills on links and buttons."
+      },
+      {
+        "name": "press",
+        "value": "translateY(1px)",
+        "purpose": "Pressed button feedback."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Filled ink action; the main action on a surface.",
+      "html": "<button class=\"ds-btn-primary\">Sync now</button>",
+      "css": ".ds-btn-primary { display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 10px; border:1px solid transparent; border-radius:8px; background:var(--primary, oklch(0.205 0 0)); color:var(--primary-foreground, #fafafa); font:500 14px/1 Geist, system-ui, sans-serif; cursor:pointer; transition:background .15s, opacity .15s; } .ds-btn-primary:hover { opacity:.8; } .ds-btn-primary:active { transform:translateY(1px); } .ds-btn-primary:focus-visible { outline:none; box-shadow:0 0 0 3px color-mix(in oklch, var(--ring, #b5b5b5) 50%, transparent); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action with a hairline edge.",
+      "html": "<button class=\"ds-btn-outline\">Export JSON</button>",
+      "css": ".ds-btn-outline { display:inline-flex; align-items:center; height:32px; padding:0 10px; border:1px solid var(--border, rgba(0,0,0,.1)); border-radius:8px; background:var(--background, #f9f9f7); color:var(--foreground, #0b0b0b); font:500 14px/1 Geist, system-ui, sans-serif; cursor:pointer; transition:background .15s; } .ds-btn-outline:hover { background:var(--muted, #f5f5f5); } .ds-btn-outline:focus-visible { outline:none; border-color:var(--ring, #b5b5b5); box-shadow:0 0 0 3px color-mix(in oklch, var(--ring, #b5b5b5) 50%, transparent); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Text-only row and rail action.",
+      "html": "<button class=\"ds-btn-ghost\">Log out</button>",
+      "css": ".ds-btn-ghost { display:inline-flex; align-items:center; height:32px; padding:0 10px; border:0; border-radius:8px; background:transparent; color:var(--muted-foreground, #52514e); font:500 14px/1 Geist, system-ui, sans-serif; cursor:pointer; transition:background .15s, color .15s; } .ds-btn-ghost:hover { background:var(--muted, #f5f5f5); color:var(--foreground, #0b0b0b); } .ds-btn-ghost:focus-visible { outline:none; box-shadow:0 0 0 3px color-mix(in oklch, var(--ring, #b5b5b5) 50%, transparent); }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Hairline text field.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search merchants\" />",
+      "css": ".ds-input { height:32px; width:240px; padding:4px 10px; border:1px solid var(--input, rgba(0,0,0,.1)); border-radius:8px; background:transparent; color:var(--foreground, #0b0b0b); font:400 14px/1.4 Geist, system-ui, sans-serif; transition:border-color .15s; } .ds-input::placeholder { color:var(--muted-foreground, #52514e); } .ds-input:focus-visible { outline:none; border-color:var(--ring, #b5b5b5); box-shadow:0 0 0 3px color-mix(in oklch, var(--ring, #b5b5b5) 50%, transparent); }"
+    },
+    {
+      "name": "Stat Tile",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Flat surface card with a graphite label, ink figure, and ash subline.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-label\">Monthly total</div><div class=\"ds-card-figure\">€163.17<span>/mo</span></div><div class=\"ds-card-sub\">€149.81 due in the next 30 days</div></div>",
+      "css": ".ds-card { width:280px; padding:16px; border-radius:14px; background:var(--card, #fcfcfb); color:var(--card-foreground, #0b0b0b); box-shadow:0 0 0 1px var(--border, rgba(0,0,0,.1)); font-family:Geist, system-ui, sans-serif; } .ds-card-label { font-size:14px; color:var(--muted-foreground, #52514e); } .ds-card-figure { margin-top:8px; font-size:48px; font-weight:600; letter-spacing:-0.025em; line-height:1; } .ds-card-figure span { margin-left:4px; font-size:16px; font-weight:500; letter-spacing:0; color:var(--muted-foreground, #52514e); } .ds-card-sub { margin-top:8px; font-size:13px; color:var(--text-muted, #898781); }"
+    },
+    {
+      "name": "Rail Nav Link",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Sidebar link; active state is a muted fill with ink text.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link\" aria-current=\"page\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"9\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"5\" rx=\"1\"/><rect x=\"14\" y=\"12\" width=\"7\" height=\"9\" rx=\"1\"/><rect x=\"3\" y=\"16\" width=\"7\" height=\"5\" rx=\"1\"/></svg>Overview</a><a class=\"ds-nav-link\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"m17 2 4 4-4 4\"/><path d=\"M3 11v-1a4 4 0 0 1 4-4h14\"/><path d=\"m7 22-4-4 4-4\"/><path d=\"M21 13v1a4 4 0 0 1-4 4H3\"/></svg>Subscriptions</a></nav>",
+      "css": ".ds-nav { display:flex; flex-direction:column; gap:4px; width:200px; } .ds-nav-link { display:flex; align-items:center; gap:10px; padding:6px 10px; border-radius:8px; color:var(--muted-foreground, #52514e); font:400 14px/1.4 Geist, system-ui, sans-serif; text-decoration:none; transition:background .15s, color .15s; } .ds-nav-link:hover { background:var(--muted, #f5f5f5); color:var(--foreground, #0b0b0b); } .ds-nav-link[aria-current=page] { background:var(--muted, #f5f5f5); color:var(--foreground, #0b0b0b); font-weight:500; } .ds-nav-link:focus-visible { outline:none; box-shadow:0 0 0 3px color-mix(in oklch, var(--ring, #b5b5b5) 50%, transparent); }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "Status shown as colored icon plus graphite label; never color alone.",
+      "html": "<span class=\"ds-status\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#0ca30c\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m9 12 2 2 4-4\"/></svg>Active</span>",
+      "css": ".ds-status { display:inline-flex; align-items:center; gap:6px; font:400 12.5px/1 Geist, system-ui, sans-serif; color:var(--muted-foreground, #52514e); white-space:nowrap; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Statement, Decoded",
+    "overview": "The app takes the owner's own Revolut statement, a long and noisy list of every charge, and reads it back with the recurring signal pulled out. Every screen should feel like that statement made legible: the same plain paper and ink, but with the money that repeats lifted to the surface, sized by importance and colored only where something needs attention. The mood is calm, exact, and private. The gold Hoard mark is the only ornament.",
+    "keyCharacteristics": [
+      "Warm-neutral paper/ink surfaces; the gold Hoard mark is the only ornament, Signal Blue the only attention hue",
+      "Numbers lead the hierarchy; labels recede into graphite and ash",
+      "Flat cards edged by a 10% ink hairline, not shadows",
+      "A validated, colorblind-safe chart palette with fixed per-subscription slots",
+      "Status is never color alone: icon + label + color",
+      "Light and dark themes are equal citizens"
+    ],
+    "rules": [
+      {
+        "name": "The Ink-Not-Blue Rule",
+        "body": "Primary actions are filled with ink, not Signal Blue. Blue signals \"new or in progress\" and series 1; it does not mean \"click here\".",
+        "section": "colors"
+      },
+      {
+        "name": "The Gold-Stays-In-The-Ring Rule",
+        "body": "The Hoard gold gradient appears only in the logo. Gradients anywhere else in the UI are off-system.",
+        "section": "colors"
+      },
+      {
+        "name": "The Fixed Slot Rule",
+        "body": "A subscription's chart color is set by its first-seen date and never changes when filters change. Don't reassign series colors per view.",
+        "section": "colors"
+      },
+      {
+        "name": "The Never-Color-Alone Rule",
+        "body": "Status and delta colors always come with an icon, a sign (+/−), or a text label.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Hero Number Rule",
+        "body": "Each screen has at most one Display-size figure. Everything else steps down to Stat or Body.",
+        "section": "typography"
+      },
+      {
+        "name": "The Hairline-Not-Shadow Rule",
+        "body": "Grouping comes from tone and a 10% hairline. A shadow means \"floating above the page\" and nothing else.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do lead each screen with the money figure, at Display size once, then step down.",
+      "Do use the --series-N slot assigned to a subscription everywhere it appears.",
+      "Do pair every status or delta color with an icon, a sign, or a label.",
+      "Do separate groups with tone and the 10% hairline.",
+      "Do give every new chart a tooltip that works on hover, focus and tap; one tab stop with arrow-key roving; and named marks.",
+      "Do design the mobile layout as a primary layout. The owner often checks on a phone.",
+      "Do give every new data table a two-line renderMobileRow so it never scrolls sideways on a phone."
+    ],
+    "donts": [
+      "Don't fill primary buttons or links with Signal Blue; actions are ink.",
+      "Don't reuse the Hoard gold or its gradient outside the logo.",
+      "Don't add resting shadows, gradients, glows, or decorative imagery.",
+      "Don't reorder the series palette or add hues outside the validated set.",
+      "Don't set text below 12px or use Ash for information the owner needs to act on.",
+      "Don't add promotional or growth copy (\"connect more accounts\", \"upgrade\"). The tone is factual and private.",
+      "Don't build phone navigation as a sideways scroller (overflow-x-auto strips of links or tabs). Use the bottom tab bar, a list, or wrapping that stays on one line."
+    ]
+  }
+}

@@ -28,6 +28,19 @@ export const tokens = {
   textMuted: "var(--text-muted)",
 } as const;
 
+/** The neutral "Other" slot (no colour). Its grey sits near 2:1 on the card in light mode. */
+export const isOther = (color: Paint | undefined): boolean => color === null || color === undefined;
+
+/**
+ * Stroke for "Other" marks only: a 1px graphite outline lifts the grey to 3:1+ against the card in
+ * both themes without recolouring the palette. Spread onto the mark; inset the geometry by 0.5px.
+ */
+export const otherOutline = (color: Paint | undefined) =>
+  isOther(color) ? ({ stroke: tokens.textSecondary, strokeWidth: 1 } as const) : ({} as const);
+
+/** The keyboard focus ring drawn around a focused mark (2px ink: 15:1+ on the card in both themes). */
+export const focusRing = { fill: "none", stroke: tokens.textPrimary, strokeWidth: 2, pointerEvents: "none" } as const;
+
 /** Mark specs from the dataviz skill. */
 export const marks = {
   maxBar: 24,
@@ -38,9 +51,12 @@ export const marks = {
   ring: 2,
 } as const;
 
+/** DESIGN.md: chart text never renders below 12px. */
+export const MIN_TEXT = 12;
+
 export const axisLabel = {
   fill: tokens.textMuted,
-  fontSize: 11,
+  fontSize: MIN_TEXT,
   fontFamily: "var(--font-sans)",
   style: { fontVariantNumeric: "tabular-nums" },
 } as const;

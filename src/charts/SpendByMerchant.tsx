@@ -7,9 +7,9 @@ import { ParentSize } from "@visx/responsive";
 import { scaleBand, scaleLinear } from "@visx/scale";
 import { Bar, BarRounded } from "@visx/shape";
 import { useId, useMemo } from "react";
-import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
+import { ChartTooltip, TooltipRow, useChartTooltip, useRovingFocus } from "./ChartTooltip";
 import { Legend } from "./Legend";
-import { axisLabel, fitLabel, marks, seriesColor, tokens } from "./palette";
+import { axisLabel, fitLabel, focusRing, MIN_TEXT, marks, seriesColor, tokens } from "./palette";
 import type { Accessor } from "./types";
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
@@ -87,10 +87,33 @@ function Bars<T>({
   );
   const yScale = useMemo(() => scaleBand<string>({ domain: data.map(getKey), range: [0, yMax] }), [data, getKey, yMax]);
   const numTicks = Math.max(2, Math.floor(xMax / 80));
+  // One tab stop for the whole chart; it enters on the biggest merchant.
+  const roving = useRovingFocus(data.length, 0);
+  const share = (d: T) => (total > 0 ? `${Math.round((getValue(d) / total) * 100)}% of subscription spend` : "");
+
+  /** Name, amount, the paid / subsidised split and the share: everything the tooltip shows. */
+  const rowLabel = (d: T) => {
+    const sub = Math.min(getSubsidised(d), getValue(d));
+    return [
+      `${getLabel(d)}: ${formatValue(getValue(d))}`,
+      sub > 0 && `${formatValue(getValue(d) - sub)} paid by me, ${formatValue(sub)} subsidised`,
+      share(d),
+    ]
+      .filter(Boolean)
+      .join(", ");
+  };
 
   return (
     <div className="relative" ref={containerRef}>
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={FLUID} role="img" aria-label="Spend by merchant">
+      {/* biome-ignore lint/a11y/useSemanticElements: an <svg> cannot be a <fieldset>; group names a chart of focusable marks */}
+      <svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        style={FLUID}
+        role="group"
+        aria-label="Spend by merchant. Use the arrow keys to move between merchants."
+      >
         <defs>
           <pattern id={patternId} width={STRIPE_STEP} height={STRIPE_STEP} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <rect width={STRIPE_STEP} height={STRIPE_STEP} fill={TINT} />
@@ -98,8 +121,10 @@ function Bars<T>({
           </pattern>
         </defs>
         <Group left={labelWidth} top={margin.top}>
-          <GridColumns scale={xScale} height={yMax} numTicks={numTicks} stroke={tokens.grid} strokeWidth={1} />
-          {data.map((d) => {
+          <g aria-hidden>
+            <GridColumns scale={xScale} height={yMax} numTicks={numTicks} stroke={tokens.grid} strokeWidth={1} />
+          </g>
+          {data.map((d, i) => {
             const key = getKey(d);
             const y = (yScale(key) ?? 0) + (yScale.bandwidth() - BAR) / 2;
             const w = Math.max(2, xScale(getValue(d)));
@@ -112,73 +137,95 @@ function Bars<T>({
             const show = () => showTooltip({ tooltipData: d, tooltipLeft: labelWidth + w, tooltipTop: y });
             return (
               <Group key={key}>
-                <text
-                  x={-12}
-                  y={y + BAR / 2}
-                  dy="0.32em"
-                  textAnchor="end"
-                  fontSize={12}
-                  fill={active ? tokens.textPrimary : tokens.textSecondary}
-                >
-                  {fitLabel(label, maxChars)}
-                </text>
-                {/* Square at the baseline, 4px rounded data-end, 2px surface gap between segments. */}
-                <Group opacity={tooltipOpen && !active ? 0.6 : 1}>
-                  {sub > 0 ? (
-                    <>
-                      {paidW > 0.5 && <Bar x={0} y={y} width={paidW} height={BAR} fill={PAID} />}
-                      <BarRounded
-                        x={subX + 0.5}
-                        y={y + 0.5}
-                        width={Math.max(0, w - subX - 1)}
-                        height={BAR - 1}
-                        radius={marks.radius}
-                        right
-                        fill={`url(#${patternId})`}
-                        stroke={PAID}
-                        strokeWidth={1}
-                      />
-                    </>
-                  ) : (
-                    <BarRounded x={0} y={y} width={w} height={BAR} radius={marks.radius} right fill={PAID} />
-                  )}
-                </Group>
-                <text
-                  x={w + 6}
-                  y={y + BAR / 2}
-                  dy="0.32em"
-                  fontSize={11.5}
-                  fill={tokens.textSecondary}
-                  style={{ fontVariantNumeric: "tabular-nums" }}
-                >
-                  {formatValue(getValue(d))}
-                </text>
+                <g aria-hidden>
+                  <text
+                    x={-12}
+                    y={y + BAR / 2}
+                    dy="0.32em"
+                    textAnchor="end"
+                    fontSize={12}
+                    fill={active ? tokens.textPrimary : tokens.textSecondary}
+                  >
+                    {fitLabel(label, maxChars)}
+                  </text>
+                  {/* Square at the baseline, 4px rounded data-end, 2px surface gap between segments. */}
+                  <Group opacity={tooltipOpen && !active ? 0.6 : 1}>
+                    {sub > 0 ? (
+                      <>
+                        {paidW > 0.5 && <Bar x={0} y={y} width={paidW} height={BAR} fill={PAID} />}
+                        <BarRounded
+                          x={subX + 0.5}
+                          y={y + 0.5}
+                          width={Math.max(0, w - subX - 1)}
+                          height={BAR - 1}
+                          radius={marks.radius}
+                          right
+                          fill={`url(#${patternId})`}
+                          stroke={PAID}
+                          strokeWidth={1}
+                        />
+                      </>
+                    ) : (
+                      <BarRounded x={0} y={y} width={w} height={BAR} radius={marks.radius} right fill={PAID} />
+                    )}
+                  </Group>
+                  <text
+                    x={w + 6}
+                    y={y + BAR / 2}
+                    dy="0.32em"
+                    fontSize={MIN_TEXT}
+                    fill={tokens.textSecondary}
+                    style={{ fontVariantNumeric: "tabular-nums" }}
+                  >
+                    {formatValue(getValue(d))}
+                  </text>
+                </g>
                 <Bar
+                  innerRef={roving.ref(i)}
                   x={-labelWidth}
                   y={yScale(key) ?? 0}
                   width={labelWidth + xMax + margin.right}
-                  height={ROW}
+                  height={yScale.bandwidth()}
                   fill="transparent"
-                  tabIndex={0}
-                  aria-label={`${label}: ${formatValue(getValue(d))}${sub > 0 ? `, ${formatValue(sub)} subsidised` : ""}`}
+                  tabIndex={roving.tabIndex(i)}
+                  role="img"
+                  aria-label={rowLabel(d)}
                   onMouseEnter={show}
                   onMouseLeave={hideTooltip}
-                  onFocus={show}
-                  onBlur={hideTooltip}
+                  onFocus={(e) => {
+                    roving.onFocus(i, e);
+                    show();
+                  }}
+                  onBlur={(e) => roving.onBlur(e) && hideTooltip()}
+                  onKeyDown={(e) => (e.key === "Escape" ? hideTooltip() : roving.onKeyDown(i, e))}
                   style={{ outline: "none" }}
                 />
+                {/* Keyboard focus ring around the whole row: SVG marks get no native outline. */}
+                {roving.ringVisible && roving.focused === i && (
+                  <Bar
+                    aria-hidden
+                    x={-labelWidth + 1}
+                    y={(yScale(key) ?? 0) + 1}
+                    width={Math.max(0, labelWidth + xMax + margin.right - 2)}
+                    height={Math.max(0, yScale.bandwidth() - 2)}
+                    rx={6}
+                    {...focusRing}
+                  />
+                )}
               </Group>
             );
           })}
-          <AxisBottom
-            top={yMax}
-            scale={xScale}
-            numTicks={numTicks}
-            stroke={tokens.axis}
-            hideTicks
-            tickFormat={(v) => formatAxisValue(Number(v))}
-            tickLabelProps={() => ({ ...axisLabel, textAnchor: "middle", dy: 2 })}
-          />
+          <g aria-hidden>
+            <AxisBottom
+              top={yMax}
+              scale={xScale}
+              numTicks={numTicks}
+              stroke={tokens.axis}
+              hideTicks
+              tickFormat={(v) => formatAxisValue(Number(v))}
+              tickLabelProps={() => ({ ...axisLabel, textAnchor: "middle", dy: 2 })}
+            />
+          </g>
         </Group>
       </svg>
       {tooltipOpen && tooltipData !== undefined && (
@@ -191,9 +238,7 @@ function Bars<T>({
               <TooltipRow color={SUBSIDISED_SWATCH} label="Subsidised" value={formatValue(getSubsidised(tooltipData))} />
             </>
           )}
-          <div className="mt-1 text-[11.5px] text-[var(--text-muted)]">
-            {total > 0 ? `${Math.round((getValue(tooltipData) / total) * 100)}% of subscription spend` : ""}
-          </div>
+          {total > 0 && <div className="mt-1 text-xs text-[var(--text-muted)]">{share(tooltipData)}</div>}
         </ChartTooltip>
       )}
     </div>

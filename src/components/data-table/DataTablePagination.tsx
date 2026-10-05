@@ -21,15 +21,15 @@ export function DataTablePagination<TData>({
   const to = Math.min(total, (pageIndex + 1) * pageSize);
   const sizes = Object.fromEntries(pageSizes.map((s) => [String(s), String(s)]));
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-sm text-muted-foreground">
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 text-sm text-muted-foreground">
       <div className="tabular">
         {from.toLocaleString("en-GB")}–{to.toLocaleString("en-GB")} of {total.toLocaleString("en-GB")}
       </div>
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex items-center gap-2">
           <span className="hidden sm:inline">Rows per page</span>
           <Select items={sizes} value={String(pageSize)} onValueChange={(v) => v && table.setPageSize(Number(v))}>
-            <SelectTrigger size="sm" className="w-18" aria-label="Rows per page">
+            <SelectTrigger size="sm" className="w-18 pointer-coarse:data-[size=sm]:h-11" aria-label="Rows per page">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -41,14 +41,14 @@ export function DataTablePagination<TData>({
             </SelectContent>
           </Select>
         </div>
-        <span className="tabular">
+        <span className="tabular hidden sm:inline">
           Page {pageIndex + 1} of {pageCount}
         </span>
         <div className="flex items-center gap-1">
           <Button
             variant="outline"
             size="icon-sm"
-            className="hidden sm:inline-flex"
+            className="hidden pointer-coarse:size-11 sm:inline-flex"
             onClick={() => table.setPageIndex(0)}
             disabled={!table.getCanPreviousPage()}
             aria-label="First page"
@@ -58,6 +58,7 @@ export function DataTablePagination<TData>({
           <Button
             variant="outline"
             size="icon-sm"
+            className="pointer-coarse:size-11"
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
             aria-label="Previous page"
@@ -67,6 +68,7 @@ export function DataTablePagination<TData>({
           <Button
             variant="outline"
             size="icon-sm"
+            className="pointer-coarse:size-11"
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
             aria-label="Next page"
@@ -76,7 +78,7 @@ export function DataTablePagination<TData>({
           <Button
             variant="outline"
             size="icon-sm"
-            className="hidden sm:inline-flex"
+            className="hidden pointer-coarse:size-11 sm:inline-flex"
             onClick={() => table.setPageIndex(pageCount - 1)}
             disabled={!table.getCanNextPage()}
             aria-label="Last page"

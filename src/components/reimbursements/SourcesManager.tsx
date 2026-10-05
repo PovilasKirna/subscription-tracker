@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { BellIcon, ChevronRightIcon, CircleAlertIcon, Loader2Icon, PlusIcon, Trash2Icon, ZapIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
@@ -24,28 +24,28 @@ import type { ReimbursementSource } from "@/lib/types";
 import { DEFAULT_SOURCE_INPUT, SourceFields, validSource } from "./SourceFields";
 
 // Where reimbursements come from: one tile per source plus an "Add source" tile. Self-contained
-// (fetches its own data) so a settings page only has to mount it.
+// (fetches its own data) so a settings page only has to mount it inside a <Suspense> with
+// <SourcesSkeleton /> as the fallback.
 
 /** "Netflix, Claude and 2 more". */
 const listNames = (names: string[], max = 3) =>
   names.length <= max ? names.join(", ") : `${names.slice(0, max).join(", ")} and ${names.length - max} more`;
 
+export function SourcesSkeleton() {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2" role="status" aria-busy="true" aria-label="Loading reimbursement sources">
+      <Skeleton className="h-28" />
+      <Skeleton className="h-28" />
+    </div>
+  );
+}
+
 export function SourcesManager() {
-  const { data, error, isPending } = useQuery(reimbursementSourcesQuery());
+  const { data } = useSuspenseQuery(reimbursementSourcesQuery());
   // null = closed, "new" = adding, otherwise the id of the source being edited (looked up in the
   // fresh list so the dialog follows changes, e.g. periods removed from it).
   const [editing, setEditing] = useState<number | "new" | null>(null);
-  const edited = typeof editing === "number" ? data?.sources.find((s) => s.id === editing) : undefined;
-
-  if (isPending) {
-    return (
-      <div className="grid gap-3 sm:grid-cols-2" role="status" aria-busy="true" aria-label="Loading reimbursement sources">
-        <Skeleton className="h-28" />
-        <Skeleton className="h-28" />
-      </div>
-    );
-  }
-  if (error) return <p className="text-sm text-destructive">Couldn&apos;t load reimbursement sources: {error.message}</p>;
+  const edited = typeof editing === "number" ? data.sources.find((s) => s.id === editing) : undefined;
 
   return (
     <div className="flex flex-col gap-3">
@@ -65,7 +65,7 @@ export function SourcesManager() {
           <button
             type="button"
             onClick={() => setEditing("new")}
-            className="flex h-full min-h-28 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-foreground/20 text-sm text-muted-foreground opacity-70 transition outline-none hover:border-foreground/40 hover:bg-muted/40 hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="flex h-full min-h-28 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-foreground/20 text-sm text-muted-foreground transition-colors outline-none hover:border-foreground/40 hover:bg-muted/40 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
           >
             <PlusIcon className="size-4" aria-hidden /> Add source
           </button>
@@ -84,7 +84,7 @@ function SourceTile({ source: s, onOpen }: { source: ReimbursementSource; onOpen
     <button
       type="button"
       onClick={onOpen}
-      className="group flex h-full min-h-28 w-full items-start gap-3 rounded-xl bg-card p-4 text-left ring-1 ring-foreground/10 transition outline-none hover:bg-muted/40 hover:ring-foreground/20 focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="group flex h-full min-h-28 w-full items-start gap-3 rounded-xl bg-card p-4 text-left ring-1 ring-foreground/10 transition-[background-color,box-shadow] outline-none hover:bg-muted/40 hover:ring-foreground/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
       aria-label={`${s.name}, ${MODE_LABEL[s.mode].toLowerCase()}. Edit`}
     >
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
@@ -107,7 +107,7 @@ function SourceTile({ source: s, onOpen }: { source: ReimbursementSource; onOpen
         )}
       </span>
       <ChevronRightIcon
-        className="mt-2 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+        className="mt-2 size-4 shrink-0 text-muted-foreground transition-transform motion-safe:group-hover:translate-x-0.5"
         aria-hidden
       />
     </button>
@@ -178,7 +178,12 @@ function DeleteSource({ source, onDeleted }: { source: ReimbursementSource; onDe
   if (source.subscriptions.length) return <SourceInUse source={source} />;
   return (
     <AlertDialog open={confirm} onOpenChange={(open) => !remove.isPending && setConfirm(open)}>
-      <Button variant="ghost" size="sm" className="w-fit text-destructive hover:text-destructive" onClick={() => setConfirm(true)}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-fit text-destructive-text hover:text-destructive-text"
+        onClick={() => setConfirm(true)}
+      >
         <Trash2Icon /> Delete source
       </Button>
       <AlertDialogContent>
@@ -232,7 +237,7 @@ function SourceInUse({ source }: { source: ReimbursementSource }) {
             <Button
               variant="ghost"
               size="icon-xs"
-              className="shrink-0 text-muted-foreground hover:text-destructive"
+              className="shrink-0 text-muted-foreground hover:text-destructive-text"
               onClick={() => setRemoving(p)}
               aria-label={`Remove ${p.name}'s period from ${periodStartLabel(p.startsOn)}`}
             >

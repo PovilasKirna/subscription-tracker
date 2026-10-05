@@ -55,7 +55,7 @@ export function DataTableFilterMenu(props: DataTableFilterProps) {
       <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
         <ListFilterIcon /> Filter
         {active > 0 && (
-          <Badge variant="secondary" className="ml-0.5 h-4 min-w-4 rounded-full px-1 text-[10px]">
+          <Badge variant="secondary" className="tabular ml-0.5 h-4.5 min-w-4.5 rounded-full px-1 text-xs">
             {active}
           </Badge>
         )}
@@ -84,20 +84,20 @@ export function DataTableFilterChips(props: DataTableFilterProps) {
   return props.defs
     .filter((def) => props.selection[def.key]?.length)
     .map((def) => (
-      <div key={def.key} className="inline-flex h-7 items-center overflow-hidden rounded-md border bg-muted/40 text-xs">
+      <div key={def.key} className="inline-flex h-7 max-w-full min-w-0 items-center overflow-hidden rounded-md border bg-muted/40 text-xs">
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
               <button
                 type="button"
-                className="flex h-full items-center gap-1.5 px-2 hover:bg-muted"
+                className="flex h-full min-w-0 items-center gap-1.5 px-2 hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
                 aria-label={`Edit ${def.label} filter`}
               />
             }
           >
-            <def.icon className="size-3.5 text-muted-foreground" />
-            <span className="text-muted-foreground">{def.label}:</span>
-            <span className="font-medium">{summarizeFilter(def, props.selection[def.key])}</span>
+            <def.icon className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="shrink-0 text-muted-foreground">{def.label}:</span>
+            <span className="truncate font-medium">{summarizeFilter(def, props.selection[def.key])}</span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-60">
             <OptionItems {...props} def={def} />
@@ -106,7 +106,7 @@ export function DataTableFilterChips(props: DataTableFilterProps) {
         <button
           type="button"
           onClick={() => props.onChange(def.key, [])}
-          className="flex h-full items-center border-l px-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex h-full shrink-0 items-center border-l px-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
           aria-label={`Remove ${def.label} filter`}
         >
           <XIcon className="size-3" />

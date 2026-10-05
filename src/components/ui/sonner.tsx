@@ -10,7 +10,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme={theme as ToasterProps["theme"]}
-      className="toaster group"
+      // Below md the app has a fixed bottom tab bar (56px + safe area); toasts stack above it.
+      // Sonner switches to `mobileOffset` at 600px, the tab bar at 768px, so both read one variable.
+      className="toaster group [--toast-bottom:calc(5rem+env(safe-area-inset-bottom))] md:[--toast-bottom:24px]"
+      offset={{ bottom: "var(--toast-bottom)" }}
+      mobileOffset={{ bottom: "var(--toast-bottom)" }}
       icons={{
         success: <CircleCheckIcon className="size-4" />,
         info: <InfoIcon className="size-4" />,
