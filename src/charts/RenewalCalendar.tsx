@@ -4,9 +4,9 @@ import { Group } from "@visx/group";
 import { ParentSize } from "@visx/responsive";
 import { scaleBand } from "@visx/scale";
 import { Bar, Circle } from "@visx/shape";
-import { useMemo } from "react";
-import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
-import { marks, seriesColor, tokens } from "./palette";
+import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { ChartTooltip, TooltipRow, useChartTooltip, useRovingFocus } from "./ChartTooltip";
+import { focusRing, isOther, MIN_TEXT, marks, otherOutline, seriesColor, tokens } from "./palette";
 import type { Accessor, ExpectedCharge, Today } from "./types";
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
@@ -16,7 +16,13 @@ type Props = {
   today: Today;
   /** YYYY-MM: the calendar month to show. Days before `today` are dimmed. */
   month: string;
+  /** Amount shown inside a day cell (may be rounded). */
   formatMoney: (amount: number, currency: string) => string;
+  /**
+   * Exact amount, with cents, for the tooltip and each day's accessible name.
+   * Optional: falls back to `formatMoney`.
+   */
+  formatAmount?: (amount: number, currency: string) => string;
   formatDate: (d: string) => string;
 };
 
@@ -67,7 +73,15 @@ export function RenewalCalendar(props: Props) {
   );
 }
 
-function Calendar({ cells, rows, today, formatMoney, formatDate, width }: Props & { cells: Cell[]; rows: number; width: number }) {
+function Calendar({
+  cells,
+  rows,
+  today,
+  formatMoney,
+  formatAmount,
+  formatDate,
+  width,
+}: Props & { cells: Cell[]; rows: number; width: number }) {
   const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip, containerRef, TooltipInPortal } =
     useChartTooltip<Cell>();
   const xScale = useMemo(() => scaleBand<number>({ domain: [0, 1, 2, 3, 4, 5, 6], range: [0, width], paddingInner: 0.08 }), [width]);
@@ -84,85 +98,183 @@ function Calendar({ cells, rows, today, formatMoney, formatDate, width }: Props 
     [rows, height],
   );
   const showAmounts = cellW >= 70;
-  const maxDots = Math.max(1, Math.floor((cellW - 12) / 12));
+  const dotsFit = Math.max(1, Math.floor((cellW - 12) / 12));
+  // When the dots overflow, leave room for a 12px "+N" after the last one.
+  const dotsWithMore = Math.max(1, Math.floor((cellW - 26) / 12));
+  const exact = formatAmount ?? formatMoney;
+
+  // The marks: days still to come in this month that have a charge, in date order. One roving tab stop.
+  const marked = useMemo(() => cells.filter((c) => c.inWindow && c.charges.length > 0), [cells]);
+  const roving = useRovingFocus(marked.length, 0);
+  const show = (c: Cell) =>
+    showTooltip({ tooltipData: c, tooltipLeft: (xScale(c.col) ?? 0) + cellW / 2, tooltipTop: (yScale(c.row) ?? 0) + cellH / 2 });
+
+  // A tap (or click) pins the tooltip until the next tap anywhere outside the marked days.
+  const [pinned, setPinned] = useState<string | null>(null);
+  const pinnedCell = pinned ? marked.find((c) => c.date === pinned) : undefined;
+  useEffect(() => {
+    if (!pinned) return;
+    const onDown = (e: PointerEvent) => {
+      if (e.target instanceof Element && e.target.closest("[data-renewal-day]")) return;
+      setPinned(null);
+      hideTooltip();
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [pinned, hideTooltip]);
+
+  /** Date, then every charge with its exact amount: everything the tooltip shows. */
+  const dayLabel = (c: Cell) => `${formatDate(c.date)}: ${c.charges.map((ch) => `${ch.name} ${exact(ch.amount, ch.currency)}`).join(", ")}`;
+
+  const onKeyDown = (i: number, e: KeyboardEvent<SVGRectElement>) => {
+    if (e.key === "Escape") {
+      setPinned(null);
+      hideTooltip();
+      return;
+    }
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      // Up / Down jump a week: to the nearest renewal day at least 7 days away (or the first / last one).
+      e.preventDefault();
+      const down = e.key === "ArrowDown";
+      const target = toTime(marked[i].date) + (down ? 7 : -7) * DAY;
+      let j = down ? marked.length - 1 : 0;
+      if (down) {
+        const k = marked.findIndex((c) => toTime(c.date) >= target);
+        if (k !== -1) j = k;
+      } else {
+        for (let k = marked.length - 1; k >= 0; k--)
+          if (toTime(marked[k].date) <= target) {
+            j = k;
+            break;
+          }
+      }
+      roving.focusIndex(j);
+      return;
+    }
+    roving.onKeyDown(i, e, { prev: ["ArrowLeft"], next: ["ArrowRight"] });
+  };
 
   return (
     <div className="relative" ref={containerRef}>
+      {/* biome-ignore lint/a11y/useSemanticElements: an <svg> cannot be a <fieldset>; group names a chart of focusable marks */}
       <svg
         width={width}
         height={height}
         viewBox={`0 0 ${width} ${height}`}
         style={FLUID}
-        role="img"
-        aria-label="Upcoming renewals calendar"
+        role="group"
+        aria-label={
+          marked.length
+            ? "Upcoming renewals calendar. Use the arrow keys to move between renewal days."
+            : "Upcoming renewals calendar: no renewals to show."
+        }
       >
-        {WEEKDAYS.map((d, i) => (
-          <text key={d} x={(xScale(i) ?? 0) + 8} y={14} fontSize={11} fill={tokens.textMuted}>
-            {cellW < 44 ? d[0] : d}
-          </text>
-        ))}
+        <g aria-hidden>
+          {WEEKDAYS.map((d, i) => (
+            <text key={d} x={(xScale(i) ?? 0) + 8} y={14} fontSize={MIN_TEXT} fill={tokens.textMuted}>
+              {cellW < 44 ? d[0] : d}
+            </text>
+          ))}
+        </g>
         {cells.map((c) => {
           const x = xScale(c.col) ?? 0;
           const y = yScale(c.row) ?? 0;
           const isToday = c.date === today;
           const total = c.charges.reduce((s, ch) => s + ch.amount, 0);
           const active = tooltipOpen && tooltipData?.date === c.date;
+          const i = marked.indexOf(c);
+          const shown = c.charges.length > dotsFit ? dotsWithMore : c.charges.length;
+          // Days outside the window fade their cell and dots; the day number stays at 3:1+ (Ash, not opacity).
+          const fade = c.inWindow ? 1 : 0.35;
           return (
-            <Group key={c.date} left={x} top={y} opacity={c.inWindow ? 1 : 0.35}>
-              <Bar
-                width={cellW}
-                height={cellH}
-                rx={8}
-                fill={active ? tokens.grid : tokens.surface}
-                fillOpacity={active ? 0.5 : 1}
-                stroke={isToday ? tokens.textSecondary : tokens.grid}
-                strokeWidth={1}
-              />
-              <text x={8} y={16} fontSize={11.5} fontWeight={isToday ? 700 : 400} fill={isToday ? tokens.textPrimary : tokens.textMuted}>
-                {c.day}
-              </text>
-              {showAmounts && total > 0 && (
-                <text
-                  x={cellW - 8}
-                  y={16}
-                  textAnchor="end"
-                  fontSize={11}
-                  fill={tokens.textSecondary}
-                  style={{ fontVariantNumeric: "tabular-nums" }}
-                >
-                  {formatMoney(total, c.charges[0].currency)}
-                </text>
-              )}
-              {c.charges.slice(0, maxDots).map((ch, i) => (
-                <Circle
-                  key={ch.key}
-                  cx={12 + i * 12}
-                  cy={cellH - 13}
-                  r={marks.markerR}
-                  fill={seriesColor(ch.color)}
-                  stroke={tokens.surface}
-                  strokeWidth={marks.ring}
-                />
-              ))}
-              {c.charges.length > maxDots && (
-                <text x={12 + maxDots * 12} y={cellH - 9} fontSize={10.5} fill={tokens.textMuted}>
-                  +{c.charges.length - maxDots}
-                </text>
-              )}
-              {/* Hit target: the whole cell. */}
-              {c.inWindow && c.charges.length > 0 && (
+            <Group key={c.date} left={x} top={y}>
+              <g aria-hidden>
                 <Bar
                   width={cellW}
                   height={cellH}
+                  rx={8}
+                  fill={active ? tokens.grid : tokens.surface}
+                  fillOpacity={active ? 0.5 : 1}
+                  stroke={isToday ? tokens.textSecondary : tokens.grid}
+                  strokeWidth={1}
+                  opacity={fade}
+                />
+                <text
+                  x={8}
+                  y={16}
+                  fontSize={MIN_TEXT}
+                  fontWeight={isToday ? 700 : 400}
+                  fill={isToday ? tokens.textPrimary : c.inWindow ? tokens.textSecondary : tokens.textMuted}
+                >
+                  {c.day}
+                </text>
+                {showAmounts && total > 0 && (
+                  <text
+                    x={cellW - 8}
+                    y={16}
+                    textAnchor="end"
+                    fontSize={MIN_TEXT}
+                    fill={tokens.textSecondary}
+                    style={{ fontVariantNumeric: "tabular-nums" }}
+                  >
+                    {formatMoney(total, c.charges[0].currency)}
+                  </text>
+                )}
+                <g opacity={fade}>
+                  {c.charges.slice(0, shown).map((ch, k) => (
+                    <Circle
+                      key={ch.key}
+                      cx={12 + k * 12}
+                      cy={cellH - 13}
+                      r={marks.markerR}
+                      fill={seriesColor(ch.color)}
+                      {...(isOther(ch.color) ? otherOutline(ch.color) : { stroke: tokens.surface, strokeWidth: marks.ring })}
+                    />
+                  ))}
+                </g>
+                {c.charges.length > shown && (
+                  <text x={12 * shown + 8} y={cellH - 9} fontSize={MIN_TEXT} fill={tokens.textMuted}>
+                    +{c.charges.length - shown}
+                  </text>
+                )}
+              </g>
+              {/* Hit target: the whole cell. */}
+              {i !== -1 && (
+                <Bar
+                  innerRef={roving.ref(i)}
+                  data-renewal-day=""
+                  width={cellW}
+                  height={cellH}
                   fill="transparent"
-                  tabIndex={0}
-                  aria-label={`${formatDate(c.date)}: ${c.charges.map((ch) => ch.name).join(", ")}`}
-                  onMouseEnter={() => showTooltip({ tooltipData: c, tooltipLeft: x + cellW / 2, tooltipTop: y + cellH / 2 })}
-                  onMouseLeave={hideTooltip}
-                  onFocus={() => showTooltip({ tooltipData: c, tooltipLeft: x + cellW / 2, tooltipTop: y + cellH / 2 })}
-                  onBlur={hideTooltip}
+                  tabIndex={roving.tabIndex(i)}
+                  role="img"
+                  aria-label={dayLabel(c)}
+                  onPointerEnter={(e) => e.pointerType === "mouse" && show(c)}
+                  onPointerLeave={(e) => {
+                    if (e.pointerType !== "mouse") return;
+                    if (pinnedCell) show(pinnedCell);
+                    else hideTooltip();
+                  }}
+                  onClick={() => {
+                    setPinned(c.date);
+                    show(c);
+                  }}
+                  onFocus={(e) => {
+                    roving.onFocus(i, e);
+                    show(c);
+                  }}
+                  onBlur={(e) => {
+                    if (!roving.onBlur(e)) return;
+                    setPinned(null);
+                    hideTooltip();
+                  }}
+                  onKeyDown={(e) => onKeyDown(i, e)}
                   style={{ outline: "none", cursor: "default" }}
                 />
+              )}
+              {/* Keyboard focus ring: SVG marks get no native outline. */}
+              {i !== -1 && roving.ringVisible && roving.focused === i && (
+                <Bar aria-hidden x={1} y={1} width={Math.max(0, cellW - 2)} height={cellH - 2} rx={7} {...focusRing} />
               )}
             </Group>
           );
@@ -172,7 +284,7 @@ function Calendar({ cells, rows, today, formatMoney, formatDate, width }: Props 
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
           <div className="mb-1 font-medium">{formatDate(tooltipData.date)}</div>
           {tooltipData.charges.map((ch) => (
-            <TooltipRow key={ch.key} color={ch.color} label={ch.name} value={formatMoney(ch.amount, ch.currency)} />
+            <TooltipRow key={ch.key} color={ch.color} label={ch.name} value={exact(ch.amount, ch.currency)} />
           ))}
         </ChartTooltip>
       )}

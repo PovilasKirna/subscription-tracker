@@ -1,16 +1,16 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { BadgeCheckIcon, CircleAlertIcon, HandCoinsIcon } from "lucide-react";
+import { BadgeCheckIcon } from "lucide-react";
 import { ChargeSparkline } from "@/charts";
 import { DataTableColumnHeader } from "@/components/data-table";
 import { MerchantIcon } from "@/components/MerchantIcon";
-import { Badge } from "@/components/ui/badge";
 import { CADENCE_LABEL, fullDate, money, relativeDays } from "@/lib/format";
 import { isLive } from "@/lib/insights";
 import { ColorSwatch } from "./ColorPicker";
 import { StatusBadge } from "./StatusBadge";
 import { SubscriptionActions } from "./SubscriptionActions";
+import { SubscriptionFlags } from "./SubscriptionFlags";
 import type { SubscriptionRow } from "./shared";
 
 /** Column ids that can be sorted match the URL's `sort` values; the server does the sorting. */
@@ -20,32 +20,26 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       id: "name",
       accessorKey: "name",
       enableHiding: false,
-      meta: { label: "Subscription" },
+      // Takes the leftover width and truncates instead of pushing the table wider.
+      meta: { label: "Subscription", className: "w-full max-w-0 min-w-44" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Subscription" />,
       cell: ({ row: { original: s } }) => (
-        <div className="flex max-w-[18rem] items-center gap-2.5">
+        <div className="flex items-center gap-2.5">
           <ColorSwatch color={s.color} none={s.colorChosen && s.color === null} className="size-2.5" />
           <MerchantIcon name={s.name} website={s.website} />
           <div className="min-w-0">
-            <div className="truncate font-medium">{s.name}</div>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {/* The row's keyboard and screen-reader entry point; the row click is a mouse shortcut. */}
+            <button
+              type="button"
+              onClick={() => open(s.key)}
+              className="block max-w-full truncate rounded-sm text-left font-medium hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
+            >
+              {s.name}
+            </button>
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
               {s.category}
               {s.confirmed && <BadgeCheckIcon className="size-3.5 text-[var(--status-good)]" aria-label="Confirmed by you" />}
-              {s.priceChanges.length > 0 && (
-                <Badge variant="outline" className="h-4 px-1 text-[10px]">
-                  {s.priceChanges.length} price change{s.priceChanges.length > 1 ? "s" : ""}
-                </Badge>
-              )}
-              {s.pendingReimbursements > 0 ? (
-                <Badge variant="outline" className="h-4 gap-0.5 px-1 text-[10px]" title="Reimbursements with nothing recorded yet">
-                  <CircleAlertIcon className="text-[var(--status-warning)]" aria-hidden />
-                  {s.pendingReimbursements} pending
-                </Badge>
-              ) : (
-                s.reimbursement && (
-                  <HandCoinsIcon className="size-3.5" aria-label={`Reimbursed ${money(s.reimbursement.amount, s.currency)} per charge`} />
-                )
-              )}
+              <SubscriptionFlags sub={s} />
             </div>
           </div>
         </div>
@@ -55,21 +49,21 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       id: "cadence",
       accessorKey: "cadence",
       enableSorting: false,
-      meta: { label: "Billing", className: "hidden md:table-cell" },
+      meta: { label: "Billing", className: "hidden whitespace-nowrap @3xl/data-table:table-cell" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Billing" />,
       cell: ({ row }) => <span className="text-muted-foreground">{CADENCE_LABEL[row.original.cadence]}</span>,
     },
     {
       id: "amount",
       accessorKey: "amount",
-      meta: { label: "Price", className: "text-right" },
+      meta: { label: "Price", className: "text-right whitespace-nowrap" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Price" className="justify-end" />,
       cell: ({ row }) => <span className="tabular block text-right font-medium">{money(row.original.amount, row.original.currency)}</span>,
     },
     {
       id: "monthlyCost",
       accessorKey: "monthlyCost",
-      meta: { label: "Per month", className: "hidden text-right sm:table-cell" },
+      meta: { label: "Per month", className: "hidden text-right whitespace-nowrap @2xl/data-table:table-cell" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Per month" className="justify-end" />,
       cell: ({ row: { original: s } }) => (
         <span className="tabular block text-right text-muted-foreground">
@@ -81,12 +75,12 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
     {
       id: "nextCharge",
       accessorKey: "nextCharge",
-      meta: { label: "Next charge", className: "hidden lg:table-cell" },
+      meta: { label: "Next charge", className: "whitespace-nowrap" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Next charge" />,
       cell: ({ row: { original: s } }) =>
         s.nextCharge ? (
           <div>
-            <div className="whitespace-nowrap">{fullDate(s.nextCharge)}</div>
+            <div>{fullDate(s.nextCharge)}</div>
             <div className="text-xs text-muted-foreground">{relativeDays(s.nextCharge, today)}</div>
           </div>
         ) : (
@@ -96,7 +90,7 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
     {
       id: "history",
       enableSorting: false,
-      meta: { label: "History", className: "hidden xl:table-cell" },
+      meta: { label: "History", className: "hidden @4xl/data-table:table-cell" },
       header: () => "History",
       cell: ({ row: { original: s } }) => (
         <ChargeSparkline
@@ -111,7 +105,7 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
     {
       id: "status",
       accessorKey: "rowStatus",
-      meta: { label: "Status" },
+      meta: { label: "Status", className: "whitespace-nowrap" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
       cell: ({ row }) => <StatusBadge status={row.original.rowStatus} />,
     },

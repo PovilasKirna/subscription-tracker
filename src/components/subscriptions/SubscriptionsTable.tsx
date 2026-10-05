@@ -1,19 +1,23 @@
 "use client";
 
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { useQueryState, useQueryStates } from "nuqs";
 import { useCallback, useEffect, useMemo, useTransition } from "react";
 import { DataTable, DataTablePagination, DataTableToolbar, useDataTable } from "@/components/data-table";
 import { subscriptionsTableQuery } from "@/lib/query/options";
 import { PAGE_SIZES, SUB_SORT_COLUMNS, subscriptionDrawerParams, subscriptionParams } from "@/lib/search-params";
 import { subscriptionColumns } from "./columns";
+import { SubscriptionActions } from "./SubscriptionActions";
+import { SubscriptionMobileRow } from "./SubscriptionMobileRow";
 import { subscriptionFilters } from "./shared";
 
 /**
  * Server-side data table: search, filters, sorting and pagination live in the URL (nuqs);
  * TanStack Query fetches the matching page from /api/subscriptions/table. URL updates run in a
- * transition so the current page stays visible (dimmed) while the next one loads. Clicking a
- * row opens the detail drawer (?sub=, independent of the table params).
+ * transition so the current page stays visible (dimmed) while the next one loads. Opening a row
+ * (its name button, a click anywhere on it, or the whole row on phones) opens the detail drawer
+ * (?sub=, independent of the table params).
  */
 export function SubscriptionsTable() {
   const [isPending, startTransition] = useTransition();
@@ -66,8 +70,23 @@ export function SubscriptionsTable() {
         table={table}
         pending={isPending}
         onRowClick={(row) => open(row.key)}
-        rowLabel={(row) => `Open ${row.name}`}
-        empty={data.detected ? "No subscriptions match these filters." : "No subscriptions yet. Import a statement on the Data page."}
+        renderMobileRow={(row) => <SubscriptionMobileRow sub={row} today={data.today} />}
+        renderMobileActions={(row) => (
+          <SubscriptionActions sub={row} onOpen={() => open(row.key)} trigger={{ className: "size-11 data-popup-open:bg-muted" }} />
+        )}
+        empty={
+          data.detected ? (
+            "No subscriptions match these filters."
+          ) : (
+            <>
+              No subscriptions yet. Import a statement in{" "}
+              <Link href="/settings/data" className="font-medium text-foreground underline underline-offset-4">
+                Settings → Data & sync
+              </Link>
+              .
+            </>
+          )
+        }
       />
       <DataTablePagination table={table} total={data.total} pageSizes={PAGE_SIZES} />
     </div>

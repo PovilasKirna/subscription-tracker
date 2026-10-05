@@ -14,6 +14,7 @@ import { useSaveSettings } from "@/lib/query/mutations";
 import { api, mailStatusQuery, settingsQuery } from "@/lib/query/options";
 import { site } from "@/lib/site";
 import type { MailProvider, MailStatusPayload } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { SetupTask } from "./SetupTask";
 
 // Settings → Notifications → Email: which provider the server uses, the sender, the recipient
@@ -61,7 +62,7 @@ export function EmailCard() {
         {status.isPending ? (
           <Skeleton className="h-20 w-full" />
         ) : status.error ? (
-          <p className="text-destructive">{status.error.message}</p>
+          <p className="text-destructive-text">{status.error.message}</p>
         ) : (
           <>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
@@ -76,7 +77,7 @@ export function EmailCard() {
               <dt className="text-muted-foreground">From</dt>
               <dd className="min-w-0 truncate">{s?.from ?? <span className="text-muted-foreground">Not set</span>}</dd>
               <dt className="text-muted-foreground">Links to</dt>
-              <dd className="min-w-0 truncate">
+              <dd className={cn("min-w-0", s?.appUrl ? "truncate" : "text-pretty")}>
                 {s?.appUrl ?? (
                   <span className="text-muted-foreground">
                     Nowhere: set <code className="text-xs">APP_URL</code> so emails link back to the app

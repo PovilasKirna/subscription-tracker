@@ -58,7 +58,7 @@ export function PreferencesCard() {
       </CardHeader>
       <CardContent>
         {settings.error ? (
-          <p className="text-sm text-destructive">{settings.error.message}</p>
+          <p className="text-sm text-destructive-text">{settings.error.message}</p>
         ) : !s ? (
           <Skeleton className="h-72 w-full" />
         ) : (
@@ -256,7 +256,7 @@ export function SchedulerCard() {
         {status.isPending ? (
           <Skeleton className="h-24 w-full" />
         ) : status.error ? (
-          <p className="text-destructive">{status.error.message}</p>
+          <p className="text-destructive-text">{status.error.message}</p>
         ) : (
           s &&
           health && (
@@ -274,7 +274,7 @@ export function SchedulerCard() {
                     {s.builtInTimer && !healthy ? "The built-in hourly timer runs while the server is up." : health.note}
                   </div>
                   {s.lastResult && !s.lastResult.ok && (
-                    <div className="mt-1 flex items-start gap-1.5 text-xs text-destructive">
+                    <div className="mt-1 flex items-start gap-1.5 text-xs text-destructive-text">
                       <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" /> Last run failed: {s.lastResult.error}
                     </div>
                   )}
@@ -285,7 +285,7 @@ export function SchedulerCard() {
                 <CopyField label="Tick URL" value={`${origin}/api/cron/tick`} />
                 <CopyField label="Header" value="Authorization: Bearer <CRON_SECRET>" />
               </div>
-              <p className={cn("flex items-center gap-1.5 text-xs", s.cronSecretSet ? "text-muted-foreground" : "text-destructive")}>
+              <p className={cn("flex items-center gap-1.5 text-xs", s.cronSecretSet ? "text-muted-foreground" : "text-destructive-text")}>
                 {s.cronSecretSet ? (
                   <CheckIcon className="size-3.5" style={{ color: "var(--status-good)" }} />
                 ) : (

@@ -58,7 +58,7 @@ export type Stats = {
   yearly: number;
   activeCount: number;
   lateCount: number;
-  biggestIncrease: { name: string; from: number; to: number; pct: number; date: string; currency: string } | null;
+  biggestIncrease: { key: string; name: string; from: number; to: number; pct: number; date: string; currency: string } | null;
   dueNext30: number;
 };
 
@@ -73,7 +73,7 @@ export function computeStats(p: SubscriptionsPayload): Stats {
       if (pc.date < yearAgo || pc.to <= pc.from) continue;
       const pct = (pc.to - pc.from) / pc.from;
       if (!biggestIncrease || pct > biggestIncrease.pct) {
-        biggestIncrease = { name: s.name, from: pc.from, to: pc.to, pct, date: pc.date, currency: s.currency };
+        biggestIncrease = { key: s.key, name: s.name, from: pc.from, to: pc.to, pct, date: pc.date, currency: s.currency };
       }
     }
   }

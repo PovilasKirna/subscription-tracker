@@ -21,7 +21,7 @@ export default async function SubscriptionsPage({ searchParams }: { searchParams
     <HydrationBoundary state={dehydrate(queryClient)}>
       <PageHeader
         title="Subscriptions"
-        description="Detected from your recurring charges. Click one for details, its charges and actions."
+        description="Detected from your recurring charges. Open one for details, its charges and actions."
       />
       <Suspense fallback={<TableSkeleton rows={12} />}>
         <SubscriptionsTable />

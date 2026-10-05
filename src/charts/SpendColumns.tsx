@@ -8,9 +8,9 @@ import { ParentSize } from "@visx/responsive";
 import { scaleBand, scaleLinear } from "@visx/scale";
 import { Bar, BarRounded, BarStack } from "@visx/shape";
 import { type FocusEvent, type MouseEvent, useMemo } from "react";
-import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
+import { ChartTooltip, TooltipRow, useChartTooltip, useRovingFocus } from "./ChartTooltip";
 import { Legend } from "./Legend";
-import { axisLabel, marks, seriesColor, tokens } from "./palette";
+import { axisLabel, focusRing, MIN_TEXT, marks, otherOutline, seriesColor, tokens } from "./palette";
 import type { Accessor, Month, MonthlySpend, SeriesMeta } from "./types";
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
@@ -72,6 +72,10 @@ function Columns<K extends string>({
   const labelEvery = step < 30 ? 3 : step < 44 ? 2 : 1;
   const tickValues = data.map(getMonth).filter((_, i) => (data.length - 1 - i) % labelEvery === 0);
   const last = data.at(-1);
+  const bandX = (d: MonthlySpend<K>) => (xScale(d.month) ?? 0) - (step - xScale.bandwidth()) / 2;
+  // One tab stop for the whole chart; it enters on the latest month.
+  const roving = useRovingFocus(data.length, data.length - 1);
+  const focusedMonth = roving.ringVisible && roving.focused !== null ? data[roving.focused] : undefined;
 
   const show = (d: MonthlySpend<K>, e: MouseEvent<SVGRectElement> | FocusEvent<SVGRectElement>) => {
     const x = (xScale(d.month) ?? 0) + margin.left + xScale.bandwidth() / 2;
@@ -79,29 +83,33 @@ function Columns<K extends string>({
     showTooltip({ tooltipData: d, tooltipLeft: point?.x ?? x, tooltipTop: point?.y ?? margin.top + yScale(d.total) });
   };
 
+  /** The month total, then every contributor largest first: everything the tooltip shows. */
+  const monthLabel = (d: MonthlySpend<K>) => {
+    const parts = series
+      .filter((s) => d[s.key] > 0)
+      .sort((a, b) => d[b.key] - d[a.key])
+      .map((s) => `${s.name} ${formatValue(d[s.key])}`);
+    return `${formatMonthLong(d.month)}: ${formatValue(d.total)}${parts.length ? ` — ${parts.join(", ")}` : ""}`;
+  };
+
   return (
     <div className="relative" ref={containerRef}>
+      {/* biome-ignore lint/a11y/useSemanticElements: an <svg> cannot be a <fieldset>; group names a chart of focusable marks */}
       <svg
         width={width}
         height={height}
         viewBox={`0 0 ${width} ${height}`}
         style={FLUID}
-        role="img"
-        aria-label="Monthly subscription spend, stacked by subscription"
+        role="group"
+        aria-label="Monthly subscription spend, stacked by subscription. Use the arrow keys to move between months."
       >
         <Group left={margin.left} top={margin.top}>
-          <GridRows scale={yScale} width={xMax} numTicks={4} stroke={tokens.grid} strokeWidth={1} />
+          <g aria-hidden>
+            <GridRows scale={yScale} width={xMax} numTicks={4} stroke={tokens.grid} strokeWidth={1} />
+          </g>
           {/* Hover band sits behind the marks so it never washes them out. */}
           {tooltipOpen && tooltipData && (
-            <Bar
-              x={(xScale(tooltipData.month) ?? 0) - (step - xScale.bandwidth()) / 2}
-              y={0}
-              width={step}
-              height={yMax}
-              rx={6}
-              fill={tokens.grid}
-              fillOpacity={0.45}
-            />
+            <Bar aria-hidden x={bandX(tooltipData)} y={0} width={step} height={yMax} rx={6} fill={tokens.grid} fillOpacity={0.45} />
           )}
           <BarStack<MonthlySpend<K>, K>
             data={data}
@@ -117,38 +125,58 @@ function Columns<K extends string>({
                 for (let s = stacks.length - 1; s >= 0; s--) if ((stacks[s].bars[i]?.height ?? 0) > 0.5) return s;
                 return -1;
               });
-              return stacks.map((stack, s) =>
-                stack.bars.map((bar) => {
-                  if (bar.height <= 0.5) return null;
-                  const x = bar.x + (bar.width - barWidth) / 2;
-                  if (topLayer[bar.index] === s) {
-                    return (
-                      <BarRounded
-                        key={`${stack.key}-${bar.index}`}
-                        x={x}
-                        y={bar.y}
-                        width={barWidth}
-                        height={bar.height}
-                        radius={marks.radius}
-                        top
-                        fill={bar.color}
-                      />
-                    );
-                  }
-                  // 2px surface gap: shrink the segment from its top, never stroke it.
-                  const h = Math.max(0, bar.height - marks.gap);
-                  return <Bar key={`${stack.key}-${bar.index}`} x={x} y={bar.y + marks.gap} width={barWidth} height={h} fill={bar.color} />;
-                }),
+              return (
+                <g aria-hidden>
+                  {stacks.map((stack, s) => {
+                    // "Other" alone gets a 1px graphite outline, inset so the bar keeps its footprint.
+                    const outline = otherOutline(colorOf.get(stack.key) ?? null);
+                    const inset = "stroke" in outline ? 0.5 : 0;
+                    return stack.bars.map((bar) => {
+                      if (bar.height <= 0.5) return null;
+                      const x = bar.x + (bar.width - barWidth) / 2 + inset;
+                      const w = Math.max(0, barWidth - inset * 2);
+                      if (topLayer[bar.index] === s) {
+                        return (
+                          <BarRounded
+                            key={`${stack.key}-${bar.index}`}
+                            x={x}
+                            y={bar.y + inset}
+                            width={w}
+                            height={Math.max(0, bar.height - inset * 2)}
+                            radius={marks.radius}
+                            top
+                            fill={bar.color}
+                            {...outline}
+                          />
+                        );
+                      }
+                      // 2px surface gap: shrink the segment from its top, never stroke it.
+                      const h = Math.max(0, bar.height - marks.gap - inset * 2);
+                      return (
+                        <Bar
+                          key={`${stack.key}-${bar.index}`}
+                          x={x}
+                          y={bar.y + marks.gap + inset}
+                          width={w}
+                          height={h}
+                          fill={bar.color}
+                          {...outline}
+                        />
+                      );
+                    });
+                  })}
+                </g>
               );
             }}
           </BarStack>
           {/* Direct label: only the latest month's total. */}
           {last && last.total > 0 && (
             <text
+              aria-hidden
               x={(xScale(last.month) ?? 0) + xScale.bandwidth() / 2}
               y={yScale(last.total) - 6}
               textAnchor="middle"
-              fontSize={11.5}
+              fontSize={MIN_TEXT}
               fontWeight={600}
               fill={tokens.textPrimary}
               style={{ fontVariantNumeric: "tabular-nums" }}
@@ -156,41 +184,61 @@ function Columns<K extends string>({
               {formatAxisValue(last.total)}
             </text>
           )}
-          {/* Hit targets: the whole band, full height — bigger than the marks. */}
-          {data.map((d) => (
+          {/* Hit targets: the whole band, full height — bigger than the marks. One roving tab stop. */}
+          {data.map((d, i) => (
             <Bar
               key={`hit-${d.month}`}
-              x={(xScale(d.month) ?? 0) - (step - xScale.bandwidth()) / 2}
+              innerRef={roving.ref(i)}
+              x={bandX(d)}
               y={0}
               width={step}
               height={yMax}
               fill="transparent"
-              tabIndex={0}
-              aria-label={`${formatMonthLong(d.month)}: ${formatValue(d.total)}`}
+              tabIndex={roving.tabIndex(i)}
+              role="img"
+              aria-label={monthLabel(d)}
               onMouseMove={(e) => show(d, e)}
               onMouseLeave={hideTooltip}
-              onFocus={(e) => show(d, e)}
-              onBlur={hideTooltip}
+              onFocus={(e) => {
+                roving.onFocus(i, e);
+                show(d, e);
+              }}
+              onBlur={(e) => roving.onBlur(e) && hideTooltip()}
+              onKeyDown={(e) => (e.key === "Escape" ? hideTooltip() : roving.onKeyDown(i, e))}
               style={{ outline: "none" }}
             />
           ))}
-          <AxisLeft
-            scale={yScale}
-            numTicks={4}
-            hideAxisLine
-            hideTicks
-            tickFormat={(v) => formatAxisValue(Number(v))}
-            tickLabelProps={() => ({ ...axisLabel, textAnchor: "end", dx: -6, dy: 3 })}
-          />
-          <AxisBottom
-            top={yMax}
-            scale={xScale}
-            tickValues={tickValues}
-            stroke={tokens.axis}
-            hideTicks
-            tickFormat={(m) => formatMonth(m)}
-            tickLabelProps={() => ({ ...axisLabel, textAnchor: "middle", dy: 4 })}
-          />
+          {/* Keyboard focus ring around the focused band: SVG marks get no native outline. */}
+          {focusedMonth && (
+            <Bar
+              aria-hidden
+              x={bandX(focusedMonth) + 1}
+              y={1}
+              width={Math.max(0, step - 2)}
+              height={Math.max(0, yMax - 2)}
+              rx={6}
+              {...focusRing}
+            />
+          )}
+          <g aria-hidden>
+            <AxisLeft
+              scale={yScale}
+              numTicks={4}
+              hideAxisLine
+              hideTicks
+              tickFormat={(v) => formatAxisValue(Number(v))}
+              tickLabelProps={() => ({ ...axisLabel, textAnchor: "end", dx: -6, dy: 3 })}
+            />
+            <AxisBottom
+              top={yMax}
+              scale={xScale}
+              tickValues={tickValues}
+              stroke={tokens.axis}
+              hideTicks
+              tickFormat={(m) => formatMonth(m)}
+              tickLabelProps={() => ({ ...axisLabel, textAnchor: "middle", dy: 4 })}
+            />
+          </g>
         </Group>
       </svg>
       {tooltipOpen && tooltipData && (

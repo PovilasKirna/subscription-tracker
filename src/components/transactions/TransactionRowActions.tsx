@@ -23,10 +23,20 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useExclusion, useOverride } from "@/lib/query/mutations";
 import type { TransactionItem } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { AddToSubscriptionDialog } from "./AddToSubscriptionDialog";
 
 /** Per-row "⋯" menu. Subscription actions live here rather than as a top-level button. */
-export function TransactionRowActions({ tx, onShowMerchant }: { tx: TransactionItem; onShowMerchant: (merchantKey: string) => void }) {
+export function TransactionRowActions({
+  tx,
+  onShowMerchant,
+  triggerClassName,
+}: {
+  tx: TransactionItem;
+  onShowMerchant: (merchantKey: string) => void;
+  /** e.g. a 44px touch target in the phone list. */
+  triggerClassName?: string;
+}) {
   const override = useOverride();
   const exclusion = useExclusion();
   const [assigning, setAssigning] = useState(false);
@@ -37,7 +47,12 @@ export function TransactionRowActions({ tx, onShowMerchant }: { tx: TransactionI
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button variant="ghost" size="icon-sm" className="data-popup-open:bg-muted" aria-label={`Actions for ${tx.description}`} />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={cn("data-popup-open:bg-muted", triggerClassName)}
+              aria-label={`Actions for ${tx.description}`}
+            />
           }
         >
           <MoreHorizontalIcon />
