@@ -21,11 +21,11 @@ export function DataTablePagination<TData>({
   const to = Math.min(total, (pageIndex + 1) * pageSize);
   const sizes = Object.fromEntries(pageSizes.map((s) => [String(s), String(s)]));
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 text-sm text-muted-foreground">
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-1 text-sm text-muted-foreground">
       <div className="tabular">
         {from.toLocaleString("en-GB")}–{to.toLocaleString("en-GB")} of {total.toLocaleString("en-GB")}
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-4">
         <div className="flex items-center gap-2">
           <span className="hidden sm:inline">Rows per page</span>
           <Select items={sizes} value={String(pageSize)} onValueChange={(v) => v && table.setPageSize(Number(v))}>

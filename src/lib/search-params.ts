@@ -33,6 +33,21 @@ export function rangeMonths(range: OverviewRange, today: string): number {
 // ---------- shared table constants ----------
 export const SORT_DIRECTIONS = ["asc", "desc"] as const;
 export const PAGE_SIZES = [10, 25, 50, 100] as const;
+export type PageSize = (typeof PAGE_SIZES)[number];
+/** Rows per page when the URL has no `perPage`: the server and desktops use 25, phones 10. */
+export const DEFAULT_PAGE_SIZE: PageSize = 25;
+export const PHONE_PAGE_SIZE: PageSize = 10;
+
+/** The page size in effect: an explicit `?perPage` always wins; otherwise phones get a shorter page. */
+export function effectivePageSize(explicit: PageSize | null, phone: boolean): PageSize {
+  return explicit ?? (phone ? PHONE_PAGE_SIZE : DEFAULT_PAGE_SIZE);
+}
+
+/**
+ * `perPage` as the client reads it: no default, so `null` means the URL doesn't say and the device
+ * default applies (see `effectivePageSize`). The server loader keeps `DEFAULT_PAGE_SIZE`.
+ */
+export const clientPerPageParam = parseAsNumberLiteral(PAGE_SIZES);
 
 // ---------- subscriptions data table ----------
 /** Row statuses; "ignored" rows are only shown when that status is filtered for. */
@@ -48,7 +63,7 @@ export const subscriptionParams = {
   sort: parseAsStringLiteral(SUB_SORT_COLUMNS).withDefault("status"),
   dir: parseAsStringLiteral(SORT_DIRECTIONS).withDefault("asc"),
   page: parseAsInteger.withDefault(1),
-  perPage: parseAsNumberLiteral(PAGE_SIZES).withDefault(25),
+  perPage: parseAsNumberLiteral(PAGE_SIZES).withDefault(DEFAULT_PAGE_SIZE),
 };
 export type SubscriptionFilters = inferParserType<typeof subscriptionParams>;
 /** Builds the query string for /api/subscriptions/table from the same parsers. */
@@ -70,7 +85,7 @@ export const TX_TYPES = ["CARD_PAYMENT", "TRANSFER", "TOPUP", "EXCHANGE", "FEE",
 export const transactionParams = {
   q: parseAsString.withDefault(""),
   page: parseAsInteger.withDefault(1),
-  perPage: parseAsNumberLiteral(PAGE_SIZES).withDefault(25),
+  perPage: parseAsNumberLiteral(PAGE_SIZES).withDefault(DEFAULT_PAGE_SIZE),
   sort: parseAsStringLiteral(TX_SORT_COLUMNS).withDefault("date"),
   dir: parseAsStringLiteral(SORT_DIRECTIONS).withDefault("desc"),
   flow: parseAsArrayOf(parseAsStringLiteral(FLOWS)).withDefault([]),
@@ -90,3 +105,7 @@ export const dataParams = {
 export const loadOverviewParams = createLoader(overviewParams);
 export const loadTransactionParams = createLoader(transactionParams);
 export const loadSubscriptionParams = createLoader(subscriptionParams);
+
+/** Table params as the client hooks read them: `perPage` is null when the URL doesn't set it. */
+export const subscriptionClientParams = { ...subscriptionParams, perPage: clientPerPageParam };
+export const transactionClientParams = { ...transactionParams, perPage: clientPerPageParam };

@@ -4,9 +4,9 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useQueryState, useQueryStates } from "nuqs";
 import { useCallback, useEffect, useMemo, useTransition } from "react";
-import { DataTable, DataTablePagination, DataTableToolbar, useDataTable } from "@/components/data-table";
+import { DataTable, DataTablePagination, DataTableToolbar, useDataTable, usePageSize } from "@/components/data-table";
 import { subscriptionsTableQuery } from "@/lib/query/options";
-import { PAGE_SIZES, SUB_SORT_COLUMNS, subscriptionDrawerParams, subscriptionParams } from "@/lib/search-params";
+import { DEFAULT_PAGE_SIZE, PAGE_SIZES, SUB_SORT_COLUMNS, subscriptionClientParams, subscriptionDrawerParams } from "@/lib/search-params";
 import { subscriptionColumns } from "./columns";
 import { SubscriptionActions } from "./SubscriptionActions";
 import { SubscriptionMobileRow } from "./SubscriptionMobileRow";
@@ -21,7 +21,9 @@ import { subscriptionFilters } from "./shared";
  */
 export function SubscriptionsTable() {
   const [isPending, startTransition] = useTransition();
-  const [params, setParams] = useQueryStates(subscriptionParams, { startTransition, history: "replace" });
+  const [urlParams, setParams] = useQueryStates(subscriptionClientParams, { startTransition, history: "replace" });
+  const { perPage, toParam } = usePageSize(urlParams.perPage);
+  const params = useMemo(() => ({ ...urlParams, perPage }), [urlParams, perPage]);
   const { data } = useSuspenseQuery(subscriptionsTableQuery(params));
 
   // Warm the next page in the background so paging forward is instant.
@@ -46,8 +48,8 @@ export function SubscriptionsTable() {
       void setParams({ sort: SUB_SORT_COLUMNS.find((c) => c === next?.id) ?? "status", dir: next?.desc ? "desc" : "asc", page: null }),
     pagination: { pageIndex: data.page - 1, pageSize: params.perPage },
     onPaginationChange: ({ pageIndex, pageSize }) => {
-      const perPage = PAGE_SIZES.find((s) => s === pageSize) ?? 25;
-      void setParams({ perPage, page: perPage !== params.perPage || pageIndex === 0 ? null : pageIndex + 1 });
+      const size = PAGE_SIZES.find((s) => s === pageSize) ?? DEFAULT_PAGE_SIZE;
+      void setParams({ perPage: toParam(size), page: size !== perPage || pageIndex === 0 ? null : pageIndex + 1 });
     },
   });
 
