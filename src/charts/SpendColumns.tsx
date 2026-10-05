@@ -8,7 +8,6 @@ import { ParentSize } from "@visx/responsive";
 import { scaleBand, scaleLinear } from "@visx/scale";
 import { Bar, BarRounded, BarStack } from "@visx/shape";
 import { type FocusEvent, type MouseEvent, useMemo } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
 import { Legend } from "./Legend";
 import { axisLabel, marks, seriesColor, tokens } from "./palette";
@@ -207,41 +206,5 @@ function Columns<K extends string>({
         </ChartTooltip>
       )}
     </div>
-  );
-}
-
-export function SpendColumnsTable<K extends string>({
-  data,
-  series,
-  formatValue,
-  formatMonthLong,
-}: Pick<Props<K>, "data" | "series" | "formatValue" | "formatMonthLong">) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Month</TableHead>
-          {series.map((s) => (
-            <TableHead key={s.key} className="text-right">
-              {s.name}
-            </TableHead>
-          ))}
-          <TableHead className="text-right">Total</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {[...data].reverse().map((d) => (
-          <TableRow key={d.month}>
-            <TableCell className="font-medium">{formatMonthLong(d.month)}</TableCell>
-            {series.map((s) => (
-              <TableCell key={s.key} className="tabular text-right">
-                {d[s.key] ? formatValue(d[s.key]) : "—"}
-              </TableCell>
-            ))}
-            <TableCell className="tabular text-right font-medium">{formatValue(d.total)}</TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
   );
 }

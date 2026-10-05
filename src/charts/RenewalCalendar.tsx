@@ -5,7 +5,6 @@ import { ParentSize } from "@visx/responsive";
 import { scaleBand } from "@visx/scale";
 import { Bar, Circle } from "@visx/shape";
 import { useMemo } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
 import { marks, seriesColor, tokens } from "./palette";
 import type { Accessor, ExpectedCharge, Today } from "./types";
@@ -15,7 +14,8 @@ const FLUID = { display: "block", width: "100%", height: "auto" } as const;
 type Props = {
   charges: readonly ExpectedCharge[];
   today: Today;
-  days: number;
+  /** YYYY-MM: the calendar month to show. Days before `today` are dimmed. */
+  month: string;
   formatMoney: (amount: number, currency: string) => string;
   formatDate: (d: string) => string;
 };
@@ -31,11 +31,13 @@ const toTime = (d: string) => Date.parse(`${d}T00:00:00Z`);
 const toIso = (t: number) => new Date(t).toISOString().slice(0, 10);
 const getDate: Accessor<ExpectedCharge, string> = (c) => c.date;
 
-function buildCells(charges: readonly ExpectedCharge[], today: string, days: number): Cell[] {
-  const start = toTime(today);
-  const end = start + days * DAY;
-  const weekday = (new Date(start).getUTCDay() + 6) % 7; // Monday = 0
-  const gridStart = start - weekday * DAY;
+function buildCells(charges: readonly ExpectedCharge[], today: string, month: string): Cell[] {
+  const first = toTime(`${month}-01`);
+  const d = new Date(first);
+  const end = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+  const start = Math.max(first, toTime(today));
+  const weekday = (d.getUTCDay() + 6) % 7; // Monday = 0
+  const gridStart = first - weekday * DAY;
   const byDate = new Map<string, ExpectedCharge[]>();
   for (const c of charges) byDate.set(getDate(c), [...(byDate.get(getDate(c)) ?? []), c]);
   const cells: Cell[] = [];
@@ -53,9 +55,9 @@ function buildCells(charges: readonly ExpectedCharge[], today: string, days: num
   return cells;
 }
 
-/** The next N days as a week grid, each expected charge placed on its date. */
+/** One calendar month as a week grid, each expected charge placed on its date. */
 export function RenewalCalendar(props: Props) {
-  const cells = useMemo(() => buildCells(props.charges, props.today, props.days), [props.charges, props.today, props.days]);
+  const cells = useMemo(() => buildCells(props.charges, props.today, props.month), [props.charges, props.today, props.month]);
   const rows = (cells.at(-1)?.row ?? 0) + 1;
   const height = HEADER + rows * (CELL_H + CELL_GAP);
   return (
@@ -175,29 +177,5 @@ function Calendar({ cells, rows, today, formatMoney, formatDate, width }: Props 
         </ChartTooltip>
       )}
     </div>
-  );
-}
-
-export function RenewalCalendarTable({ charges, formatMoney, formatDate }: Pick<Props, "charges" | "formatMoney" | "formatDate">) {
-  if (!charges.length) return <p className="py-6 text-center text-sm text-[var(--text-secondary)]">No charges expected in this window.</p>;
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Date</TableHead>
-          <TableHead>Subscription</TableHead>
-          <TableHead className="text-right">Amount</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {charges.map((c) => (
-          <TableRow key={`${c.key}-${c.date}`}>
-            <TableCell>{formatDate(c.date)}</TableCell>
-            <TableCell className="font-medium">{c.name}</TableCell>
-            <TableCell className="tabular text-right">{formatMoney(c.amount, c.currency)}</TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
   );
 }

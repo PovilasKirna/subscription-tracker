@@ -8,7 +8,6 @@ import { ParentSize } from "@visx/responsive";
 import { scaleBand, scaleUtc } from "@visx/scale";
 import { Bar, Circle, Line } from "@visx/shape";
 import { type MouseEvent, useMemo } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
 import { axisLabel, fitLabel, marks, seriesColor, tokens } from "./palette";
 import type { Accessor, TimelineCharge, TimelineRow, Today } from "./types";
@@ -174,42 +173,5 @@ function Timeline<T extends TimelineRow>({
         </ChartTooltip>
       )}
     </div>
-  );
-}
-
-export function SubscriptionTimelineTable<T extends TimelineRow>({
-  data,
-  formatMoney,
-  formatDate,
-}: Pick<Props<T>, "data" | "formatMoney" | "formatDate">) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Subscription</TableHead>
-          <TableHead>First charge</TableHead>
-          <TableHead>Last charge</TableHead>
-          <TableHead className="text-right">Charges</TableHead>
-          <TableHead>Price changes</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {data.map((r) => (
-          <TableRow key={r.key}>
-            <TableCell className="font-medium">{r.name}</TableCell>
-            <TableCell>{formatDate(r.firstCharge)}</TableCell>
-            <TableCell>{formatDate(r.lastCharge)}</TableCell>
-            <TableCell className="tabular text-right">{r.charges.length}</TableCell>
-            <TableCell className="text-[var(--text-secondary)]">
-              {r.priceChanges.length
-                ? r.priceChanges
-                    .map((pc) => `${formatDate(pc.date)}: ${formatMoney(pc.from, r.currency)} → ${formatMoney(pc.to, r.currency)}`)
-                    .join("; ")
-                : "—"}
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
   );
 }

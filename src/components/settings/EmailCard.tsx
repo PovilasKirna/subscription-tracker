@@ -13,13 +13,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useSaveSettings } from "@/lib/query/mutations";
 import { api, mailStatusQuery, settingsQuery } from "@/lib/query/options";
 import { site } from "@/lib/site";
-import type { MailProvider } from "@/lib/types";
+import type { MailProvider, MailStatusPayload } from "@/lib/types";
+import { SetupTask } from "./SetupTask";
 
 // Settings → Notifications → Email: which provider the server uses, the sender, the recipient
 // (a stored setting, via /api/settings), a test email, and how to verify a sending domain with Resend.
 
 const PROVIDER_LABEL: Record<MailProvider, string> = { resend: "Resend", smtp: "SMTP" };
 const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Resend's shared sender, which only delivers to the Resend account's own address. */
+const RESEND_TEST_DOMAIN = "resend.dev";
 
 export function EmailCard() {
   const status = useQuery(mailStatusQuery());
@@ -127,7 +130,7 @@ export function EmailCard() {
               </p>
             </form>
 
-            {s?.provider !== "smtp" && <ResendSteps open={!s?.provider} />}
+            {s && s.provider !== "smtp" && <ResendSetup status={s} />}
           </>
         )}
       </CardContent>
@@ -135,13 +138,24 @@ export function EmailCard() {
   );
 }
 
-function ResendSteps({ open }: { open: boolean }) {
+function ResendSetup({ status: s }: { status: MailStatusPayload }) {
+  const ownDomain = s.senderDomain !== null && s.senderDomain !== RESEND_TEST_DOMAIN;
+  const done = s.provider === "resend" && s.ready && ownDomain;
+  const summary = done
+    ? `Emails go out from ${s.senderDomain}.`
+    : !s.provider
+      ? "Email stays off until a provider is set up."
+      : !ownDomain && s.senderDomain
+        ? `Sending from ${RESEND_TEST_DOMAIN} only reaches your own Resend account. Verify a domain to email anyone.`
+        : "Add and verify a domain, then send from an address on it.";
   return (
-    <details open={open} className="group rounded-lg border p-3">
-      <summary className="cursor-pointer font-medium outline-none select-none focus-visible:underline">
-        Set up Resend with your own domain
-      </summary>
-      <ol className="mt-2 ml-5 list-decimal space-y-1.5 text-muted-foreground">
+    <SetupTask
+      done={done}
+      title={done ? "Resend is set up with your own domain" : "Set up Resend with your own domain"}
+      summary={summary}
+      action={{ href: "https://resend.com/domains", label: "Open Resend" }}
+    >
+      <ol className="ml-5 list-decimal space-y-1.5 text-muted-foreground">
         <li>
           Create a free account at{" "}
           <a className="underline hover:text-foreground" href="https://resend.com/domains" target="_blank" rel="noreferrer">
@@ -168,6 +182,6 @@ function ResendSteps({ open }: { open: boolean }) {
         Prefer another provider? Set <code className="text-xs">SMTP_URL</code> instead (e.g.{" "}
         <code className="text-xs">smtps://user:pass@smtp.example.com:465</code>).
       </p>
-    </details>
+    </SetupTask>
   );
 }
