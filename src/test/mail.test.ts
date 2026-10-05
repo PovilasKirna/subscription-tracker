@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getMailer, mailProvider, mailStatus } from "../lib/server/mail";
+import { getMailer, mailProvider, mailStatus, senderDomain } from "../lib/server/mail";
 import { RESEND_ENDPOINT, ResendMailer } from "../lib/server/mail/resend";
 import { SmtpMailer } from "../lib/server/mail/smtp";
 
@@ -33,6 +33,14 @@ test("mail status explains what's missing", () => {
     ready: true,
     problem: null,
   });
+});
+
+test("sender domain: taken from MAIL_FROM with or without a display name", () => {
+  assert.equal(senderDomain(FROM), "example.com");
+  assert.equal(senderDomain("onboarding@Resend.dev"), "resend.dev");
+  assert.equal(senderDomain(" Hoard <a@mail.example.org> "), "mail.example.org");
+  assert.equal(senderDomain(""), null);
+  assert.equal(senderDomain("Hoard"), null);
 });
 
 test("Resend: one JSON POST with the API key, sender and both bodies", async () => {

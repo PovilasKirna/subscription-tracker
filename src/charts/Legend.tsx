@@ -1,7 +1,6 @@
-import { seriesColor } from "./palette";
-import type { SeriesColor } from "./types";
+import { type Paint, seriesColor } from "./palette";
 
-export type LegendItem = { key: string; label: string; color: SeriesColor };
+export type LegendItem = { key: string; label: string; color: Paint };
 
 /** Always shown for 2+ series so identity never depends on colour alone. */
 export function Legend({ items }: { items: readonly LegendItem[] }) {

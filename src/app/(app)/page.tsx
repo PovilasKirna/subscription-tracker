@@ -12,11 +12,11 @@ import { loadOverviewParams } from "@/lib/search-params";
 import { getDataStatus, getHistory, getSubscriptions } from "@/lib/server/queries";
 
 export default async function OverviewPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const { months } = await loadOverviewParams(searchParams);
+  const { range } = await loadOverviewParams(searchParams);
   const queryClient = getQueryClient();
   // Not awaited: pending queries are dehydrated and streamed; each <Suspense> resolves on its own.
   void queryClient.prefetchQuery({ ...subscriptionsQuery(), queryFn: getSubscriptions });
-  void queryClient.prefetchQuery({ ...historyQuery(months), queryFn: () => getHistory(months) });
+  void queryClient.prefetchQuery({ ...historyQuery(range), queryFn: () => getHistory(range) });
   void queryClient.prefetchQuery({ ...statusQuery(), queryFn: getDataStatus });
 
   return (

@@ -7,8 +7,7 @@ import { Group } from "@visx/group";
 import { ParentSize } from "@visx/responsive";
 import { scaleBand, scaleUtc } from "@visx/scale";
 import { Bar, Circle, Line } from "@visx/shape";
-import { type MouseEvent, useMemo } from "react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { type KeyboardEvent, type MouseEvent, useMemo, useState } from "react";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
 import { axisLabel, fitLabel, marks, seriesColor, tokens } from "./palette";
 import type { Accessor, TimelineCharge, TimelineRow, Today } from "./types";
@@ -63,6 +62,53 @@ function Timeline<T extends TimelineRow>({
   }, [data, today, xMax]);
   const yScale = useMemo(() => scaleBand<string>({ domain: data.map(getKey), range: [0, yMax], padding: 0 }), [data, yMax]);
   const numTicks = Math.max(2, Math.floor(xMax / 90));
+  // Keyboard: Tab focuses a row, the arrow keys (and Home / End) step through its charges.
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
+  const rowY = (row: T) => (yScale(row.key) ?? 0) + yScale.bandwidth() / 2;
+
+  const showCharge = (row: T, index: number) => {
+    const charge = row.charges[Math.min(Math.max(index, 0), row.charges.length - 1)];
+    if (!charge) return;
+    showTooltip({
+      tooltipData: { row, charge, change: row.priceChanges.find((pc) => pc.date === charge.date) },
+      tooltipLeft: labelWidth + xScale(getChargeDate(charge)),
+      tooltipTop: margin.top + rowY(row),
+    });
+  };
+
+  const onKeyDown = (row: T, e: KeyboardEvent<SVGRectElement>) => {
+    const current = tooltipData?.row.key === row.key ? row.charges.indexOf(tooltipData.charge) : row.charges.length - 1;
+    const next =
+      e.key === "ArrowLeft"
+        ? current - 1
+        : e.key === "ArrowRight"
+          ? current + 1
+          : e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? row.charges.length - 1
+              : null;
+    if (e.key === "Escape") hideTooltip();
+    if (next === null) return;
+    e.preventDefault();
+    showCharge(row, next);
+  };
+
+  /** Everything the tooltip and marks show, as one sentence for screen readers. */
+  const rowLabel = (row: T) => {
+    const latest = row.charges.at(-1);
+    const changes = row.priceChanges.map(
+      (pc) => `${formatMoney(pc.from, row.currency)} to ${formatMoney(pc.to, row.currency)} on ${formatDate(pc.date)}`,
+    );
+    return [
+      `${row.name}: ${row.charges.length} charges from ${formatDate(row.firstCharge)} to ${formatDate(row.lastCharge)}`,
+      latest && `latest ${formatMoney(latest.amount, row.currency)}`,
+      changes.length && `price changes: ${changes.join("; ")}`,
+      "use the arrow keys to step through charges",
+    ]
+      .filter(Boolean)
+      .join(", ");
+  };
 
   const onMove = (row: T, e: MouseEvent<SVGRectElement>) => {
     const p = localPoint(e);
@@ -79,11 +125,11 @@ function Timeline<T extends TimelineRow>({
 
   return (
     <div className="relative" ref={containerRef}>
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={FLUID} role="img" aria-label="Subscription timeline">
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={FLUID} aria-label="Subscription timeline">
         <Group left={labelWidth} top={margin.top}>
           <GridColumns scale={xScale} height={yMax} numTicks={numTicks} stroke={tokens.grid} strokeWidth={1} />
           {data.map((row) => {
-            const y = (yScale(row.key) ?? 0) + yScale.bandwidth() / 2;
+            const y = rowY(row);
             const color = seriesColor(row.color);
             const faded = row.status === "inactive" || row.status === "cancelled";
             const hovered = tooltipOpen && tooltipData?.row.key === row.key;
@@ -131,15 +177,40 @@ function Timeline<T extends TimelineRow>({
                     strokeWidth={marks.ring}
                   />
                 ))}
-                {/* Row-wide hit target. */}
+                {focusedKey === row.key && (
+                  <Bar
+                    x={-labelWidth + 1}
+                    y={y - ROW / 2 + 1}
+                    width={xMax + labelWidth + margin.right - 2}
+                    height={ROW - 2}
+                    rx={6}
+                    fill="none"
+                    stroke={tokens.textSecondary}
+                    strokeWidth={1.5}
+                  />
+                )}
+                {/* Row-wide hit target, also the keyboard focus stop. */}
                 <Bar
                   x={-labelWidth}
                   y={y - ROW / 2}
                   width={xMax + labelWidth}
                   height={ROW}
                   fill="transparent"
+                  tabIndex={0}
+                  role="button"
+                  aria-label={rowLabel(row)}
                   onMouseMove={(e) => onMove(row, e)}
                   onMouseLeave={hideTooltip}
+                  onFocus={() => {
+                    setFocusedKey(row.key);
+                    showCharge(row, row.charges.length - 1);
+                  }}
+                  onBlur={() => {
+                    setFocusedKey(null);
+                    hideTooltip();
+                  }}
+                  onKeyDown={(e) => onKeyDown(row, e)}
+                  style={{ outline: "none" }}
                 />
               </Group>
             );
@@ -155,6 +226,16 @@ function Timeline<T extends TimelineRow>({
           />
         </Group>
       </svg>
+      {/* Announces the charge the arrow keys land on. */}
+      <div className="sr-only" aria-live="polite">
+        {focusedKey && tooltipData?.row.key === focusedKey
+          ? `${formatDate(tooltipData.charge.date)}: ${formatMoney(tooltipData.charge.amount, tooltipData.row.currency)}${
+              tooltipData.change
+                ? `, price change ${formatMoney(tooltipData.change.from, tooltipData.row.currency)} to ${formatMoney(tooltipData.change.to, tooltipData.row.currency)}`
+                : ""
+            }`
+          : ""}
+      </div>
       {tooltipOpen && tooltipData && (
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
           <TooltipRow color={tooltipData.row.color} label={tooltipData.row.name} value="" strong />
@@ -174,42 +255,5 @@ function Timeline<T extends TimelineRow>({
         </ChartTooltip>
       )}
     </div>
-  );
-}
-
-export function SubscriptionTimelineTable<T extends TimelineRow>({
-  data,
-  formatMoney,
-  formatDate,
-}: Pick<Props<T>, "data" | "formatMoney" | "formatDate">) {
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Subscription</TableHead>
-          <TableHead>First charge</TableHead>
-          <TableHead>Last charge</TableHead>
-          <TableHead className="text-right">Charges</TableHead>
-          <TableHead>Price changes</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {data.map((r) => (
-          <TableRow key={r.key}>
-            <TableCell className="font-medium">{r.name}</TableCell>
-            <TableCell>{formatDate(r.firstCharge)}</TableCell>
-            <TableCell>{formatDate(r.lastCharge)}</TableCell>
-            <TableCell className="tabular text-right">{r.charges.length}</TableCell>
-            <TableCell className="text-[var(--text-secondary)]">
-              {r.priceChanges.length
-                ? r.priceChanges
-                    .map((pc) => `${formatDate(pc.date)}: ${formatMoney(pc.from, r.currency)} → ${formatMoney(pc.to, r.currency)}`)
-                    .join("; ")
-                : "—"}
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
   );
 }

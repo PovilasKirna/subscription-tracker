@@ -23,6 +23,7 @@ import {
 import { hourLabel } from "@/lib/timeZone";
 import type { SchedulerHealth, Settings } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { SetupTask } from "./SetupTask";
 
 // Settings → Notifications: what to be told about and how (push on/off, email off/immediate/
 // digest), the digest frequency, and whether the hourly scheduler that sends it all is running.
@@ -65,7 +66,7 @@ export function PreferencesCard() {
             <div className="hidden gap-4 border-b pb-2 text-xs font-medium text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1fr)_4rem_auto]">
               <span>Type</span>
               <span className="text-center">Push</span>
-              <span className="sm:w-52">Email</span>
+              <span className="sm:w-72">Email</span>
             </div>
             {NOTIFICATION_TYPES.map((type) => (
               <PreferenceRow key={type} type={type} pref={s.notifications[type]} onChange={(p) => set(type, p)} />
@@ -100,7 +101,7 @@ function PreferenceRow({
         <Switch checked={pref.push} onCheckedChange={(push) => onChange({ push })} aria-label={`Push: ${info.label}`} />
         <span className="text-xs text-muted-foreground sm:hidden">Push</span>
       </div>
-      <div className="justify-self-end sm:w-52 sm:justify-self-auto">
+      <div className="justify-self-end sm:w-72 sm:justify-self-auto">
         <ToggleGroup
           variant="outline"
           size="sm"
@@ -108,12 +109,14 @@ function PreferenceRow({
           value={[pref.email]}
           onValueChange={(v: string[]) => v[0] && onChange({ email: v[0] as EmailDelivery })}
           aria-label={`Email: ${info.label}`}
+          className="w-full"
         >
           {EMAIL_OPTIONS.map((o) => (
+            // Sized by their labels (not equal thirds), with room either side of each.
             <ToggleGroupItem
               key={o.value}
               value={o.value}
-              className="flex-1 px-2.5 text-muted-foreground data-pressed:bg-muted data-pressed:text-foreground"
+              className="flex-auto text-muted-foreground group-data-[spacing=0]/toggle-group:px-3.5 data-pressed:bg-muted data-pressed:text-foreground"
             >
               {o.label}
             </ToggleGroupItem>
@@ -157,7 +160,7 @@ export function DigestCard() {
                 <ToggleGroupItem
                   key={o.value}
                   value={o.value}
-                  className="px-3 text-muted-foreground data-pressed:bg-muted data-pressed:text-foreground"
+                  className="text-muted-foreground group-data-[spacing=0]/toggle-group:px-3.5 data-pressed:bg-muted data-pressed:text-foreground"
                 >
                   {o.label}
                 </ToggleGroupItem>
@@ -283,17 +286,31 @@ export function SchedulerCard() {
                 <CopyField label="Header" value="Authorization: Bearer <CRON_SECRET>" />
               </div>
               <p className={cn("flex items-center gap-1.5 text-xs", s.cronSecretSet ? "text-muted-foreground" : "text-destructive")}>
-                {s.cronSecretSet ? <CheckIcon className="size-3.5" /> : <CircleAlertIcon className="size-3.5" />}
+                {s.cronSecretSet ? (
+                  <CheckIcon className="size-3.5" style={{ color: "var(--status-good)" }} />
+                ) : (
+                  <CircleAlertIcon className="size-3.5" />
+                )}
                 {s.cronSecretSet
                   ? "CRON_SECRET is set on the server. Use its value in the header (it's never shown here)."
                   : "CRON_SECRET isn't set, so the tick URL refuses every call. Set it first (step 1)."}
               </p>
 
-              <details open={!healthy && !s.builtInTimer} className="rounded-lg border p-3">
-                <summary className="cursor-pointer font-medium outline-none select-none focus-visible:underline">
-                  Set up an hourly job on cron-job.org
-                </summary>
-                <ol className="mt-2 ml-5 list-decimal space-y-1.5 text-muted-foreground">
+              <SetupTask
+                done={healthy}
+                title={healthy ? "Hourly job is set up" : "Set up an hourly job on cron-job.org"}
+                summary={
+                  healthy
+                    ? s.lastResult?.source === "timer"
+                      ? "The built-in timer wakes the app every hour."
+                      : "Something calls the tick URL every hour."
+                    : s.builtInTimer
+                      ? "Optional here: the built-in timer runs while the server is up."
+                      : "Without it, reminders wait for Vercel's once-a-day cron."
+                }
+                action={{ href: "https://console.cron-job.org/jobs/create", label: "Open cron-job.org" }}
+              >
+                <ol className="ml-5 list-decimal space-y-1.5 text-muted-foreground">
                   <li>
                     Pick a long random secret (e.g. <code className="text-xs">openssl rand -hex 32</code>), set it as{" "}
                     <code className="text-xs">CRON_SECRET</code> in your hosting's environment variables (on Vercel: Project → Settings →
@@ -323,7 +340,7 @@ export function SchedulerCard() {
                     ? "This server also runs a built-in hourly timer, so an external job is optional here."
                     : "Vercel's own cron only runs once a day on the free plan; it stays as a fallback."}
                 </p>
-              </details>
+              </SetupTask>
             </>
           )
         )}

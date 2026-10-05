@@ -1,7 +1,7 @@
 "use client";
 
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { UploadIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, UploadIcon } from "lucide-react";
 import Link from "next/link";
 import { useQueryStates } from "nuqs";
 import { useMemo, useTransition } from "react";
@@ -9,22 +9,18 @@ import {
   ChartCard,
   type MonthlySpend,
   RenewalCalendar,
-  RenewalCalendarTable,
   type SeriesMeta,
   SpendByMerchant,
-  SpendByMerchantTable,
   SpendColumns,
-  SpendColumnsTable,
   SubscriptionTimeline,
-  SubscriptionTimelineTable,
 } from "@/charts";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { fullDate, money, monthLabel, monthYearLabel } from "@/lib/format";
-import { isLive, type MerchantSpend, projectCharges, spendByMerchant } from "@/lib/insights";
+import { addMonths, isLive, type MerchantSpend, projectChargesBetween, spendByMerchant } from "@/lib/insights";
 import { historyQuery, subscriptionsQuery } from "@/lib/query/options";
-import { HISTORY_RANGES, overviewParams, RENEWAL_WINDOWS } from "@/lib/search-params";
+import { HISTORY_RANGES, MERCHANT_RANGES, overviewParams, RENEWAL_MONTHS_AHEAD } from "@/lib/search-params";
 import type { HistoryPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -43,16 +39,17 @@ function toMonthlySpend(h: HistoryPayload): { rows: MonthlySpend<LayerKey>[]; se
   return { rows, series };
 }
 
-function RangeToggle<V extends number>({
+/** "12m" stays "12m"; "ytd" reads "YTD". */
+const rangeLabel = (r: string) => (r === "ytd" ? "YTD" : r);
+
+function RangeToggle<V extends string>({
   value,
   options,
-  suffix,
   onChange,
   label,
 }: {
   value: V;
   options: readonly V[];
-  suffix: string;
   onChange: (v: V) => void;
   label: string;
 }) {
@@ -60,14 +57,13 @@ function RangeToggle<V extends number>({
     <ToggleGroup
       variant="outline"
       size="sm"
-      value={[String(value)]}
-      onValueChange={(v: string[]) => v[0] && onChange(Number(v[0]) as V)}
+      value={[value]}
+      onValueChange={(v: string[]) => v[0] && onChange(v[0] as V)}
       aria-label={label}
     >
       {options.map((o) => (
-        <ToggleGroupItem key={o} value={String(o)} className="px-2 text-xs">
-          {o}
-          {suffix}
+        <ToggleGroupItem key={o} value={o} className="px-2 text-xs">
+          {rangeLabel(o)}
         </ToggleGroupItem>
       ))}
     </ToggleGroup>
@@ -94,60 +90,87 @@ export function OnboardingBanner() {
 
 export function SpendSection() {
   const [isPending, startTransition] = useTransition();
-  const [{ months }, setParams] = useQueryStates(overviewParams, { startTransition });
-  const { data } = useSuspenseQuery(historyQuery(months));
+  const [{ range }, setParams] = useQueryStates(overviewParams, { startTransition });
+  const { data } = useSuspenseQuery(historyQuery(range));
   const { rows, series } = useMemo(() => toMonthlySpend(data), [data]);
   const keys = useMemo(() => series.map((s) => s.key), [series]);
   const cur = data.baseCurrency;
   const fmt = (n: number) => money(n, cur);
   const fmtAxis = (n: number) => money(n, cur, { cents: false });
   const reimbursed = data.reimbursed.reduce((sum, v) => sum + v, 0);
+  const spent = data.totals.reduce((sum, v) => sum + v, 0);
+  const span = range === "ytd" ? "year to date" : `last ${Number.parseInt(range, 10)} months`;
   return (
     <ChartCard
       title="Monthly recurring spend"
-      description={`Stacked by subscription, last ${months} months${reimbursed > 0 ? ` · ${money(reimbursed, cur)} reimbursed` : ""}`}
+      description={`${money(spent, cur)} ${span}, stacked by subscription${reimbursed > 0 ? ` · ${money(reimbursed, cur)} reimbursed` : ""}`}
       className={cn(isPending && "opacity-60 transition-opacity")}
-      controls={<RangeToggle label="Range" value={months} options={HISTORY_RANGES} suffix="m" onChange={(m) => setParams({ months: m })} />}
-      chart={
-        <SpendColumns
-          data={rows}
-          keys={keys}
-          series={series}
-          height={300}
-          formatValue={fmt}
-          formatAxisValue={fmtAxis}
-          formatMonth={monthLabel}
-          formatMonthLong={monthYearLabel}
-        />
+      controls={
+        <RangeToggle label="Range" value={range} options={HISTORY_RANGES} onChange={(r) => setParams({ range: r === "12m" ? null : r })} />
       }
-      table={<SpendColumnsTable data={rows} series={series} formatValue={fmt} formatMonthLong={monthYearLabel} />}
-    />
+    >
+      <SpendColumns
+        data={rows}
+        keys={keys}
+        series={series}
+        height={300}
+        formatValue={fmt}
+        formatAxisValue={fmtAxis}
+        formatMonth={monthLabel}
+        formatMonthLong={monthYearLabel}
+      />
+    </ChartCard>
   );
 }
 
 export function RenewalsSection() {
   const [isPending, startTransition] = useTransition();
-  const [{ days }, setParams] = useQueryStates(overviewParams, { startTransition });
+  const [params, setParams] = useQueryStates(overviewParams, { startTransition });
   const { data } = useSuspenseQuery(subscriptionsQuery());
-  const charges = useMemo(() => projectCharges(data.subscriptions, data.today, days), [data, days]);
+  // Only forward from this month, a month at a time.
+  const ahead = Math.min(Math.max(params.ahead, 0), RENEWAL_MONTHS_AHEAD);
+  const monthStart = addMonths(`${data.today.slice(0, 7)}-01`, ahead);
+  const month = monthStart.slice(0, 7);
+  const charges = useMemo(
+    () => projectChargesBetween(data.subscriptions, ahead === 0 ? data.today : monthStart, addMonths(monthStart, 1)),
+    [data, ahead, monthStart],
+  );
   const total = charges.filter((c) => c.currency === data.baseCurrency).reduce((s, c) => s + c.amount, 0);
+  const go = (n: number) => setParams({ ahead: n || null });
+  const when = ahead === 0 ? "still to come this month" : `in ${monthYearLabel(month)}`;
   return (
     <ChartCard
       title="Upcoming renewals"
-      description={`${charges.length} charges · ${money(total, data.baseCurrency)} in the next ${days} days`}
+      description={`${charges.length} charge${charges.length === 1 ? "" : "s"} · ${money(total, data.baseCurrency)} ${when}`}
       className={cn(isPending && "opacity-60 transition-opacity")}
-      controls={<RangeToggle label="Window" value={days} options={RENEWAL_WINDOWS} suffix="d" onChange={(d) => setParams({ days: d })} />}
-      chart={
-        <RenewalCalendar
-          charges={charges}
-          today={data.today}
-          days={days}
-          formatMoney={(a, c) => money(a, c, { cents: false })}
-          formatDate={fullDate}
-        />
+      controls={
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon-sm" aria-label="Previous month" disabled={ahead === 0} onClick={() => go(ahead - 1)}>
+            <ChevronLeftIcon />
+          </Button>
+          <span className="w-18 text-center text-xs font-medium tabular-nums" aria-live="polite">
+            {monthYearLabel(month)}
+          </span>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            aria-label="Next month"
+            disabled={ahead >= RENEWAL_MONTHS_AHEAD}
+            onClick={() => go(ahead + 1)}
+          >
+            <ChevronRightIcon />
+          </Button>
+        </div>
       }
-      table={<RenewalCalendarTable charges={charges} formatMoney={money} formatDate={fullDate} />}
-    />
+    >
+      <RenewalCalendar
+        charges={charges}
+        today={data.today}
+        month={month}
+        formatMoney={(a, c) => money(a, c, { cents: false })}
+        formatDate={fullDate}
+      />
+    </ChartCard>
   );
 }
 
@@ -160,55 +183,61 @@ export function TimelineSection() {
   );
   if (!rows.length) return null;
   return (
-    <ChartCard
-      title="Subscription timeline"
-      description="Each tick is a charge; ringed dots mark price changes"
-      chart={
-        <SubscriptionTimeline
-          data={rows}
-          today={data.today}
-          formatMoney={money}
-          formatDate={fullDate}
-          formatTick={(d) => monthYearLabel(d.toISOString().slice(0, 7))}
-        />
-      }
-      table={<SubscriptionTimelineTable data={rows} formatMoney={money} formatDate={fullDate} />}
-    />
+    <ChartCard title="Subscription timeline" description="Each tick is a charge; ringed dots mark price changes">
+      <SubscriptionTimeline
+        data={rows}
+        today={data.today}
+        formatMoney={money}
+        formatDate={fullDate}
+        formatTick={(d) => monthYearLabel(d.toISOString().slice(0, 7))}
+      />
+    </ChartCard>
   );
 }
 
 const merchantKey = (d: MerchantSpend) => d.merchantKey;
 const merchantName = (d: MerchantSpend) => d.name;
 const merchantTotal = (d: MerchantSpend) => d.total;
+const merchantSubsidised = (d: MerchantSpend) => d.subsidised;
 
 export function MerchantSection() {
+  const [isPending, startTransition] = useTransition();
+  const [{ merchants: range }, setParams] = useQueryStates(overviewParams, { startTransition });
   const { data } = useSuspenseQuery(subscriptionsQuery());
-  const merchants = useMemo(() => spendByMerchant(data, 12), [data]);
-  if (!merchants.length) return null;
-  const fmt = (n: number) => money(n, data.baseCurrency, { cents: false });
+  const merchants = useMemo(() => spendByMerchant(data, range), [data, range]);
+  if (!data.subscriptions.length) return null;
+  const cur = data.baseCurrency;
+  const fmt = (n: number) => money(n, cur, { cents: false });
+  const total = merchants.reduce((sum, m) => sum + m.total, 0);
+  const subsidised = merchants.reduce((sum, m) => sum + m.subsidised, 0);
+  const span = range === "ytd" ? "this year" : "over the last 12 months";
   return (
     <ChartCard
       title="Spend by merchant"
-      description="Subscription charges, last 12 months"
-      chart={
+      description={`${money(total - subsidised, cur)} paid by you ${span}${subsidised > 0 ? ` · ${money(subsidised, cur)} subsidised` : ""}`}
+      className={cn(isPending && "opacity-60 transition-opacity")}
+      controls={
+        <RangeToggle
+          label="Range"
+          value={range}
+          options={MERCHANT_RANGES}
+          onChange={(r) => setParams({ merchants: r === "12m" ? null : r })}
+        />
+      }
+    >
+      {merchants.length ? (
         <SpendByMerchant
           data={merchants}
           getKey={merchantKey}
           getLabel={merchantName}
           getValue={merchantTotal}
+          getSubsidised={merchantSubsidised}
           formatValue={fmt}
           formatAxisValue={fmt}
         />
-      }
-      table={
-        <SpendByMerchantTable
-          data={merchants}
-          getKey={merchantKey}
-          getLabel={merchantName}
-          getValue={merchantTotal}
-          formatValue={(n) => money(n, data.baseCurrency)}
-        />
-      }
-    />
+      ) : (
+        <p className="py-6 text-center text-sm text-muted-foreground">No subscription charges yet this year.</p>
+      )}
+    </ChartCard>
   );
 }
