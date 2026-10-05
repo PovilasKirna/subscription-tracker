@@ -1,7 +1,7 @@
 "use client";
 
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { ChevronLeftIcon, ChevronRightIcon, UploadIcon } from "lucide-react";
+import { CalendarDaysIcon, ChevronLeftIcon, ChevronRightIcon, ListIcon, UploadIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQueryStates } from "nuqs";
@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { CHART_SLOT } from "./layout";
 import { drawerHref } from "./links";
 import { RenewalAgenda } from "./RenewalAgenda";
+import { type RenewalView, useRenewalView } from "./renewal-view";
 
 /** Stack-layer key; a template literal so it can never collide with `month` / `total`. */
 type LayerKey = `s:${number}`;
@@ -61,6 +62,27 @@ function RangeToggle({ value, onChange, label }: { value: OverviewRange; onChang
           {rangeLabel(o)}
         </ToggleGroupItem>
       ))}
+    </ToggleGroup>
+  );
+}
+
+/** Phones only: the renewals month as a list or as the calendar grid (md and up always show the grid). */
+function RenewalViewToggle({ value, onChange }: { value: RenewalView; onChange: (v: RenewalView) => void }) {
+  return (
+    <ToggleGroup
+      variant="outline"
+      size="sm"
+      value={[value]}
+      onValueChange={(v: string[]) => v[0] && onChange(v[0] as RenewalView)}
+      aria-label="Renewals view"
+      className="md:hidden"
+    >
+      <ToggleGroupItem value="list" aria-label="List" title="List" className="pointer-coarse:size-11">
+        <ListIcon />
+      </ToggleGroupItem>
+      <ToggleGroupItem value="calendar" aria-label="Calendar" title="Calendar" className="pointer-coarse:size-11">
+        <CalendarDaysIcon />
+      </ToggleGroupItem>
     </ToggleGroup>
   );
 }
@@ -120,6 +142,7 @@ export function RenewalsSection() {
   const [isPending, startTransition] = useTransition();
   const [params, setParams] = useQueryStates(overviewParams, { startTransition });
   const { data } = useSuspenseQuery(subscriptionsQuery());
+  const [view, setView] = useRenewalView();
   // Only forward from this month, a month at a time.
   const ahead = Math.min(Math.max(params.ahead, 0), RENEWAL_MONTHS_AHEAD);
   const monthStart = addMonths(`${data.today.slice(0, 7)}-01`, ahead);
@@ -137,34 +160,38 @@ export function RenewalsSection() {
       description={`${charges.length} charge${charges.length === 1 ? "" : "s"} · ${money(total, data.baseCurrency)} ${when}`}
       className={cn(CHART_SLOT.renewals, isPending && "opacity-60 transition-opacity")}
       controls={
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            className="pointer-coarse:size-11"
-            aria-label="Previous month"
-            disabled={ahead === 0}
-            onClick={() => go(ahead - 1)}
-          >
-            <ChevronLeftIcon />
-          </Button>
-          <span className="w-20 text-center text-[12.5px] font-medium tabular-nums" aria-live="polite">
-            {monthYearLabel(month)}
-          </span>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            className="pointer-coarse:size-11"
-            aria-label="Next month"
-            disabled={ahead >= RENEWAL_MONTHS_AHEAD}
-            onClick={() => go(ahead + 1)}
-          >
-            <ChevronRightIcon />
-          </Button>
-        </div>
+        <>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              className="pointer-coarse:size-11"
+              aria-label="Previous month"
+              disabled={ahead === 0}
+              onClick={() => go(ahead - 1)}
+            >
+              <ChevronLeftIcon />
+            </Button>
+            <span className="w-20 text-center text-[12.5px] font-medium tabular-nums" aria-live="polite">
+              {monthYearLabel(month)}
+            </span>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              className="pointer-coarse:size-11"
+              aria-label="Next month"
+              disabled={ahead >= RENEWAL_MONTHS_AHEAD}
+              onClick={() => go(ahead + 1)}
+            >
+              <ChevronRightIcon />
+            </Button>
+          </div>
+          <RenewalViewToggle value={view} onChange={setView} />
+        </>
       }
     >
-      <div className="hidden md:block">
+      {/* Phones choose between the two (List by default, remembered per device); md and up always get the grid. */}
+      <div className={cn(view === "list" && "hidden md:block")}>
         <RenewalCalendar
           charges={charges}
           today={data.today}
@@ -174,8 +201,7 @@ export function RenewalsSection() {
           formatDate={fullDate}
         />
       </div>
-      {/* Phones get a list that names each charge; the month grid needs room to be legible. */}
-      <div className="md:hidden">
+      <div className={cn("md:hidden", view === "calendar" && "hidden")}>
         <RenewalAgenda
           charges={charges}
           today={data.today}
