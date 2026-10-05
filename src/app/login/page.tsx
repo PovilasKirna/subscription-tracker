@@ -3,7 +3,7 @@
 import { LockIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type FormEvent, Suspense, useState } from "react";
+import { type FormEvent, Suspense, useId, useState } from "react";
 import { HoardMark } from "@/components/shell/HoardMark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +16,7 @@ function LoginForm() {
   const next = useSearchParams().get("next");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const errorId = useId();
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -40,9 +41,22 @@ function LoginForm() {
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <Label htmlFor="password">Password</Label>
-        <Input id="password" name="password" type="password" autoComplete="current-password" autoFocus required />
+        <Input
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          autoFocus
+          required
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+        />
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <p id={errorId} role="alert" className="text-sm text-destructive-text">
+          {error}
+        </p>
+      )}
       <Button type="submit" disabled={pending}>
         <LockIcon /> {pending ? "Checking…" : "Unlock"}
       </Button>
@@ -52,11 +66,13 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center p-4">
+    <main className="flex min-h-dvh flex-col items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
           <HoardMark className="mb-2 size-9" />
-          <CardTitle>{site.name}</CardTitle>
+          <CardTitle>
+            <h1>{site.name}</h1>
+          </CardTitle>
           <CardDescription>Private dashboard. Enter your password to continue.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -65,7 +81,7 @@ export default function LoginPage() {
           </Suspense>
         </CardContent>
       </Card>
-      <nav className="mt-4 flex gap-4 text-xs text-muted-foreground">
+      <nav aria-label="Legal" className="mt-4 flex gap-4 text-xs text-muted-foreground">
         <Link href="/privacy" className="hover:text-foreground">
           Privacy
         </Link>
@@ -73,6 +89,6 @@ export default function LoginPage() {
           Terms
         </Link>
       </nav>
-    </div>
+    </main>
   );
 }

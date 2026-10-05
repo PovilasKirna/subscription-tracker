@@ -1,6 +1,6 @@
-import { redirect } from "next/navigation";
-import { SETTINGS_SECTIONS } from "@/components/settings/sections";
+import { SettingsIndex } from "@/components/settings/SettingsNav";
 
+// Phones land here from the tab bar and pick a section; the desktop rail links straight to the first section.
 export default function SettingsPage() {
-  redirect(SETTINGS_SECTIONS[0].href);
+  return <SettingsIndex />;
 }

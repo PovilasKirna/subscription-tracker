@@ -155,7 +155,7 @@ export function DevicesCard() {
         {devices.isPending ? (
           <Skeleton className="h-24 w-full" />
         ) : devices.error ? (
-          <p className="text-sm text-destructive">{devices.error.message}</p>
+          <p className="text-sm text-destructive-text">{devices.error.message}</p>
         ) : !configured ? (
           <PushSetup problem={devices.data?.problem ?? null} />
         ) : (

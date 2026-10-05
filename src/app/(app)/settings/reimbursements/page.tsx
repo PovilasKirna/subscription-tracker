@@ -1,5 +1,6 @@
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
-import { SourcesManager } from "@/components/reimbursements/SourcesManager";
+import { Suspense } from "react";
+import { SourcesManager, SourcesSkeleton } from "@/components/reimbursements/SourcesManager";
 import { SectionHeader } from "@/components/settings/SettingsNav";
 import { getQueryClient } from "@/lib/query/client";
 import { reimbursementSourcesQuery } from "@/lib/query/options";
@@ -11,7 +12,9 @@ export default function ReimbursementSettingsPage() {
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
       <SectionHeader href="/settings/reimbursements" />
-      <SourcesManager />
+      <Suspense fallback={<SourcesSkeleton />}>
+        <SourcesManager />
+      </Suspense>
     </HydrationBoundary>
   );
 }

@@ -170,7 +170,7 @@ function PeriodHistory({ sub, today }: { sub: Subscription; today: string }) {
               <Button
                 variant="ghost"
                 size="icon-xs"
-                className="shrink-0 text-muted-foreground hover:text-destructive"
+                className="shrink-0 text-muted-foreground hover:text-destructive-text"
                 onClick={() => setRemoving(p)}
                 aria-label={`Remove the period from ${periodStartLabel(p.startsOn)}`}
               >
@@ -316,7 +316,7 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
               </SelectContent>
             </Select>
             {sources.error ? (
-              <span className="text-xs text-destructive">{sources.error.message}</span>
+              <span className="text-xs text-destructive-text">{sources.error.message}</span>
             ) : (
               <Link
                 href="/settings/reimbursements"
@@ -375,7 +375,7 @@ function PeriodDialog({ sub, today, onOpenChange }: { sub: Subscription; today: 
           {current ? (
             <Button
               variant="ghost"
-              className="text-destructive hover:text-destructive"
+              className="text-destructive-text hover:text-destructive-text"
               disabled={save.isPending}
               onClick={() => setConfirmStop(true)}
             >
@@ -425,7 +425,7 @@ export function ReimbursedNote({ tx }: { tx: TransactionItem }) {
   const amount = money(r.amount, tx.currency);
   if (r.status === "pending") {
     return (
-      <span className="mt-0.5 ml-auto flex w-fit items-center gap-1 rounded-full bg-[var(--status-warning)]/15 px-1.5 text-[11px] font-medium text-foreground">
+      <span className="mt-0.5 ml-auto flex w-fit items-center gap-1 rounded-full bg-[var(--status-warning)]/15 px-1.5 text-xs font-medium text-foreground">
         <CircleAlertIcon className="size-3 text-[var(--status-warning)]" aria-hidden /> Pending
       </span>
     );
@@ -488,7 +488,7 @@ export function ReimbursementAmountDialog({ tx, onOpenChange }: { tx: Transactio
             onChange={(e) => setValue(e.target.value)}
             aria-invalid={value !== "" && !valid}
           />
-          <span className={cn("text-xs", !valid && value !== "" ? "text-destructive" : "text-muted-foreground")}>
+          <span className={cn("text-xs", !valid && value !== "" ? "text-destructive-text" : "text-muted-foreground")}>
             Between 0 and {money(max, tx.currency)}.
           </span>
         </form>

@@ -2,14 +2,17 @@
 
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useQueryStates } from "nuqs";
-import { useCallback, useEffect, useMemo, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { DataTable, DataTablePagination, DataTableToolbar, useDataTable } from "@/components/data-table";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { localDate } from "@/lib/format";
 import { transactionsQuery } from "@/lib/query/options";
 import { PAGE_SIZES, TX_SORT_COLUMNS, transactionParams } from "@/lib/search-params";
 import { transactionColumns } from "./columns";
 import { TRANSACTION_FILTERS } from "./filters";
+import { TransactionMobileRow } from "./TransactionMobileRow";
+import { TransactionRowActions } from "./TransactionRowActions";
 
 /**
  * Server-side data table: search, filters, sorting and pagination live in the URL (nuqs);
@@ -29,6 +32,8 @@ export function TransactionsTable() {
 
   const showMerchant = useCallback((merchantKey: string) => void setParams({ q: merchantKey, page: null }), [setParams]);
   const columns = useMemo(() => transactionColumns(showMerchant), [showMerchant]);
+  // Only decides whether phone rows show the year; a mismatch at New Year would just re-render.
+  const [today] = useState(() => localDate(new Date().toISOString()));
 
   const table = useDataTable({
     mode: "server",
@@ -71,7 +76,13 @@ export function TransactionsTable() {
         }}
         onReset={() => void setParams({ q: null, flow: null, sub: null, type: null, source: null, page: null })}
       />
-      <DataTable table={table} pending={isPending} empty="No transactions match these filters." />
+      <DataTable
+        table={table}
+        pending={isPending}
+        renderMobileRow={(row) => <TransactionMobileRow tx={row} today={today} />}
+        renderMobileActions={(row) => <TransactionRowActions tx={row} onShowMerchant={showMerchant} triggerClassName="size-11" />}
+        empty="No transactions match these filters."
+      />
       <DataTablePagination table={table} total={data.total} pageSizes={PAGE_SIZES} />
     </div>
   );
@@ -80,24 +91,25 @@ export function TransactionsTable() {
 export function TransactionsTableSkeleton() {
   return (
     <div className="flex flex-col gap-3" role="status" aria-busy="true" aria-label="Loading transactions">
-      <div className="flex gap-2">
-        <Skeleton className="h-8 w-72" />
+      <div className="flex flex-wrap gap-2">
+        <Skeleton className="h-8 w-full sm:w-72" />
         <Skeleton className="h-8 w-20" />
       </div>
       <Card className="py-0">
         <CardContent className="flex flex-col px-4">
           {Array.from({ length: 12 }, (_, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder rows
-            <div key={i} className="flex items-center gap-6 border-b py-3 last:border-0">
-              <Skeleton className="h-4 w-24" />
+            <div key={i} className="flex items-center gap-3 border-b py-3 last:border-0 sm:gap-6">
+              <Skeleton className="size-7 shrink-0 rounded-md sm:hidden" />
+              <Skeleton className="hidden h-4 w-24 sm:block" />
               <Skeleton className="h-4 flex-1" />
-              <Skeleton className="h-4 w-24" />
+              <Skeleton className="hidden h-4 w-24 sm:block" />
               <Skeleton className="h-4 w-20" />
             </div>
           ))}
         </CardContent>
       </Card>
-      <Skeleton className="ml-auto h-7 w-80" />
+      <Skeleton className="ml-auto h-7 w-80 max-w-full" />
     </div>
   );
 }

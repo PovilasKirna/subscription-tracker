@@ -91,6 +91,8 @@ export function ImportCard() {
   );
 }
 
+const importSource = (i: { source: string; message: string | null }) => (i.source === "bank" ? "Bank sync" : (i.message ?? "CSV"));
+
 export function ImportLog() {
   const { data } = useSuspenseQuery(statusQuery());
   return (
@@ -104,32 +106,54 @@ export function ImportLog() {
             ` · ${data.hiddenTransactionCount.toLocaleString("en-GB")} hidden from switched-off bank accounts (still in backups)`}
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="@container/imports">
         {data.imports.length === 0 ? (
           <p className="text-sm text-muted-foreground">No imports yet.</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>When</TableHead>
-                <TableHead>Source</TableHead>
-                <TableHead className="text-right">New</TableHead>
-                <TableHead className="text-right">Updated</TableHead>
-                <TableHead className="text-right">Skipped</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <>
+            {/* Narrow cards (phones, the two-column desktop grid): two lines per import. */}
+            <ul className="-my-2 divide-y @md/imports:hidden">
               {data.imports.map((i) => (
-                <TableRow key={`${i.at}-${i.source}-${i.inserted}`}>
-                  <TableCell className="text-muted-foreground">{fullDate(i.at.slice(0, 10))}</TableCell>
-                  <TableCell className="max-w-[180px] truncate">{i.source === "bank" ? "Bank sync" : (i.message ?? "CSV")}</TableCell>
-                  <TableCell className="tabular text-right">{i.inserted}</TableCell>
-                  <TableCell className="tabular text-right">{i.updated}</TableCell>
-                  <TableCell className="tabular text-right">{i.skipped}</TableCell>
-                </TableRow>
+                <li key={i.id} className="flex flex-col gap-0.5 py-2.5">
+                  <span className="flex min-w-0 gap-1.5">
+                    <span className="shrink-0 text-muted-foreground">{fullDate(i.at.slice(0, 10))}</span>
+                    <span className="shrink-0 text-muted-foreground" aria-hidden>
+                      ·
+                    </span>
+                    <span className="truncate">{importSource(i)}</span>
+                  </span>
+                  <span className="tabular text-xs text-muted-foreground">
+                    +{i.inserted.toLocaleString("en-GB")} new · {i.updated.toLocaleString("en-GB")} updated ·{" "}
+                    {i.skipped.toLocaleString("en-GB")} skipped
+                  </span>
+                </li>
               ))}
-            </TableBody>
-          </Table>
+            </ul>
+            <div className="hidden @md/imports:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>When</TableHead>
+                    <TableHead className="w-full">Source</TableHead>
+                    <TableHead className="text-right">New</TableHead>
+                    <TableHead className="text-right">Updated</TableHead>
+                    <TableHead className="text-right">Skipped</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.imports.map((i) => (
+                    <TableRow key={i.id}>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">{fullDate(i.at.slice(0, 10))}</TableCell>
+                      <TableCell className="w-full max-w-0 truncate">{importSource(i)}</TableCell>
+                      <TableCell className="tabular text-right">{i.inserted.toLocaleString("en-GB")}</TableCell>
+                      <TableCell className="tabular text-right">{i.updated.toLocaleString("en-GB")}</TableCell>
+                      <TableCell className="tabular text-right">{i.skipped.toLocaleString("en-GB")}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

@@ -66,7 +66,7 @@ export function NotificationBell({ className }: { className?: string }) {
           <Button
             variant="ghost"
             size="icon"
-            className={cn("relative text-muted-foreground hover:text-foreground", className)}
+            className={cn("relative text-muted-foreground hover:text-foreground pointer-coarse:size-11", className)}
             aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
           />
         }
@@ -75,20 +75,22 @@ export function NotificationBell({ className }: { className?: string }) {
         {unread > 0 && (
           <span
             aria-hidden
-            className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--status-critical)] px-1 text-[10px] leading-none font-semibold text-white tabular-nums ring-2 ring-card"
+            // White on status-critical is 4.8:1 in both themes; no theme token stays light in dark mode.
+            className="absolute -top-1 -right-1 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-status-critical px-1 text-xs leading-none font-semibold text-white tabular-nums ring-2 ring-card pointer-coarse:top-1 pointer-coarse:right-1"
           >
             {unread > 9 ? "9+" : unread}
           </span>
         )}
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(24rem,calc(100vw-1.5rem))] gap-0 p-0">
+      {/* Height is capped by the space Base UI measures below the trigger, so it never runs off a phone screen. */}
+      <PopoverContent align="end" className="max-h-[min(40rem,var(--available-height))] w-[min(24rem,calc(100vw-1.5rem))] gap-0 p-0">
         <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
           <h2 className="font-medium">Notifications</h2>
           <Button variant="ghost" size="xs" disabled={!unread || markRead.isPending} onClick={() => markRead.mutate("all")}>
             <CheckCheckIcon /> Mark all read
           </Button>
         </div>
-        <div className="max-h-[min(32rem,calc(100dvh-8rem))] overflow-y-auto overscroll-contain">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {feed.isPending ? (
             <div className="flex flex-col gap-3 p-3">
               <Skeleton className="h-12 w-full" />
@@ -116,7 +118,7 @@ export function NotificationBell({ className }: { className?: string }) {
           <Link
             href="/settings/notifications"
             onClick={() => setOpen(false)}
-            className="inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="inline-flex items-center gap-1.5 rounded text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
           >
             <SettingsIcon className="size-3.5" /> Notification settings
           </Link>
@@ -149,7 +151,7 @@ function FeedItem({ n, onOpen }: { n: NotificationItem; onOpen: () => void }) {
             )}
           </span>
           <span className="line-clamp-3 text-xs text-muted-foreground">{n.body}</span>
-          <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {timeAgo(n.createdAt)}
             {n.resolved && (
               <>

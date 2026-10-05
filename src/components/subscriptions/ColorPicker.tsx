@@ -176,7 +176,7 @@ export function ColorPicker({ subKey, name, color, chosen }: { subKey: string; n
                 }}
                 prefixed
                 aria-label="Hex colour"
-                className="h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 font-mono text-sm uppercase outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+                className="h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 font-mono text-sm uppercase outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring dark:bg-input/30"
               />
               <Button type="submit" size="sm" disabled={override.isPending}>
                 Apply
