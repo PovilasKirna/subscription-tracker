@@ -2,11 +2,16 @@
 
 import { useSuspenseQuery } from "@tanstack/react-query";
 import {
+  BanIcon,
   CheckIcon,
+  ChevronDownIcon,
+  CircleXIcon,
+  HandCoinsIcon,
   MinusCircleIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PlusCircleIcon,
+  RotateCcwIcon,
   SparklesIcon,
   TrendingUpIcon,
   XIcon,
@@ -14,19 +19,33 @@ import {
 import { useQueryState } from "nuqs";
 import { type ReactNode, Suspense, useState } from "react";
 import { toast } from "sonner";
-import { ChargeHistory, type ColorSlot, PRESET_COLORS, slotColor } from "@/charts";
+import { ChargeHistory } from "@/charts";
+import { MerchantIcon } from "@/components/MerchantIcon";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CADENCE_LABEL, fullDate, money, monthYearLabel, relativeDays } from "@/lib/format";
-import { useAssign, useExclusion, useOverride } from "@/lib/query/mutations";
+import { useAssign, useExclusion, useOverride, useReimbursement } from "@/lib/query/mutations";
 import { subscriptionDetailQuery } from "@/lib/query/options";
-import { subscriptionDrawerParams } from "@/lib/search-params";
-import type { RelatedTransaction, TransactionItem } from "@/lib/types";
+import { expectedFor } from "@/lib/reimbursement";
+import { CADENCES, subscriptionDrawerParams } from "@/lib/search-params";
+import type { Cadence, RelatedTransaction, Subscription, TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { ColorPicker } from "./ColorPicker";
+import { ReimbursedNote, ReimbursementAmountDialog, ReimbursementSection, reimbursementToast } from "./Reimbursement";
 import { StatusBadge } from "./StatusBadge";
 import { SubscriptionActions } from "./SubscriptionActions";
 
@@ -60,7 +79,8 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
         <div className="min-w-0">
           {s ? (
             <div className="flex items-center gap-2">
-              <ColorPicker subKey={subKey} name={s.name} slot={s.colorSlot} chosen={s.colorChosen} />
+              <LogoPicker subKey={subKey} name={s.name} website={s.website} chosen={s.websiteChosen} />
+              <ColorPicker subKey={subKey} name={s.name} color={s.color} chosen={s.colorChosen} />
               <div className="min-w-0 flex-1">
                 <EditableName subKey={subKey} name={s.name} />
               </div>
@@ -72,7 +92,7 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
             {s && (
               <>
                 <span>{s.category}</span>
-                <span>{CADENCE_LABEL[s.cadence]}</span>
+                <CadencePicker sub={s} />
                 <StatusBadge status={data.ignored ? "ignored" : s.status} />
               </>
             )}
@@ -91,8 +111,13 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
           <>
             <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Stat label="Price">{fmt(s.amount)}</Stat>
-              <Stat label="Per month">{fmt(s.monthlyCost)}</Stat>
-              <Stat label="Per year">{fmt(s.yearlyCost)}</Stat>
+              <Stat label="Per month">
+                {fmt(s.netMonthlyCost)}
+                {s.reimbursement && (
+                  <span className="block text-xs font-normal text-muted-foreground">{fmt(s.monthlyCost)} before reimbursement</span>
+                )}
+              </Stat>
+              <Stat label="Per year">{fmt(s.reimbursement ? s.netMonthlyCost * 12 : s.yearlyCost)}</Stat>
               <Stat label="Next charge">
                 {s.nextCharge ? (
                   <>
@@ -103,18 +128,26 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
                   "—"
                 )}
               </Stat>
-              <Stat label="Spent so far">{fmt(s.totalSpent)}</Stat>
+              <Stat label="Spent so far">
+                {/* Net of what came back (recorded + assumed); the gross underneath when they differ. */}
+                {fmt(s.totalSpent - s.totalReimbursed)}
+                {s.totalReimbursed > 0 && (
+                  <span className="block text-xs font-normal text-muted-foreground">{fmt(s.totalSpent)} before reimbursement</span>
+                )}
+              </Stat>
               <Stat label="Since">
                 {fullDate(s.firstCharge)}
                 <span className="block text-xs font-normal text-muted-foreground">{s.chargeCount} charges</span>
               </Stat>
             </dl>
 
+            <ReimbursementSection sub={s} transactions={data.transactions} today={data.today} ignored={data.ignored} />
+
             <section>
               <h3 className="mb-2 text-sm font-medium">Charge history</h3>
               <ChargeHistory
                 charges={s.charges}
-                slot={s.colorSlot}
+                color={s.color}
                 formatValue={fmt}
                 formatAxisValue={(n) => money(n, s.currency, { cents: false })}
                 formatDate={fullDate}
@@ -185,6 +218,10 @@ function ChargeList({
   muted?: boolean;
 }) {
   const exclusion = useExclusion();
+  const reimbursement = useReimbursement();
+  const [editing, setEditing] = useState<TransactionItem | null>(null);
+  const reimburse = (tx: TransactionItem, amount: number | null) =>
+    reimbursement.mutate({ txId: tx.id, amount }, { onSuccess: () => toast.success(reimbursementToast(amount, tx.currency)) });
   const run = (tx: TransactionItem) =>
     exclusion.mutate(
       { txId: tx.id, exclude: action === "exclude" },
@@ -199,7 +236,10 @@ function ChargeList({
           <li key={tx.id} className="flex items-center gap-3 px-3 py-2 text-sm">
             <span className="tabular w-24 shrink-0 text-muted-foreground">{fullDate(tx.date)}</span>
             <span className={cn("min-w-0 flex-1 truncate", muted && "line-through")}>{tx.description}</span>
-            <span className="tabular shrink-0 font-medium">{money(Math.abs(tx.amount), tx.currency)}</span>
+            <span className="tabular shrink-0 text-right font-medium">
+              {money(Math.abs(tx.amount), tx.currency)}
+              <ReimbursedNote tx={tx} />
+            </span>
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -210,9 +250,12 @@ function ChargeList({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-60">
                 {action === "exclude" ? (
-                  <DropdownMenuItem variant="destructive" onClick={() => run(tx)}>
-                    <MinusCircleIcon /> Remove from subscription
-                  </DropdownMenuItem>
+                  <>
+                    {tx.reimbursement && <ReimbursementItems tx={tx} onRecord={reimburse} onOther={() => setEditing(tx)} />}
+                    <DropdownMenuItem variant="destructive" onClick={() => run(tx)}>
+                      <MinusCircleIcon /> Remove from subscription
+                    </DropdownMenuItem>
+                  </>
                 ) : (
                   <DropdownMenuItem onClick={() => run(tx)}>
                     <PlusCircleIcon /> Include again
@@ -224,7 +267,50 @@ function ChargeList({
         ))}
         {!items.length && <li className="px-3 py-4 text-center text-sm text-muted-foreground">No charges.</li>}
       </ul>
+      {editing && <ReimbursementAmountDialog tx={editing} onOpenChange={(open) => !open && setEditing(null)} />}
     </section>
+  );
+}
+
+/** A charge's reimbursement actions: record the expected amount, another amount, nothing, or clear it. */
+function ReimbursementItems({
+  tx,
+  onRecord,
+  onOther,
+}: {
+  tx: TransactionItem;
+  onRecord: (tx: TransactionItem, amount: number | null) => void;
+  onOther: () => void;
+}) {
+  const r = tx.reimbursement;
+  if (!r) return null;
+  const expected = expectedFor(tx);
+  const recorded = r.status === "recorded";
+  return (
+    <>
+      <DropdownMenuGroup>
+        <DropdownMenuLabel>Reimbursement</DropdownMenuLabel>
+        {expected !== null && expected > 0 && !(recorded && r.amount === expected) && (
+          <DropdownMenuItem onClick={() => onRecord(tx, expected)}>
+            <HandCoinsIcon /> Reimbursed {money(expected, tx.currency)}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={onOther}>
+          <PencilIcon /> {expected !== null ? "Reimbursed another amount…" : "Mark as reimbursed…"}
+        </DropdownMenuItem>
+        {r.status !== "none" && !(recorded && r.amount === 0) && (
+          <DropdownMenuItem onClick={() => onRecord(tx, 0)}>
+            <BanIcon /> Not reimbursed
+          </DropdownMenuItem>
+        )}
+        {recorded && (
+          <DropdownMenuItem onClick={() => onRecord(tx, null)}>
+            <CircleXIcon /> Clear what you recorded
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuGroup>
+      <DropdownMenuSeparator />
+    </>
   );
 }
 
@@ -281,67 +367,125 @@ function RelatedList({ subKey, name, items }: { subKey: string; name: string; it
   );
 }
 
-/** Swatch beside the name; picks one of the preset chart colours, or hands it back to automatic. */
-function ColorPicker({ subKey, name, slot, chosen }: { subKey: string; name: string; slot: ColorSlot; chosen: boolean }) {
+/**
+ * How often it renews. Detection needs two charges to tell, so a lone one is shown as a guess
+ * the user can correct; picking "Automatic" hands it back to detection.
+ */
+function CadencePicker({ sub }: { sub: Pick<Subscription, "key" | "name" | "cadence" | "cadenceChosen" | "chargeCount"> }) {
   const override = useOverride();
-  const [open, setOpen] = useState(false);
-  const current = chosen ? PRESET_COLORS.find((c) => c.slot === slot) : undefined;
-  const pick = (colorSlot: number | null) => {
-    setOpen(false);
-    if (colorSlot === (chosen ? slot : null)) return;
+  const guessed = !sub.cadenceChosen && sub.chargeCount < 2;
+  const pick = (value: string) => {
+    const cadence = value === "auto" ? null : (value as Cadence);
+    if (cadence === (sub.cadenceChosen ? sub.cadence : null)) return;
     override.mutate(
-      { key: subKey, colorSlot },
-      { onSuccess: () => toast.success(colorSlot ? "Colour updated" : "Colour set to automatic") },
+      { key: sub.key, cadence },
+      { onSuccess: () => toast.success(cadence ? `Renews ${CADENCE_LABEL[cadence].toLowerCase()}` : "Renewal set to automatic") },
     );
   };
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
+    <DropdownMenu>
+      <DropdownMenuTrigger
         render={
           <Button
             variant="ghost"
-            size="icon-xs"
-            className="shrink-0"
-            aria-label={`Colour for ${name}: ${current?.label ?? "automatic"}. Change colour`}
+            size="xs"
+            className="-mx-2 font-normal text-muted-foreground data-popup-open:bg-muted"
+            disabled={override.isPending}
+            aria-label={`Renews ${CADENCE_LABEL[sub.cadence].toLowerCase()}${guessed ? " (guessed)" : ""}. Change how often ${sub.name} renews`}
           />
         }
       >
-        <span className="size-3.5 rounded-[4px]" style={{ background: slotColor(slot) }} aria-hidden />
+        {CADENCE_LABEL[sub.cadence]}
+        {guessed && <span className="text-muted-foreground/70">(guessed)</span>}
+        <ChevronDownIcon data-icon="inline-end" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Renews</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={sub.cadenceChosen ? sub.cadence : "auto"} onValueChange={(v) => pick(String(v))}>
+            <DropdownMenuRadioItem value="auto">
+              <SparklesIcon /> Automatic
+            </DropdownMenuRadioItem>
+            <DropdownMenuSeparator />
+            {CADENCES.map((c) => (
+              <DropdownMenuRadioItem key={c} value={c}>
+                {CADENCE_LABEL[c]}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** The logo beside the name; click it to set the website the logo comes from (or go back to the built-in one). */
+function LogoPicker({ subKey, name, website, chosen }: { subKey: string; name: string; website: string | null; chosen: boolean }) {
+  const override = useOverride();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const save = (next: string) =>
+    override.mutate(
+      { key: subKey, website: next },
+      {
+        onSuccess: () => {
+          setOpen(false);
+          toast.success(next ? "Logo updated" : "Logo reset");
+        },
+      },
+    );
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setValue(chosen ? (website ?? "") : "");
+      }}
+    >
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            className="shrink-0 rounded-lg outline-none ring-offset-2 ring-offset-background transition-shadow hover:ring-2 hover:ring-ring/40 focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`Logo for ${name}${website ? ` from ${website}` : ""}. Change logo`}
+            title="Change logo"
+          />
+        }
+      >
+        <MerchantIcon name={name} website={website} size="lg" />
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto">
+      <PopoverContent align="start" className="w-72">
         <PopoverHeader>
-          <PopoverTitle>Colour</PopoverTitle>
-          <PopoverDescription className="text-xs">Marks this subscription in the table and its own chart series.</PopoverDescription>
+          <PopoverTitle>Logo</PopoverTitle>
+          <PopoverDescription className="text-xs">The service&apos;s website. Its icon is used as the logo.</PopoverDescription>
         </PopoverHeader>
-        <fieldset className="grid grid-cols-4 gap-1.5" aria-label="Preset colours">
-          {PRESET_COLORS.map((c) => {
-            const selected = chosen && c.slot === slot;
-            return (
-              <button
-                key={c.slot}
-                type="button"
-                aria-pressed={selected}
-                aria-label={c.label}
-                title={c.label}
-                disabled={override.isPending}
-                onClick={() => pick(c.slot)}
-                className="grid size-8 place-items-center rounded-md outline-none ring-offset-2 ring-offset-popover transition-shadow hover:ring-2 hover:ring-ring/40 focus-visible:ring-2 focus-visible:ring-ring aria-pressed:ring-2 aria-pressed:ring-foreground"
-                style={{ background: slotColor(c.slot) }}
-              >
-                {selected && <CheckIcon className="size-4 text-white" aria-hidden />}
-              </button>
-            );
-          })}
-        </fieldset>
-        <Button
-          variant={chosen ? "outline" : "secondary"}
-          size="sm"
-          disabled={override.isPending}
-          onClick={() => pick(null)}
-          aria-pressed={!chosen}
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save(value.trim());
+          }}
         >
-          <SparklesIcon /> Automatic
-        </Button>
+          <Input
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={(!chosen && website) || "example.com"}
+            className="h-8"
+            aria-label="Website"
+            inputMode="url"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <Button type="submit" size="icon-sm" disabled={override.isPending || !value.trim()} aria-label="Save website">
+            <CheckIcon />
+          </Button>
+        </form>
+        {chosen && (
+          <Button variant="outline" size="sm" disabled={override.isPending} onClick={() => save("")}>
+            <RotateCcwIcon /> Reset logo
+          </Button>
+        )}
       </PopoverContent>
     </Popover>
   );

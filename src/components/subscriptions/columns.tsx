@@ -1,12 +1,14 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { BadgeCheckIcon } from "lucide-react";
-import { ChargeSparkline, slotColor } from "@/charts";
+import { BadgeCheckIcon, CircleAlertIcon, HandCoinsIcon } from "lucide-react";
+import { ChargeSparkline } from "@/charts";
 import { DataTableColumnHeader } from "@/components/data-table";
+import { MerchantIcon } from "@/components/MerchantIcon";
 import { Badge } from "@/components/ui/badge";
 import { CADENCE_LABEL, fullDate, money, relativeDays } from "@/lib/format";
 import { isLive } from "@/lib/insights";
+import { ColorSwatch } from "./ColorPicker";
 import { StatusBadge } from "./StatusBadge";
 import { SubscriptionActions } from "./SubscriptionActions";
 import type { SubscriptionRow } from "./shared";
@@ -21,8 +23,9 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       meta: { label: "Subscription" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Subscription" />,
       cell: ({ row: { original: s } }) => (
-        <div className="flex max-w-[16rem] items-center gap-3">
-          <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: slotColor(s.colorSlot) }} aria-hidden />
+        <div className="flex max-w-[18rem] items-center gap-2.5">
+          <ColorSwatch color={s.color} none={s.colorChosen && s.color === null} className="size-2.5" />
+          <MerchantIcon name={s.name} website={s.website} />
           <div className="min-w-0">
             <div className="truncate font-medium">{s.name}</div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -32,6 +35,16 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
                 <Badge variant="outline" className="h-4 px-1 text-[10px]">
                   {s.priceChanges.length} price change{s.priceChanges.length > 1 ? "s" : ""}
                 </Badge>
+              )}
+              {s.pendingReimbursements > 0 ? (
+                <Badge variant="outline" className="h-4 gap-0.5 px-1 text-[10px]" title="Reimbursements with nothing recorded yet">
+                  <CircleAlertIcon className="text-[var(--status-warning)]" aria-hidden />
+                  {s.pendingReimbursements} pending
+                </Badge>
+              ) : (
+                s.reimbursement && (
+                  <HandCoinsIcon className="size-3.5" aria-label={`Reimbursed ${money(s.reimbursement.amount, s.currency)} per charge`} />
+                )
               )}
             </div>
           </div>
@@ -58,8 +71,11 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       accessorKey: "monthlyCost",
       meta: { label: "Per month", className: "hidden text-right sm:table-cell" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Per month" className="justify-end" />,
-      cell: ({ row }) => (
-        <span className="tabular block text-right text-muted-foreground">{money(row.original.monthlyCost, row.original.currency)}</span>
+      cell: ({ row: { original: s } }) => (
+        <span className="tabular block text-right text-muted-foreground">
+          {money(s.netMonthlyCost, s.currency)}
+          {s.reimbursement && <span className="block text-xs">of {money(s.monthlyCost, s.currency)}</span>}
+        </span>
       ),
     },
     {
@@ -85,7 +101,7 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       cell: ({ row: { original: s } }) => (
         <ChargeSparkline
           charges={s.charges.slice(-12)}
-          slot={s.colorSlot}
+          color={s.color}
           muted={!isLive(s)}
           formatValue={(n) => money(n, s.currency)}
           formatDate={fullDate}

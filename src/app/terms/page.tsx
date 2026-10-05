@@ -34,7 +34,7 @@ export default function TermsPage() {
       <Section title="Bank connections">
         <p>
           Connecting a bank requires your explicit consent, which you give directly to your bank via Enable Banking. Access is read-only and
-          lasts at most 180 days. You can revoke it at any time from the Data & sync page or in your banking app. The availability of bank
+          lasts at most 180 days. You can revoke it at any time in Settings → Data & sync or in your banking app. The availability of bank
           connections depends on the bank and on Enable Banking.
         </p>
       </Section>

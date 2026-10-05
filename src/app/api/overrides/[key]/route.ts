@@ -1,11 +1,21 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getDb, type OverrideStatus, run, saveOverride } from "@/lib/server/db";
-import { COLOR_SLOTS } from "@/lib/server/detect";
+import { isColorChoice } from "@/lib/color";
+import { colorColumns, getDb, type OverrideStatus, run, saveOverride } from "@/lib/server/db";
+import { normalizeWebsite } from "@/lib/server/merchant";
 import { guard } from "@/lib/server/session";
+import type { Cadence } from "@/lib/types";
 
 const STATUSES = new Set(["confirmed", "ignored", "cancelled"]);
+const CADENCES = new Set<string>(["weekly", "monthly", "quarterly", "semiannual", "yearly"] satisfies Cadence[]);
 
-type Body = { displayName?: string | null; category?: string | null; status?: string | null; colorSlot?: number | null };
+type Body = {
+  displayName?: string | null;
+  category?: string | null;
+  status?: string | null;
+  color?: unknown;
+  cadence?: string | null;
+  website?: string | null;
+};
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ key: string }> }) {
   const denied = await guard();
@@ -15,15 +25,30 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ key:
   if (body.status != null && !STATUSES.has(body.status)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
-  if (body.colorSlot != null && !(Number.isInteger(body.colorSlot) && body.colorSlot >= 1 && body.colorSlot <= COLOR_SLOTS)) {
+  const { color } = body;
+  if (!(color == null || isColorChoice(color))) {
     return NextResponse.json({ error: "Invalid colour" }, { status: 400 });
+  }
+  if (body.cadence != null && !CADENCES.has(body.cadence)) {
+    return NextResponse.json({ error: "Invalid cadence" }, { status: 400 });
+  }
+  if (body.website != null && typeof body.website !== "string") {
+    return NextResponse.json({ error: "Invalid website" }, { status: 400 });
+  }
+  // An empty website (or null) clears it, back to the built-in logo if any.
+  const websiteInput = body.website?.trim() ?? "";
+  const website = websiteInput ? normalizeWebsite(websiteInput) : null;
+  if (websiteInput && !website) {
+    return NextResponse.json({ error: "That doesn't look like a website address" }, { status: 400 });
   }
   // Only the fields sent are written; omitted ones keep their stored value.
   await saveOverride(await getDb(), key, {
     display_name: body.displayName !== undefined ? body.displayName?.trim() || null : undefined,
     category: body.category !== undefined ? body.category || null : undefined,
     status: body.status as OverrideStatus | null | undefined,
-    color_slot: body.colorSlot,
+    ...(color !== undefined ? colorColumns(color) : {}),
+    cadence: body.cadence as Cadence | null | undefined,
+    website: body.website !== undefined ? website : undefined,
   });
   return NextResponse.json({ ok: true });
 }

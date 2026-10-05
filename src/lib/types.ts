@@ -1,9 +1,37 @@
 // Shapes shared between route handlers, server prefetching and client components.
 
+import type { SeriesColor } from "./color";
+import type { NotificationType } from "./settings";
+
 export type Cadence = "weekly" | "monthly" | "quarterly" | "semiannual" | "yearly";
 export type SubStatus = "active" | "late" | "inactive" | "cancelled";
 
-export type Charge = { date: string; amount: number };
+export type ReimbursementMode = "request" | "automatic";
+
+/**
+ * What came back (or should come back) for one charge, derived from the subscription's
+ * reimbursement periods and anything the user recorded:
+ * - `recorded`: the user said what came back (`amount` 0 = not reimbursed); always wins.
+ * - `assumed`: an automatic source pays it, so the expected amount counts as reimbursed.
+ * - `pending`: a request source should pay it, but nothing is recorded yet.
+ * - `none`: not reimbursable (before the first period, or after "Stop reimbursing").
+ */
+export type ChargeReimbursement = {
+  status: "recorded" | "assumed" | "pending" | "none";
+  /** Recorded, assumed or pending amount; 0 for `none`. */
+  amount: number;
+  /** What the period in force expects back for this charge (capped at the charge); null = not reimbursable. */
+  expected: number | null;
+  /** Source of the period in force, if it has one. */
+  sourceId: number | null;
+};
+
+export type Charge = {
+  date: string;
+  amount: number;
+  /** Absent when the charge is not reimbursable and nothing was recorded for it. */
+  reimbursement?: ChargeReimbursement;
+};
 export type PriceChange = { date: string; from: number; to: number };
 
 export type Subscription = {
@@ -13,6 +41,8 @@ export type Subscription = {
   category: string;
   currency: string;
   cadence: Cadence;
+  /** True when the user set `cadence` themselves rather than leaving it to detection. */
+  cadenceChosen: boolean;
   periodDays: number;
   /** Latest charged amount, positive, in major units. */
   amount: number;
@@ -32,15 +62,58 @@ export type Subscription = {
   known: boolean;
   /**
    * Fixed categorical colour slot (1–7) for the 7 biggest subscriptions, ordered by first-seen
-   * date so it never changes with filters, or the one the user picked (1–8, see `colorChosen`).
-   * `null` = folded into "Other".
+   * date so it never changes with filters, or the colour the user picked (a slot 1–8 or a custom
+   * hex, see `colorChosen`). `null` = neutral grey, folded into "Other".
    */
-  colorSlot: number | null;
-  /** True when the user picked `colorSlot` themselves rather than leaving it automatic. */
+  color: SeriesColor;
+  /** True when the user picked `color` themselves (including "none") rather than leaving it automatic. */
   colorChosen: boolean;
+  /** Website the logo comes from (e.g. "netflix.com"): the user's, else the built-in one; null = initials. */
+  website: string | null;
+  /** True when the user set `website` themselves. */
+  websiteChosen: boolean;
   priceChanges: PriceChange[];
   charges: Charge[];
+  /** The reimbursement period in force today; null = not reimbursed (never set up, or stopped). */
+  reimbursement: ReimbursementPeriod | null;
+  /** Every reimbursement period, newest first (stops included, upcoming ones too). */
+  reimbursementPeriods: ReimbursementPeriod[];
+  /** `monthlyCost` minus what the current period expects back — what it really costs you. */
+  netMonthlyCost: number;
+  /** Recorded plus assumed reimbursements over all its charges. */
+  totalReimbursed: number;
+  /** Charges a request source should pay back that have nothing recorded yet. */
+  pendingReimbursements: number;
 };
+
+/** One stretch of time a subscription is (or stops being) reimbursed, until the next period. */
+export type ReimbursementPeriod = {
+  id: number;
+  /** YYYY-MM-DD; applies to charges on or after this day. */
+  startsOn: string;
+  /** Expected back per charge, in the subscription's currency; 0 for a stop. */
+  amount: number;
+  /** null = "Stop reimbursing" from `startsOn`. */
+  source: { id: number; name: string; mode: ReimbursementMode } | null;
+};
+
+/** Where reimbursements come from, e.g. "Salary" (you file a request) or an insurer that pays automatically. */
+export type ReimbursementSource = {
+  id: number;
+  name: string;
+  mode: ReimbursementMode;
+  /** Day of the month (1–28) to be reminded to file requests; request sources only. */
+  reminderDay: number | null;
+  /**
+   * Subscriptions with any period from this source; `current` = it pays them today. `periods` are
+   * that subscription's periods from this source (oldest first), so they can be removed from here.
+   */
+  subscriptions: { key: string; name: string; current: boolean; periods: { id: number; startsOn: string }[] }[];
+  /** Charges from this source with nothing recorded yet (request sources only). */
+  pending: number;
+};
+
+export type ReimbursementSourcesPayload = { sources: ReimbursementSource[] };
 
 export type SubscriptionsPayload = {
   baseCurrency: string;
@@ -77,11 +150,13 @@ export type SubscriptionsTablePayload = {
 export type HistoryPayload = {
   baseCurrency: string;
   months: string[]; // YYYY-MM
-  /** Ordered by colour slot; the "Other" fold (slot null) is last. */
-  series: { key: string; name: string; slot: number | null; values: number[] }[];
+  /** Ordered by colour slot, then custom colours; the "Other" fold (colour null) is last. */
+  series: { key: string; name: string; color: SeriesColor; values: number[] }[];
   totals: number[];
   /** All money out per month (excl. transfers/exchanges), for context. */
   allSpending: number[];
+  /** Reimbursed per month (recorded + assumed, by charge date), in the base currency. */
+  reimbursed: number[];
 };
 
 export type TransactionItem = {
@@ -89,11 +164,23 @@ export type TransactionItem = {
   date: string;
   description: string;
   merchantKey: string;
+  /** Website the logo comes from (see Subscription.website); null = initials. */
+  website: string | null;
   amount: number;
   currency: string;
   type: string | null;
   source: "csv" | "bank";
   subscriptionKey: string | null;
+  /**
+   * Set on the one payment that stands for its subscription charge (a charge day can have a fee
+   * line too). Absent on other payments.
+   */
+  reimbursement?: ChargeReimbursement;
+  /**
+   * What the whole charge cost (positive) when it's more than this payment, e.g. €18 + a €0.50 fee
+   * on the same day. Set alongside `reimbursement`; what can be reimbursed at most.
+   */
+  chargeTotal?: number;
 };
 
 export type TransactionsPayload = {
@@ -153,18 +240,36 @@ export type AssignOptionsPayload = {
   related: RelatedTransaction[];
 };
 
+export type BankAccount = {
+  /** Stable across reconnects; what `transactions.account` holds for bank rows. */
+  key: string;
+  name: string | null;
+  /** Masked, e.g. "•••• 1234". */
+  iban: string | null;
+  currency: string | null;
+  /** Off = not fetched during sync and its transactions hidden everywhere (nothing is deleted). */
+  included: boolean;
+  /** ISO time of the last successful fetch of this account. */
+  syncedThrough: string | null;
+  transactionCount: number;
+};
+
 export type BankSession = {
   sessionId: string;
   aspsp: string;
   country: string;
   validUntil: string | null;
-  accounts: { uid: string; name: string | null; iban: string | null; currency: string | null }[];
+  accounts: BankAccount[];
+  /** Transactions imported from this connection's accounts (they stay after disconnecting). */
+  transactionCount: number;
   lastSyncAt: string | null;
   lastError: string | null;
   /** "needs_reconnect" when consent expired or was revoked in the Revolut app. */
   status: "active" | "needs_reconnect";
   /** After a bank rate limit, background sync resumes at this time. */
   nextRetryAt: string | null;
+  /** A sync of this connection is running right now. */
+  syncing: boolean;
 };
 
 export type DataStatusPayload = {
@@ -176,5 +281,98 @@ export type DataStatusPayload = {
   /** A bank sync is running right now (e.g. the first full-history sync after connecting). */
   syncing: boolean;
   sessions: BankSession[];
+  /** Of `transactionCount`, how many belong to accounts switched off (hidden, not deleted). */
+  hiddenTransactionCount: number;
   imports: { id: number; at: string; source: string; inserted: number; updated: number; skipped: number; message: string | null }[];
 };
+
+/** A browser/device that receives push notifications. */
+export type PushDevice = {
+  endpoint: string;
+  /** e.g. "Chrome on Windows", "iPhone". */
+  name: string;
+  createdAt: string;
+  /** Last time the push service accepted a notification for it. */
+  lastSuccessAt: string | null;
+};
+
+export type PushDevicesPayload = {
+  /** VAPID keys are set, so notifications can be sent. */
+  configured: boolean;
+  /** What to fix when not configured. */
+  problem: string | null;
+  devices: PushDevice[];
+};
+
+export type MailProvider = "resend" | "smtp";
+
+export type MailStatusPayload = {
+  /** Which adapter is configured (Resend wins over SMTP); null = email disabled. */
+  provider: MailProvider | null;
+  from: string | null;
+  /** Emails can be sent (a provider and MAIL_FROM are set). */
+  ready: boolean;
+  /** What to fix when not ready. */
+  problem: string | null;
+  /** APP_URL: where links in emails lead (null = emails carry no links into the app). */
+  appUrl: string | null;
+};
+
+export type { NotificationType, Settings } from "./settings";
+
+/** One charge a reimbursement reminder asks about, with where it stands now. */
+export type ReminderCharge = {
+  txId: string;
+  subKey: string;
+  name: string;
+  date: string;
+  /** Charged, positive. */
+  amount: number;
+  /** Expected back. */
+  expected: number;
+  currency: string;
+  /** `pending` = nothing recorded yet; `recorded` = `recorded` came back (0 = not reimbursed); `gone` = no longer a charge. */
+  status: "pending" | "recorded" | "gone";
+  recorded: number | null;
+};
+
+/** An entry in the in-app notification feed (the bell). */
+export type NotificationItem = {
+  id: number;
+  type: NotificationType;
+  title: string;
+  body: string;
+  /** App path it opens. */
+  url: string | null;
+  createdAt: string;
+  read: boolean;
+  /** Dealt with (e.g. every charge recorded, the bank reconnected); shown dimmed. */
+  resolved: boolean;
+  /** Reimbursement reminders: the charges it lists. */
+  charges?: ReminderCharge[];
+};
+
+export type NotificationsPayload = {
+  items: NotificationItem[];
+  /** Neither read nor resolved. */
+  unread: number;
+};
+
+export type SchedulerHealth = "never" | "stale" | "waiting" | "hourly" | "infrequent";
+
+/** Settings → Notifications → Scheduler: is something calling /api/cron/tick? */
+export type SchedulerStatusPayload = {
+  health: SchedulerHealth;
+  lastTickAt: string | null;
+  /** Typical minutes between recent ticks. */
+  typicalGapMinutes: number | null;
+  /** Outcome of the last tick (null before the first). */
+  lastResult: { at: string; ok: boolean; error: string | null; source: TickSource } | null;
+  /** CRON_SECRET is set, so the tick URL accepts calls (its value is never sent to the browser). */
+  cronSecretSet: boolean;
+  /** Self-hosted: an hourly timer inside the server ticks by itself. */
+  builtInTimer: boolean;
+};
+
+/** Who ran a tick: the HTTP endpoint (cron-job.org, Vercel Cron) or the self-hosted timer. */
+export type TickSource = "http" | "timer";

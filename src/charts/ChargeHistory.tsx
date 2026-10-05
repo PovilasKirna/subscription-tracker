@@ -9,12 +9,12 @@ import { scaleBand, scaleLinear } from "@visx/scale";
 import { Bar, BarRounded } from "@visx/shape";
 import { useMemo } from "react";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
-import { axisLabel, marks, slotColor, tokens } from "./palette";
-import type { Accessor, ColorSlot, TimelineCharge } from "./types";
+import { axisLabel, marks, seriesColor, tokens } from "./palette";
+import type { Accessor, SeriesColor, TimelineCharge } from "./types";
 
 type Props = {
   charges: readonly TimelineCharge[];
-  slot: ColorSlot;
+  color: SeriesColor;
   formatValue: (n: number) => string;
   formatAxisValue: (n: number) => string;
   formatDate: (d: string) => string;
@@ -39,7 +39,7 @@ export function ChargeHistory(props: Props) {
 
 function Columns({
   charges,
-  slot,
+  color,
   formatValue,
   formatAxisValue,
   formatDate,
@@ -78,7 +78,7 @@ function Columns({
                   height={yMax - by}
                   radius={marks.radius}
                   top
-                  fill={slotColor(slot)}
+                  fill={seriesColor(color)}
                   opacity={dim ? 0.55 : 1}
                 />
                 <Bar
@@ -117,7 +117,7 @@ function Columns({
       </svg>
       {tooltipOpen && tooltipData && (
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
-          <TooltipRow slot={slot} label={formatDate(tooltipData.date)} value={formatValue(tooltipData.amount)} />
+          <TooltipRow color={color} label={formatDate(tooltipData.date)} value={formatValue(tooltipData.amount)} />
         </ChartTooltip>
       )}
     </div>

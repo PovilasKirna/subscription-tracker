@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 type LayerKey = `s:${number}`;
 
 function toMonthlySpend(h: HistoryPayload): { rows: MonthlySpend<LayerKey>[]; series: SeriesMeta<LayerKey>[] } {
-  const series = h.series.map((s, i): SeriesMeta<LayerKey> => ({ key: `s:${i}`, name: s.name, slot: s.slot }));
+  const series = h.series.map((s, i): SeriesMeta<LayerKey> => ({ key: `s:${i}`, name: s.name, color: s.color }));
   const rows = h.months.map((month, i) => {
     const row: MonthlySpend<LayerKey> = { month, total: h.totals[i] };
     h.series.forEach((s, j) => {
@@ -84,7 +84,7 @@ export function OnboardingBanner() {
           <div className="font-medium">No subscriptions yet</div>
           <p className="text-sm text-muted-foreground">Import a Revolut CSV statement or connect your bank to get started.</p>
         </div>
-        <Link href="/data" className={buttonVariants()}>
+        <Link href="/settings/data" className={buttonVariants()}>
           <UploadIcon /> Import data
         </Link>
       </CardContent>
@@ -101,10 +101,11 @@ export function SpendSection() {
   const cur = data.baseCurrency;
   const fmt = (n: number) => money(n, cur);
   const fmtAxis = (n: number) => money(n, cur, { cents: false });
+  const reimbursed = data.reimbursed.reduce((sum, v) => sum + v, 0);
   return (
     <ChartCard
       title="Monthly recurring spend"
-      description={`Stacked by subscription, last ${months} months`}
+      description={`Stacked by subscription, last ${months} months${reimbursed > 0 ? ` · ${money(reimbursed, cur)} reimbursed` : ""}`}
       className={cn(isPending && "opacity-60 transition-opacity")}
       controls={<RangeToggle label="Range" value={months} options={HISTORY_RANGES} suffix="m" onChange={(m) => setParams({ months: m })} />}
       chart={

@@ -1,6 +1,7 @@
-import { bankConfigured } from "./config";
+import { type FetchWindow, fetchWindow, reconcileBankAccounts } from "./bankAccounts";
+import { bankConfigured, config } from "./config";
 import { all, getDb, type InsertStats, insertTransactions, logImport, one, run, type TxRow } from "./db";
-import { BankApiError, type EbAccount, fetchTransactions, getSessionStatus, type PsuContext } from "./enableBanking";
+import { accountKey, BankApiError, type EbAccount, fetchTransactions, getSessionStatus, type PsuContext } from "./enableBanking";
 
 type SessionRow = {
   session_id: string;
@@ -31,10 +32,15 @@ const isoDate = (t: number) => new Date(t).toISOString().slice(0, 10);
 
 let running: Promise<SyncResult> | null = null;
 
+/** Scheduled syncs are spaced at least this far apart, so hourly ticks stay within the bank's background quota. */
+export const minSyncIntervalHours = () => Math.max(6, config.syncIntervalHours);
+
+/** Sync markers older than this are from runs that crashed mid-way and are ignored. */
+export const syncCutoff = () => new Date(Date.now() - 10 * 60_000).toISOString();
+
 /** Read from the DB, not memory: route handlers and page renders may run in different workers. */
 export async function isSyncing(): Promise<boolean> {
-  const cutoff = new Date(Date.now() - 10 * 60_000).toISOString(); // ignore runs that crashed mid-way
-  return Boolean(await one(await getDb(), "SELECT 1 AS x FROM bank_sessions WHERE sync_started_at > ? LIMIT 1", [cutoff]));
+  return Boolean(await one(await getDb(), "SELECT 1 AS x FROM bank_sessions WHERE sync_started_at > ? LIMIT 1", [syncCutoff()]));
 }
 
 /** Pull new transactions for linked bank sessions. Concurrent calls share one run. */
@@ -45,20 +51,34 @@ export function syncAll(opts: SyncOptions = {}): Promise<SyncResult> {
   return running;
 }
 
-async function fetchAccount(account: EbAccount, s: SessionRow, opts: SyncOptions): Promise<TxRow[]> {
+/** Without a fresh consent, banks only guarantee the last 90 days (PSD2). */
+const SAFE_WINDOW_DAYS = 89;
+
+/**
+ * A fresh run that starts once any current one has finished, for changes a running sync may have
+ * already passed (e.g. an account switched back on mid-run).
+ */
+export async function syncAfterCurrent(opts: SyncOptions): Promise<SyncResult> {
+  while (running) await running.catch(() => undefined);
+  return syncAll(opts);
+}
+
+async function fetchAccount(account: EbAccount, window: FetchWindow, s: SessionRow, opts: SyncOptions): Promise<TxRow[]> {
   const requiredPsuHeaders = s.required_psu_headers ? (JSON.parse(s.required_psu_headers) as string[]) : [];
   const base = { psu: opts.psu, requiredPsuHeaders };
-  if (s.last_sync_at) {
-    // Incremental: overlap a week so late-booked transactions are picked up; ids de-duplicate.
-    return fetchTransactions(account, { ...base, dateFrom: isoDate(Date.parse(s.last_sync_at) - 7 * DAY) });
-  }
-  // First sync — banks usually expose full history only shortly after consent, so ask for all of it.
+  const safeFrom = isoDate(Date.now() - SAFE_WINDOW_DAYS * DAY);
+  // A full fetch asks for the earliest transaction the bank can serve.
+  const wanted =
+    window.kind === "full"
+      ? { ...base, dateFrom: isoDate(Date.now() - 5 * 365 * DAY), strategy: "longest" as const }
+      : { ...base, dateFrom: window.dateFrom };
   try {
-    return await fetchTransactions(account, { ...base, dateFrom: isoDate(Date.now() - 5 * 365 * DAY), strategy: "longest" });
+    return await fetchTransactions(account, wanted);
   } catch (e) {
-    if (!(e instanceof BankApiError) || e.rateLimited || e.consentLost) throw e;
-    // Some banks reject long windows; fall back to the PSD2 90-day minimum.
-    return fetchTransactions(account, { ...base, dateFrom: isoDate(Date.now() - 89 * DAY) });
+    // Some banks reject long windows (a full history, or an account switched back on after months);
+    // fall back to the PSD2 90-day minimum.
+    if (!(e instanceof BankApiError) || e.rateLimited || e.consentLost || wanted.dateFrom >= safeFrom) throw e;
+    return fetchTransactions(account, { ...base, dateFrom: safeFrom });
   }
 }
 
@@ -67,6 +87,7 @@ async function doSync(opts: SyncOptions): Promise<SyncResult> {
   if (!bankConfigured()) return result;
   const db = await getDb();
   const rows = await all<SessionRow>(db, "SELECT * FROM bank_sessions");
+  const accounts = new Map((await reconcileBankAccounts(db)).map((a) => [a.account_key, a]));
   const sessions = opts.sessionId ? rows.filter((s) => s.session_id === opts.sessionId) : rows;
   const setError = (id: string, message: string, extra = "") =>
     run(db, `UPDATE bank_sessions SET last_error = ?${extra} WHERE session_id = ?`, [message, id]);
@@ -90,7 +111,14 @@ async function doSync(opts: SyncOptions): Promise<SyncResult> {
       await run(db, "UPDATE bank_sessions SET sync_started_at = ? WHERE session_id = ?", [new Date().toISOString(), s.session_id]);
       try {
         for (const account of JSON.parse(s.accounts_json) as EbAccount[]) {
-          const st = await insertTransactions(db, await fetchAccount(account, s, opts));
+          const key = accountKey(account);
+          const row = accounts.get(key);
+          if (row && !row.included) continue; // switched off: not fetched, saving the bank's daily quota
+          const startedAt = new Date().toISOString();
+          const window = fetchWindow({ syncedThrough: row?.synced_through ?? null }, { lastSyncAt: s.last_sync_at });
+          const st = await insertTransactions(db, await fetchAccount(account, window, s, opts));
+          // Only this column changes, so the detection snapshot isn't invalidated by progress alone.
+          await run(db, "UPDATE bank_accounts SET synced_through = ? WHERE account_key = ?", [startedAt, key]);
           result.inserted += st.inserted;
           result.updated += st.updated;
           result.skipped += st.skipped;

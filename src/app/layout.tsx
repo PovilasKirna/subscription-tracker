@@ -1,16 +1,27 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import type { ReactNode } from "react";
 import { Providers } from "@/components/Providers";
+import { site } from "@/lib/site";
 import { cn } from "@/lib/utils";
 import "./globals.css";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Subscriptions",
+  title: site.name,
   description: "Self-hosted subscription tracker for your Revolut account",
   robots: { index: false, follow: false },
+  // Installed to the iPhone home screen it runs standalone, which iOS needs for Web Push.
+  // Icons come from the file conventions: app/icon.svg (tab) and app/apple-icon.png (home screen).
+  appleWebApp: { capable: true, title: site.name, statusBarStyle: "default" },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f9f9f7" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d0d0d" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

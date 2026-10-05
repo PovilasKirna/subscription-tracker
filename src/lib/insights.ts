@@ -30,14 +30,19 @@ export function projectCharges(subs: readonly Subscription[], today: string, day
     let d = s.nextCharge;
     while (d < today) d = advance(s, d);
     for (; d < end; d = advance(s, d)) {
-      out.push({ date: d, key: s.key, name: s.name, amount: s.amount, currency: s.currency, slot: s.colorSlot });
+      out.push({ date: d, key: s.key, name: s.name, amount: s.amount, currency: s.currency, color: s.color });
     }
   }
   return out.sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount);
 }
 
 export type Stats = {
+  /** After what the current reimbursement periods expect back. */
   monthly: number;
+  /** Expected back per month from reimbursed subscriptions. */
+  reimbursedMonthly: number;
+  /** Charges whose reimbursement has to be requested and has nothing recorded yet. */
+  pendingReimbursements: number;
   yearly: number;
   activeCount: number;
   lateCount: number;
@@ -47,7 +52,8 @@ export type Stats = {
 
 export function computeStats(p: SubscriptionsPayload): Stats {
   const live = p.subscriptions.filter((s) => isLive(s) && s.currency === p.baseCurrency);
-  const monthly = live.reduce((sum, s) => sum + s.monthlyCost, 0);
+  const monthly = live.reduce((sum, s) => sum + s.netMonthlyCost, 0);
+  const reimbursedMonthly = live.reduce((sum, s) => sum + s.monthlyCost - s.netMonthlyCost, 0);
   const yearAgo = toIso(toTime(p.today) - 365 * DAY);
   let biggestIncrease: Stats["biggestIncrease"] = null;
   for (const s of p.subscriptions) {
@@ -62,6 +68,8 @@ export function computeStats(p: SubscriptionsPayload): Stats {
   const dueNext30 = projectCharges(live, p.today, 30).reduce((sum, c) => sum + c.amount, 0);
   return {
     monthly,
+    reimbursedMonthly,
+    pendingReimbursements: p.subscriptions.reduce((sum, s) => sum + s.pendingReimbursements, 0),
     yearly: monthly * 12,
     activeCount: live.filter((s) => s.status === "active").length,
     lateCount: live.filter((s) => s.status === "late").length,

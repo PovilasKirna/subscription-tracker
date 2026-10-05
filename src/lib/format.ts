@@ -29,6 +29,20 @@ export const fullDate = (d: string) => fullFmt.format(parse(d));
 export const monthLabel = (ym: string) => monthFmt.format(parse(ym));
 export const monthYearLabel = (ym: string) => monthYearFmt.format(parse(ym));
 
+/**
+ * The calendar day (YYYY-MM-DD) a timestamp falls on in `timeZone` (IANA; the runtime's own zone when
+ * omitted). Date-only input is already a calendar day and is returned as is; unparseable input falls
+ * back to its date part.
+ */
+export function localDate(at: string, timeZone?: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(at)) return at;
+  const t = new Date(at);
+  if (Number.isNaN(t.getTime())) return at.slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-GB", { year: "numeric", month: "2-digit", day: "2-digit", timeZone }).formatToParts(t);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 export function daysUntil(date: string, today: string): number {
   return Math.round((parse(date).getTime() - parse(today).getTime()) / 86_400_000);
 }

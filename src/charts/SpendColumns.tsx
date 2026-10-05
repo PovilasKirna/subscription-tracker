@@ -11,7 +11,7 @@ import { type FocusEvent, type MouseEvent, useMemo } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
 import { Legend } from "./Legend";
-import { axisLabel, marks, slotColor, tokens } from "./palette";
+import { axisLabel, marks, seriesColor, tokens } from "./palette";
 import type { Accessor, Month, MonthlySpend, SeriesMeta } from "./types";
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
@@ -37,7 +37,7 @@ export function SpendColumns<K extends string>(props: Props<K>) {
   const height = props.height ?? 300;
   return (
     <div>
-      <Legend items={props.series.map((s) => ({ key: s.key, label: s.name, slot: s.slot }))} />
+      <Legend items={props.series.map((s) => ({ key: s.key, label: s.name, color: s.color }))} />
       <ParentSize initialSize={{ width: 560 }} style={{ height }} debounceTime={40}>
         {({ width }) => (width > 0 ? <Columns {...props} width={width} height={height} /> : null)}
       </ParentSize>
@@ -66,7 +66,7 @@ function Columns<K extends string>({
     () => scaleLinear<number>({ domain: [0, Math.max(1, ...data.map(getTotal))], range: [yMax, 0], nice: true }),
     [data, yMax],
   );
-  const slotOf = useMemo(() => new Map(series.map((s) => [s.key, s.slot])), [series]);
+  const colorOf = useMemo(() => new Map(series.map((s) => [s.key, s.color])), [series]);
   const barWidth = Math.min(marks.maxBar, xScale.bandwidth());
   const step = xScale.step();
   // Thin out month labels when columns get narrow so they never collide.
@@ -110,7 +110,7 @@ function Columns<K extends string>({
             x={getMonth}
             xScale={xScale}
             yScale={yScale}
-            color={(key) => slotColor(slotOf.get(key) ?? null)}
+            color={(key) => seriesColor(colorOf.get(key) ?? null)}
           >
             {(stacks) => {
               // The 4px rounded data-end goes only on the top *non-empty* segment of each column.
@@ -202,7 +202,7 @@ function Columns<K extends string>({
             .reverse()
             .filter((s) => tooltipData[s.key] > 0)
             .map((s) => (
-              <TooltipRow key={s.key} slot={s.slot} label={s.name} value={formatValue(tooltipData[s.key])} />
+              <TooltipRow key={s.key} color={s.color} label={s.name} value={formatValue(tooltipData[s.key])} />
             ))}
         </ChartTooltip>
       )}

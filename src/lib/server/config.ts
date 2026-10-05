@@ -65,6 +65,23 @@ export const config = {
   syncIntervalHours: Number(env.SYNC_INTERVAL_HOURS ?? 12),
   /** Shared secret Vercel Cron sends as `Authorization: Bearer …`. */
   cronSecret: env.CRON_SECRET || "",
+  /** Public origin of the app (e.g. "https://subs.example.com"), for absolute links in emails. */
+  appUrl: (env.APP_URL || "").trim().replace(/\/+$/, ""),
+  mail: {
+    /** Resend (https://resend.com) API key; preferred over SMTP when both are set. */
+    resendApiKey: env.RESEND_API_KEY || "",
+    /** SMTP connection URL, e.g. "smtps://user:pass@smtp.example.com:465". */
+    smtpUrl: env.SMTP_URL || "",
+    /** Sender, e.g. "Hoard <notifications@example.com>". Must be on a verified domain for Resend. */
+    from: (env.MAIL_FROM || "").trim(),
+  },
+  /** Web Push (VAPID) keys from `npm run vapid`. */
+  vapid: {
+    publicKey: env.VAPID_PUBLIC_KEY || "",
+    privateKey: env.VAPID_PRIVATE_KEY || "",
+    /** Contact push services can reach you at: "mailto:…" or an https URL. Defaults from MAIL_FROM / APP_URL. */
+    subject: env.VAPID_SUBJECT || "",
+  },
 };
 
 export function bankConfigured(): boolean {

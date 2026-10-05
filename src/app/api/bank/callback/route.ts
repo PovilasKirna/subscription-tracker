@@ -1,6 +1,8 @@
 import { after, type NextRequest, NextResponse } from "next/server";
+import { reconcileBankAccounts } from "@/lib/server/bankAccounts";
 import { all, getDb, one, run } from "@/lib/server/db";
 import { createSession, deleteSession, psuFromRequest } from "@/lib/server/enableBanking";
+import { runNotificationsQuietly } from "@/lib/server/notifications/run";
 import { syncAll } from "@/lib/server/sync";
 
 type Pending = { aspsp_name: string; aspsp_country: string; required_psu_headers: string | null };
@@ -12,7 +14,7 @@ export const maxDuration = 300;
 // not by the session cookie (it is a cross-site navigation).
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
-  const back = (q: string) => NextResponse.redirect(new URL(`/data?${q}`, req.nextUrl.origin));
+  const back = (q: string) => NextResponse.redirect(new URL(`/settings/data?${q}`, req.nextUrl.origin));
   const state = sp.get("state");
   const code = sp.get("code");
   const error = sp.get("error_description") || sp.get("error");
@@ -45,7 +47,7 @@ export async function GET(req: NextRequest) {
         s.access?.valid_until ?? null,
         JSON.stringify(s.accounts),
         pending.required_psu_headers,
-        new Date().toISOString(), // show "Importing…" immediately on the Data page
+        new Date().toISOString(), // show "Importing…" immediately in Settings → Data & sync
       ],
     );
   } catch (e) {
@@ -60,12 +62,15 @@ export async function GET(req: NextRequest) {
     [pending.aspsp_name, pending.aspsp_country, sessionId],
   );
   for (const o of old) await run(db, "DELETE FROM bank_sessions WHERE session_id = ?", [o.session_id]);
+  // Accounts move to the new session (keeping their Included switch); ones it no longer lists go.
+  await reconcileBankAccounts(db);
 
   // Full history is typically only available shortly after consent, so fetch it now — with
   // PSU headers, since the user is present. `after` keeps serverless functions alive for it.
   after(async () => {
     await Promise.all(old.map((o) => deleteSession(o.session_id).catch(() => undefined)));
     await syncAll({ psu, sessionId }).catch((e) => console.error("[sync] first sync failed:", e));
+    await runNotificationsQuietly("after connecting a bank"); // also resolves "reconnect" notifications
   });
   return back("bank=connected");
 }
