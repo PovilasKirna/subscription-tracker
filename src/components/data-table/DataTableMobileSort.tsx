@@ -32,7 +32,7 @@ export function DataTableMobileSort<TData>({ table }: { table: Table<TData> }) {
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground pointer-coarse:h-9 data-popup-open:bg-muted" />
+            <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground pointer-coarse:h-11 data-popup-open:bg-muted" />
           }
         >
           <span>
