@@ -1,13 +1,12 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TOP_SLOT } from "./layout";
 
 // Skeletons mirror the real layout (same cards, same heights) so nothing jumps when data streams in.
 
-/** The monthly total tile; it announces the loading state for the whole top band. */
+/** The monthly total tile; it announces the loading state for the stat tiles too. */
 export function MonthlyTotalSkeleton() {
   return (
-    <Card className={TOP_SLOT.hero} role="status" aria-busy="true" aria-label="Loading totals">
+    <Card role="status" aria-busy="true" aria-label="Loading totals">
       <CardContent className="flex flex-col gap-3">
         <Skeleton className="h-4 w-28" />
         <Skeleton className="h-12 w-44" />
@@ -17,20 +16,16 @@ export function MonthlyTotalSkeleton() {
   );
 }
 
-/** The three secondary stat tiles. */
-export function StatTilesSkeleton() {
+/** One secondary stat tile (yearly, active, price increase). */
+export function StatTileSkeleton() {
   return (
-    <>
-      {(["yearly", "active", "increase"] as const).map((slot) => (
-        <Card key={slot} className={TOP_SLOT[slot]} aria-hidden>
-          <CardContent className="flex flex-col gap-3">
-            <Skeleton className="h-4 w-28" />
-            <Skeleton className="h-7 w-24" />
-            <Skeleton className="h-3.5 w-36" />
-          </CardContent>
-        </Card>
-      ))}
-    </>
+    <Card aria-hidden>
+      <CardContent className="flex flex-col gap-3">
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="h-7 w-24" />
+        <Skeleton className="h-3.5 w-36" />
+      </CardContent>
+    </Card>
   );
 }
 

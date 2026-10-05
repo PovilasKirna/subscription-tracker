@@ -197,11 +197,46 @@
 }
 
 /* ------------------------------------------------------------------------
+ * Overview edit mode: widgets wiggle like home-screen icons. It animates the
+ * `rotate` property, so the inline `translate` that drags and reorders use
+ * composes with it instead of being overridden. Neighbours swing in opposite
+ * phase; --wiggle (set per widget size) keeps wide cards' corners moving about
+ * as far as a small tile's, a pixel or two, well inside the page gutter.
+ * --------------------------------------------------------------------- */
+@keyframes widget-wiggle {
+  0%,
+  100% {
+    rotate: calc(var(--wiggle, 0.5deg) * -1);
+  }
+  50% {
+    rotate: var(--wiggle, 0.5deg);
+  }
+}
+
+.widget-wiggle {
+  animation: widget-wiggle 0.3s ease-in-out infinite;
+}
+
+.widget-wiggle:nth-child(even) {
+  animation-delay: -0.15s;
+}
+
+.widget-wiggle[data-dragging] {
+  animation: none;
+}
+
+/* ------------------------------------------------------------------------
  * Reduced motion: popups (dialog, alert dialog, popover, menu, select) keep
  * their fade but drop the zoom and slide. Unlayered, so it outranks the
  * tw-animate utilities that set these per element.
  * --------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
+  /* Edit mode without the wiggle: a dashed outline says "these can move". */
+  .widget-wiggle {
+    animation: none;
+    outline: 2px dashed color-mix(in oklab, var(--foreground) 35%, transparent);
+    outline-offset: 3px;
+  }
   * {
     --tw-enter-scale: 1;
     --tw-exit-scale: 1;

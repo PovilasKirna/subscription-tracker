@@ -5,7 +5,7 @@ import { CalendarDaysIcon, ChevronLeftIcon, ChevronRightIcon, ListIcon, UploadIc
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQueryStates } from "nuqs";
-import { useMemo, useTransition } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   ChartCard,
   type MonthlySpend,
@@ -24,7 +24,6 @@ import { historyQuery, subscriptionsQuery } from "@/lib/query/options";
 import { OVERVIEW_RANGES, type OverviewRange, overviewParams, RENEWAL_MONTHS_AHEAD } from "@/lib/search-params";
 import type { HistoryPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { CHART_SLOT } from "./layout";
 import { drawerHref } from "./links";
 import { RenewalAgenda } from "./RenewalAgenda";
 import { type RenewalView, useRenewalView } from "./renewal-view";
@@ -121,7 +120,7 @@ export function SpendSection() {
     <ChartCard
       title="Monthly recurring spend"
       description={`${money(spent, cur)} ${span}, stacked by subscription${reimbursed > 0 ? ` · ${money(reimbursed, cur)} reimbursed` : ""}`}
-      className={cn(CHART_SLOT.spend, isPending && "opacity-60 transition-opacity")}
+      className={cn(isPending && "opacity-60 transition-opacity")}
       controls={<RangeToggle label="Spend range" value={range} onChange={(r) => setParams({ range: r === "12m" ? null : r })} />}
     >
       <SpendColumns
@@ -158,7 +157,7 @@ export function RenewalsSection() {
     <ChartCard
       title="Upcoming renewals"
       description={`${charges.length} charge${charges.length === 1 ? "" : "s"} · ${money(total, data.baseCurrency)} ${when}`}
-      className={cn(CHART_SLOT.renewals, isPending && "opacity-60 transition-opacity")}
+      className={cn(isPending && "opacity-60 transition-opacity")}
       controls={
         <>
           <div className="flex items-center gap-1">
@@ -214,25 +213,98 @@ export function RenewalsSection() {
   );
 }
 
+/** How much history the timeline shows. */
+type TimelineWindow = "1y" | "2y" | "all";
+const WINDOW_MONTHS = { "1y": 12, "2y": 24 } as const;
+/** Below this chart width a whole multi-year history squeezes a month into a few pixels; start at a year. */
+const NARROW_TIMELINE = 520;
+
+function TimelineWindowToggle({
+  options,
+  value,
+  onChange,
+}: {
+  options: TimelineWindow[];
+  value: TimelineWindow;
+  onChange: (v: TimelineWindow) => void;
+}) {
+  return (
+    <ToggleGroup
+      variant="outline"
+      size="sm"
+      value={[value]}
+      onValueChange={(v: string[]) => v[0] && onChange(v[0] as TimelineWindow)}
+      aria-label="Timeline period"
+    >
+      {options.map((o) => (
+        <ToggleGroupItem key={o} value={o} className="px-2 text-[12.5px] pointer-coarse:h-11 pointer-coarse:min-w-11">
+          {o === "all" ? "All" : o}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  );
+}
+
+/** The chart's width, measured before paint so the narrow default never flashes the full history. */
+function useNarrow<E extends HTMLElement>(threshold: number) {
+  const ref = useRef<E>(null);
+  const [narrow, setNarrow] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setNarrow(el.getBoundingClientRect().width < threshold);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [threshold]);
+  return [ref, narrow] as const;
+}
+
 export function TimelineSection() {
   const router = useRouter();
   const { data } = useSuspenseQuery(subscriptionsQuery());
+  const [ref, narrow] = useNarrow<HTMLDivElement>(NARROW_TIMELINE);
+  // null = automatic: a year on a narrow card (a phone, a half-width widget), everything when there's room.
+  const [picked, setPicked] = useState<TimelineWindow | null>(null);
   // Live subscriptions first, then by first-seen date (stable order).
   const rows = useMemo(
     () => [...data.subscriptions].sort((a, b) => Number(isLive(b)) - Number(isLive(a)) || a.firstCharge.localeCompare(b.firstCharge)),
     [data],
   );
+  // Only offer windows shorter than the history itself.
+  const options = useMemo(() => {
+    const first = rows.reduce((min, r) => (r.firstCharge < min ? r.firstCharge : min), data.today);
+    const shorter = (["1y", "2y"] as const).filter((w) => first < addMonths(data.today, -WINDOW_MONTHS[w]));
+    return shorter.length ? [...shorter, "all" as const] : [];
+  }, [rows, data.today]);
   if (!rows.length) return null;
+  const auto: TimelineWindow = narrow ? "1y" : "all";
+  const value = picked && options.includes(picked) ? picked : options.includes(auto) ? auto : "all";
+  const from = value === "all" ? undefined : addMonths(data.today, -WINDOW_MONTHS[value]);
   return (
-    <ChartCard title="Subscription timeline" description="Each tick is a charge; ringed dots mark price changes">
-      <SubscriptionTimeline
-        data={rows}
-        today={data.today}
-        formatMoney={money}
-        formatDate={fullDate}
-        formatTick={(d) => monthYearLabel(d.toISOString().slice(0, 7))}
-        onSelect={(key) => router.push(drawerHref(key))}
-      />
+    <ChartCard
+      title="Subscription timeline"
+      description="Each tick is a charge; ringed dots mark price changes"
+      controls={options.length ? <TimelineWindowToggle options={options} value={value} onChange={setPicked} /> : undefined}
+    >
+      <div ref={ref}>
+        <SubscriptionTimeline
+          data={rows}
+          today={data.today}
+          from={from}
+          formatMoney={money}
+          formatDate={fullDate}
+          // A window is short enough for month ticks ("2026", "Apr", "Jul"); the whole history labels month and year.
+          formatTick={(d) => {
+            const ym = d.toISOString().slice(0, 7);
+            if (!from) return monthYearLabel(ym);
+            return d.getUTCMonth() === 0 ? String(d.getUTCFullYear()) : monthLabel(ym);
+          }}
+          tickWidth={from ? 48 : 90}
+          onSelect={(key) => router.push(drawerHref(key))}
+        />
+      </div>
     </ChartCard>
   );
 }
