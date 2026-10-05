@@ -11,11 +11,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     <div className="min-h-dvh md:grid md:grid-cols-[224px_minmax(0,1fr)]">
       <SkipLink />
       <AppNav />
-      {/* Phones: bottom padding clears the fixed tab bar (56px + safe area) with room to spare. */}
+      {/* Phones: bottom padding clears the fixed tab bar (56px + safe area) with room to spare. From md, no top padding: PageHeader's sticky bar sits flush at the top. */}
       <main
         id="main"
         tabIndex={-1}
-        className="mx-auto w-full max-w-[1240px] min-w-0 scroll-mt-12 pt-5 pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(5rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] outline-none md:scroll-mt-0 md:pt-7 md:pl-8 md:pr-[max(2rem,env(safe-area-inset-right))] md:pb-16"
+        className="mx-auto w-full max-w-[1240px] min-w-0 scroll-mt-12 pt-5 pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(5rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] outline-none md:scroll-mt-0 md:pt-0 md:pl-8 md:pr-[max(2rem,env(safe-area-inset-right))] md:pb-16"
       >
         {children}
       </main>
