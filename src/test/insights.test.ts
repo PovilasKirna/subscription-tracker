@@ -78,3 +78,18 @@ test("projected charges between two dates: only live subscriptions, stepping by 
     ],
   );
 });
+
+test("projected charges don't drift after a short month clamps the day", () => {
+  const subs = [
+    sub({ key: "monthly", nextCharge: "2026-01-31", charges: [] }),
+    sub({ key: "quarterly", cadence: "quarterly", nextCharge: "2025-11-30", charges: [] }),
+  ];
+  const dates = (from: string, to: string) => projectChargesBetween(subs, from, to).map((c) => `${c.key} ${c.date}`);
+  assert.deepEqual(dates("2026-02-01", "2026-03-01"), ["monthly 2026-02-28", "quarterly 2026-02-28"]);
+  assert.deepEqual(dates("2026-03-01", "2026-06-01"), [
+    "monthly 2026-03-31",
+    "monthly 2026-04-30",
+    "quarterly 2026-05-30",
+    "monthly 2026-05-31",
+  ]);
+});

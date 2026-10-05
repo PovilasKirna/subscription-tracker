@@ -6,7 +6,7 @@ import { Group } from "@visx/group";
 import { ParentSize } from "@visx/responsive";
 import { scaleBand, scaleLinear } from "@visx/scale";
 import { Bar, BarRounded } from "@visx/shape";
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
 import { Legend } from "./Legend";
 import { axisLabel, fitLabel, marks, seriesColor, tokens } from "./palette";
@@ -31,11 +31,19 @@ const BAR = 16; // <= 24px thick
 const margin = { top: 0, right: 72, bottom: 24 };
 
 const PAID = seriesColor(1);
-/** Same hue, washed towards the card surface, so "covered by someone else" reads as part of the bar. */
-const SUBSIDISED = "color-mix(in oklab, var(--series-1) 35%, var(--surface-1))";
+/**
+ * Subsidised: stripes of the same hue over a pale tint, with a full-colour outline. Reads as the
+ * lighter part of one bar, while the stripes and outline keep 3:1+ against the card in both themes
+ * (a plain pale fill would not).
+ */
+const TINT = "color-mix(in oklab, var(--series-1) 25%, var(--surface-1))";
+const STRIPE = 2;
+const STRIPE_STEP = 5;
+/** The same stripes as a CSS background, for the legend and tooltip swatches. */
+const SUBSIDISED_SWATCH = `repeating-linear-gradient(135deg, ${PAID} 0 ${STRIPE}px, ${TINT} ${STRIPE}px ${STRIPE_STEP - 0.5}px)`;
 const LEGEND = [
   { key: "paid", label: "Paid by me", color: PAID },
-  { key: "subsidised", label: "Subsidised", color: SUBSIDISED },
+  { key: "subsidised", label: "Subsidised", color: SUBSIDISED_SWATCH },
 ];
 
 /** Horizontal bars, sorted descending: what you paid (slot 1), then what was paid back (lighter). */
@@ -66,6 +74,7 @@ function Bars<T>({
 }: Props<T> & { width: number; height: number }) {
   const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip, containerRef, TooltipInPortal } =
     useChartTooltip<T>();
+  const patternId = `subsidised-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const labelWidth = width < 420 ? 96 : 130;
   const maxChars = width < 420 ? 12 : 18;
   const xMax = Math.max(0, width - labelWidth - margin.right);
@@ -82,6 +91,12 @@ function Bars<T>({
   return (
     <div className="relative" ref={containerRef}>
       <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={FLUID} role="img" aria-label="Spend by merchant">
+        <defs>
+          <pattern id={patternId} width={STRIPE_STEP} height={STRIPE_STEP} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width={STRIPE_STEP} height={STRIPE_STEP} fill={TINT} />
+            <rect width={STRIPE} height={STRIPE_STEP} fill={PAID} />
+          </pattern>
+        </defs>
         <Group left={labelWidth} top={margin.top}>
           <GridColumns scale={xScale} height={yMax} numTicks={numTicks} stroke={tokens.grid} strokeWidth={1} />
           {data.map((d) => {
@@ -112,7 +127,17 @@ function Bars<T>({
                   {sub > 0 ? (
                     <>
                       {paidW > 0.5 && <Bar x={0} y={y} width={paidW} height={BAR} fill={PAID} />}
-                      <BarRounded x={subX} y={y} width={w - subX} height={BAR} radius={marks.radius} right fill={SUBSIDISED} />
+                      <BarRounded
+                        x={subX + 0.5}
+                        y={y + 0.5}
+                        width={Math.max(0, w - subX - 1)}
+                        height={BAR - 1}
+                        radius={marks.radius}
+                        right
+                        fill={`url(#${patternId})`}
+                        stroke={PAID}
+                        strokeWidth={1}
+                      />
                     </>
                   ) : (
                     <BarRounded x={0} y={y} width={w} height={BAR} radius={marks.radius} right fill={PAID} />
@@ -163,7 +188,7 @@ function Bars<T>({
             <>
               <div className="my-1.5 h-px bg-[var(--grid)]" />
               <TooltipRow color={PAID} label="Paid by me" value={formatValue(getValue(tooltipData) - getSubsidised(tooltipData))} />
-              <TooltipRow color={SUBSIDISED} label="Subsidised" value={formatValue(getSubsidised(tooltipData))} />
+              <TooltipRow color={SUBSIDISED_SWATCH} label="Subsidised" value={formatValue(getSubsidised(tooltipData))} />
             </>
           )}
           <div className="mt-1 text-[11.5px] text-[var(--text-muted)]">

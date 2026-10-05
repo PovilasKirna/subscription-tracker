@@ -18,7 +18,12 @@ export function addMonths(date: string, months: number): string {
   d.setUTCDate(Math.min(day, last));
   return toIso(d.getTime());
 }
-const advance = (s: Subscription, date: string) => (MONTHS[s.cadence] ? addMonths(date, MONTHS[s.cadence]) : toIso(toTime(date) + 7 * DAY));
+/**
+ * The `n`th charge after `anchor` (n = 0 is `anchor` itself). Always counted from the anchor, never
+ * from the previous charge, so a short month's clamp (Jan 31 → Feb 28) doesn't carry into March.
+ */
+const nthCharge = (s: Subscription, anchor: string, n: number) =>
+  MONTHS[s.cadence] ? addMonths(anchor, n * MONTHS[s.cadence]) : toIso(toTime(anchor) + n * 7 * DAY);
 
 export const isLive = (s: Subscription) => s.status === "active" || s.status === "late";
 
@@ -32,9 +37,11 @@ export function projectChargesBetween(subs: readonly Subscription[], from: strin
   const out: ExpectedCharge[] = [];
   for (const s of subs) {
     if (!isLive(s) || !s.nextCharge) continue;
-    let d = s.nextCharge;
-    while (d < from) d = advance(s, d);
-    for (; d < to; d = advance(s, d)) {
+    const anchor = s.nextCharge;
+    let n = 0;
+    let d = anchor;
+    while (d < from) d = nthCharge(s, anchor, ++n);
+    for (; d < to; d = nthCharge(s, anchor, ++n)) {
       out.push({ date: d, key: s.key, name: s.name, amount: s.amount, currency: s.currency, color: s.color });
     }
   }
