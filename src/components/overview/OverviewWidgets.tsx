@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckIcon, GripIcon, LayoutGridIcon, Maximize2Icon, Minimize2Icon, MinusIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
+import { GripIcon, LayoutGridIcon, Maximize2Icon, Minimize2Icon, MinusIcon, PlusIcon, RotateCcwIcon } from "lucide-react";
 import {
   type ComponentType,
   type CSSProperties,
@@ -101,16 +101,28 @@ const prefersReducedMotion = () => {
   }
 };
 
-/** The header button that switches the Overview into (and out of) edit mode. */
+/**
+ * The header button that switches the Overview into edit mode. While editing it is hidden (kept mounted,
+ * so focus can return to it): the sticky edit bar has the Done button, and two would be redundant.
+ */
 export function EditOverviewButton() {
   const editing = useEditingOverview();
   return (
-    <Button variant="outline" size="sm" className="pointer-coarse:h-11" aria-pressed={editing} onClick={() => setEditing(!editing)}>
-      {editing ? <CheckIcon /> : <LayoutGridIcon />}
-      {editing ? "Done" : "Edit"}
+    <Button
+      variant="outline"
+      size="sm"
+      className="pointer-coarse:h-11"
+      data-edit-overview
+      hidden={editing}
+      onClick={() => setEditing(true)}
+    >
+      <LayoutGridIcon />
+      Edit
     </Button>
   );
 }
+
+const headerEditButton = () => document.querySelector<HTMLElement>("[data-edit-overview]");
 
 export function OverviewWidgets() {
   const stored = useOverviewLayout();
@@ -427,6 +439,20 @@ export function OverviewWidgets() {
     if (!editing && drag.current) end(false);
   });
 
+  // The header Edit button hides while editing, so focus follows the mode: in to the edit bar, back out to
+  // the button. Only when focus is on that button or has dropped to <body>; a dialog or a widget control keeps it.
+  const wasEditing = useRef(editing);
+  const doneRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (wasEditing.current === editing) return;
+    wasEditing.current = editing;
+    const active = document.activeElement;
+    const headerButton = headerEditButton();
+    if (active && active !== document.body && active !== headerButton) return;
+    if (editing) (addRef.current?.disabled ? doneRef.current : addRef.current)?.focus();
+    else headerButton?.focus();
+  }, [editing]);
+
   // Leaving the page leaves edit mode, so it doesn't greet the owner on the next visit.
   useEffect(() => () => setEditing(false), []);
 
@@ -443,14 +469,16 @@ export function OverviewWidgets() {
   return (
     <>
       {editing && (
-        <div className="sticky top-[calc(3rem+env(safe-area-inset-top))] z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card/95 px-3 py-2 ring-1 ring-foreground/10 supports-backdrop-filter:backdrop-blur-sm md:top-2">
+        // Sticks below the phone top bar, or from md below the sticky page bar (48px, z-20); z-10 keeps it under that bar.
+        <div className="sticky top-[calc(3rem+env(safe-area-inset-top))] z-10 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card/95 px-3 py-2 ring-1 ring-foreground/10 supports-backdrop-filter:backdrop-blur-sm md:top-[calc(3rem+0.5rem)]">
           <p className="hidden text-[12.5px] text-muted-foreground sm:block">Drag to rearrange · arrow keys on a grip move it</p>
-          <div className="ml-auto flex items-center gap-2">
+          {/* On phones the buttons fill the row (Add widget stretches, Reset is icon-only) so it stays one line at 320px. */}
+          <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
             <Button
               ref={addRef}
               variant="outline"
               size="sm"
-              className="pointer-coarse:h-11"
+              className="pointer-coarse:h-11 max-sm:flex-1"
               disabled={!hidden.length}
               title={hidden.length ? undefined : "Every widget is on the Overview"}
               onClick={() => setAdding(true)}
@@ -460,14 +488,15 @@ export function OverviewWidgets() {
             <Button
               variant="ghost"
               size="sm"
-              className="pointer-coarse:h-11"
+              className="pointer-coarse:h-11 max-sm:w-9 max-sm:px-0 max-sm:pointer-coarse:w-11"
               disabled={sameLayout(layout, DEFAULT_LAYOUT)}
               onClick={reset}
               title="Reset to the default layout"
             >
-              <RotateCcwIcon /> Reset
+              <RotateCcwIcon />
+              <span className="max-sm:sr-only">Reset</span>
             </Button>
-            <Button size="sm" className="pointer-coarse:h-11" onClick={() => setEditing(false)}>
+            <Button ref={doneRef} size="sm" className="pointer-coarse:h-11" onClick={() => setEditing(false)}>
               Done
             </Button>
           </div>
@@ -493,7 +522,7 @@ export function OverviewWidgets() {
                     // A widget with nothing to show (no data yet) takes no slot and no gap.
                     "has-[>[data-widget-content]:empty]:hidden",
                     editing && "widget-wiggle cursor-grab touch-manipulation select-none [-webkit-touch-callout:none]",
-                    dragId === id && "z-10 scale-[1.02] cursor-grabbing shadow-[0_8px_28px_rgb(0_0_0/0.14)]",
+                    dragId === id && "z-[5] scale-[1.02] cursor-grabbing shadow-[0_8px_28px_rgb(0_0_0/0.14)]",
                   )}
                   style={editing ? ({ "--wiggle": WIGGLE[size] } as CSSProperties) : undefined}
                   onPointerDown={editing ? (e) => onPointerDown(e, id) : undefined}
