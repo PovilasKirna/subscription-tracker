@@ -1,5 +1,5 @@
 import type { ExpectedCharge } from "@/charts/types";
-import type { MerchantRange } from "./search-params";
+import type { OverviewRange } from "./search-params";
 import type { Subscription, SubscriptionsPayload } from "./types";
 
 // Pure derivations from the subscriptions payload, run identically on the server (SSR) and client.
@@ -103,7 +103,7 @@ export type MerchantSpend = {
  * Subscription spend per merchant (plans of one merchant merged) over the last 12 months, or
  * since January 1st ("ytd"), with what was reimbursed split out.
  */
-export function spendByMerchant(p: SubscriptionsPayload, range: MerchantRange = "12m"): MerchantSpend[] {
+export function spendByMerchant(p: SubscriptionsPayload, range: OverviewRange = "12m"): MerchantSpend[] {
   // Inclusive lower bound: the day after a year ago, or New Year's Day.
   const since = range === "ytd" ? `${p.today.slice(0, 4)}-01-01` : toIso(toTime(addMonths(p.today, -12)) + DAY);
   const by = new Map<string, MerchantSpend>();

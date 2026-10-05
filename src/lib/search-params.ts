@@ -13,24 +13,20 @@ import {
 // right query), by the API route (to parse the request) and on the client (useQueryStates),
 // so all three always agree.
 
-/** Monthly recurring spend: the last N months, or January to now ("ytd"). */
-export const HISTORY_RANGES = ["6m", "12m", "24m", "ytd"] as const;
-export type HistoryRange = (typeof HISTORY_RANGES)[number];
-/** Spend by merchant: the last 12 months, or January to now. */
-export const MERCHANT_RANGES = ["12m", "ytd"] as const;
-export type MerchantRange = (typeof MERCHANT_RANGES)[number];
+/** Overview period, shared by monthly recurring spend and spend by merchant: the last 12 months, or January to now. */
+export const OVERVIEW_RANGES = ["12m", "ytd"] as const;
+export type OverviewRange = (typeof OVERVIEW_RANGES)[number];
 /** The renewals calendar steps forward a month at a time, at most this far. */
 export const RENEWAL_MONTHS_AHEAD = 12;
 
 export const overviewParams = {
-  range: parseAsStringLiteral(HISTORY_RANGES).withDefault("12m"),
-  merchants: parseAsStringLiteral(MERCHANT_RANGES).withDefault("12m"),
+  range: parseAsStringLiteral(OVERVIEW_RANGES).withDefault("12m"),
   /** Months past the current one shown in the renewals calendar (0 = this month). */
   ahead: parseAsInteger.withDefault(0),
 };
 
 /** Months a range covers, ending with the current month (`today` is YYYY-MM-DD). */
-export function rangeMonths(range: HistoryRange, today: string): number {
+export function rangeMonths(range: OverviewRange, today: string): number {
   return range === "ytd" ? Number(today.slice(5, 7)) : Number.parseInt(range, 10);
 }
 
