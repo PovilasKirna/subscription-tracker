@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import { cn } from "@/lib/utils";
 
 const SIZES = {
@@ -52,12 +52,15 @@ export function MerchantIcon({
   website,
   size = "md",
   className,
+  style,
 }: {
   name: string;
   /** Domain the logo comes from (`website` on subscriptions and transactions); null = initials. */
   website: string | null;
   size?: keyof typeof SIZES;
   className?: string;
+  /** For placing the icon (the renewals calendar positions its logos absolutely). */
+  style?: CSSProperties;
 }) {
   const [failed, setFailed] = useState<string | null>(null);
   // Per instance and only after load, so server and client render the same placeholder first.
@@ -86,6 +89,7 @@ export function MerchantIcon({
         SIZES[size],
         className,
       )}
+      style={style}
     >
       {showLogo ? (
         // biome-ignore lint/performance/noImgElement: a tiny same-origin icon; next/image's optimizer would request it without the session cookie.

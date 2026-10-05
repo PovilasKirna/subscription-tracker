@@ -42,7 +42,7 @@ export function projectChargesBetween(subs: readonly Subscription[], from: strin
     let d = anchor;
     while (d < from) d = nthCharge(s, anchor, ++n);
     for (; d < to; d = nthCharge(s, anchor, ++n)) {
-      out.push({ date: d, key: s.key, name: s.name, amount: s.amount, currency: s.currency, color: s.color });
+      out.push({ date: d, key: s.key, name: s.name, amount: s.amount, currency: s.currency, color: s.color, website: s.website });
     }
   }
   return out.sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount);

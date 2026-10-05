@@ -3,10 +3,13 @@
 import { Group } from "@visx/group";
 import { ParentSize } from "@visx/responsive";
 import { scaleBand } from "@visx/scale";
-import { Bar, Circle } from "@visx/shape";
+import { Bar } from "@visx/shape";
 import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { MerchantIcon } from "@/components/MerchantIcon";
+import { cn } from "@/lib/utils";
 import { ChartTooltip, TooltipRow, useChartTooltip, useRovingFocus } from "./ChartTooltip";
-import { focusRing, isOther, MIN_TEXT, marks, otherOutline, seriesColor, tokens } from "./palette";
+import { focusRing, MIN_TEXT, tokens } from "./palette";
+import { dayLogoLayout, logoX } from "./renewalLayout";
 import type { Accessor, ExpectedCharge, Today } from "./types";
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
@@ -31,6 +34,10 @@ type Cell = { date: string; day: number; col: number; row: number; inWindow: boo
 const HEADER = 22;
 const CELL_H = 54;
 const CELL_GAP = 6;
+/** Gap between a day's logo row and the bottom of its cell. */
+const LOGO_BOTTOM = 6;
+/** MerchantIcon sizes below its smallest preset, keyed by `logoSize`. */
+const LOGO_CLASS: Record<number, string | undefined> = { 16: "size-4 rounded-[4px] text-[7px]", 14: "size-3.5 rounded-[3px] text-[6px]" };
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAY = 86_400_000;
 const toTime = (d: string) => Date.parse(`${d}T00:00:00Z`);
@@ -98,9 +105,6 @@ function Calendar({
     [rows, height],
   );
   const showAmounts = cellW >= 70;
-  const dotsFit = Math.max(1, Math.floor((cellW - 12) / 12));
-  // When the dots overflow, leave room for a 12px "+N" after the last one.
-  const dotsWithMore = Math.max(1, Math.floor((cellW - 26) / 12));
   const exact = formatAmount ?? formatMoney;
 
   // The marks: days still to come in this month that have a charge, in date order. One roving tab stop.
@@ -183,8 +187,8 @@ function Calendar({
           const total = c.charges.reduce((s, ch) => s + ch.amount, 0);
           const active = tooltipOpen && tooltipData?.date === c.date;
           const i = marked.indexOf(c);
-          const shown = c.charges.length > dotsFit ? dotsWithMore : c.charges.length;
-          // Days outside the window fade their cell and dots; the day number stays at 3:1+ (Ash, not opacity).
+          const logos = dayLogoLayout(cellW, c.charges.length);
+          // Days outside the window fade their cell and logos; the day number stays at 3:1+ (Ash, not opacity).
           const fade = c.inWindow ? 1 : 0.35;
           return (
             <Group key={c.date} left={x} top={y}>
@@ -220,21 +224,17 @@ function Calendar({
                     {formatMoney(total, c.charges[0].currency)}
                   </text>
                 )}
-                <g opacity={fade}>
-                  {c.charges.slice(0, shown).map((ch, k) => (
-                    <Circle
-                      key={ch.key}
-                      cx={12 + k * 12}
-                      cy={cellH - 13}
-                      r={marks.markerR}
-                      fill={seriesColor(ch.color)}
-                      {...(isOther(ch.color) ? otherOutline(ch.color) : { stroke: tokens.surface, strokeWidth: marks.ring })}
-                    />
-                  ))}
-                </g>
-                {c.charges.length > shown && (
-                  <text x={12 * shown + 8} y={cellH - 9} fontSize={MIN_TEXT} fill={tokens.textMuted}>
-                    +{c.charges.length - shown}
+                {/* The logos themselves are HTML, laid over the grid below; "+k" counts the rest. */}
+                {logos.more > 0 && (
+                  <text
+                    x={logoX(logos.size, logos.shown)}
+                    y={cellH - LOGO_BOTTOM - logos.size / 2}
+                    dominantBaseline="central"
+                    fontSize={MIN_TEXT}
+                    fill={tokens.textMuted}
+                    opacity={fade}
+                  >
+                    +{logos.more}
                   </text>
                 )}
               </g>
@@ -280,6 +280,26 @@ function Calendar({
           );
         })}
       </svg>
+      {/* The logos: MerchantIcon is HTML, laid over the SVG (drawn 1:1); pointers pass through to the hit targets. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        {cells.map((c) => {
+          if (!c.charges.length) return null;
+          const logos = dayLogoLayout(cellW, c.charges.length);
+          const top = (yScale(c.row) ?? 0) + cellH - LOGO_BOTTOM - logos.size;
+          return c.charges
+            .slice(0, logos.shown)
+            .map((ch, k) => (
+              <MerchantIcon
+                key={`${c.date}:${ch.key}`}
+                name={ch.name}
+                website={ch.website}
+                size="sm"
+                className={cn("absolute", LOGO_CLASS[logos.size], !c.inWindow && "opacity-35")}
+                style={{ left: (xScale(c.col) ?? 0) + logoX(logos.size, k), top }}
+              />
+            ));
+        })}
+      </div>
       {tooltipOpen && tooltipData && (
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
           <div className="mb-1 font-medium">{formatDate(tooltipData.date)}</div>

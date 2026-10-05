@@ -93,3 +93,17 @@ test("projected charges don't drift after a short month clamps the day", () => {
     "monthly 2026-05-31",
   ]);
 });
+
+test("projected charges carry the subscription's website for its logo", () => {
+  const subs = [
+    sub({ key: "tv", website: "netflix.com", nextCharge: "2026-10-20", charges: [] }),
+    sub({ key: "gym", website: null, nextCharge: "2026-10-21", charges: [] }),
+  ];
+  assert.deepEqual(
+    projectChargesBetween(subs, "2026-10-01", "2026-11-01").map((c) => [c.key, c.website]),
+    [
+      ["tv", "netflix.com"],
+      ["gym", null],
+    ],
+  );
+});

@@ -10,6 +10,7 @@ import { Bar, Circle, Line } from "@visx/shape";
 import { type KeyboardEvent, type MouseEvent, useMemo, useState } from "react";
 import { ChartTooltip, TooltipRow, useChartTooltip, useRovingFocus } from "./ChartTooltip";
 import { axisLabel, fitLabel, focusRing, isOther, MIN_TEXT, marks, otherOutline, seriesColor, tokens } from "./palette";
+import { timelineRowLabel } from "./timelineLabel";
 import type { Accessor, TimelineCharge, TimelineRow, Today } from "./types";
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
@@ -20,6 +21,14 @@ type Props<T extends TimelineRow> = {
   formatMoney: (amount: number, currency: string) => string;
   formatDate: (d: string) => string;
   formatTick: (d: Date) => string;
+  /** Room each axis label needs, in px (default 90); short labels allow more ticks. */
+  tickWidth?: number;
+  /**
+   * Optional window start (an ISO date). The axis then runs from here to today, only charges from it on
+   * are drawn, and subscriptions that ended before it are left out. Without it the axis starts at the
+   * earliest first charge.
+   */
+  from?: string;
   /**
    * Optional: called with a row's key on click, Enter or Space. When set, rows are exposed as
    * buttons; without it they are read-only images with an accessible name.
@@ -37,10 +46,13 @@ const getChargeDate: Accessor<TimelineCharge, Date> = (c) => toDate(c.date);
 
 /** One row per subscription: a span from first to last charge, a tick per charge, a ringed marker per price change. */
 export function SubscriptionTimeline<T extends TimelineRow>(props: Props<T>) {
-  const height = margin.top + margin.bottom + props.data.length * ROW;
+  const { data, from } = props;
+  const rows = useMemo(() => (from ? data.filter((r) => r.lastCharge >= from) : data), [data, from]);
+  if (!rows.length) return <p className="py-6 text-center text-sm text-muted-foreground">No charges in this period.</p>;
+  const height = margin.top + margin.bottom + rows.length * ROW;
   return (
     <ParentSize initialSize={{ width: 560 }} style={{ height }} debounceTime={40}>
-      {({ width }) => (width > 0 ? <Timeline {...props} width={width} height={height} /> : null)}
+      {({ width }) => (width > 0 ? <Timeline {...props} data={rows} width={width} height={height} /> : null)}
     </ParentSize>
   );
 }
@@ -51,6 +63,8 @@ function Timeline<T extends TimelineRow>({
   formatMoney,
   formatDate,
   formatTick,
+  tickWidth = 90,
+  from,
   onSelect,
   width,
   height,
@@ -63,11 +77,25 @@ function Timeline<T extends TimelineRow>({
   const yMax = Math.max(0, height - margin.top - margin.bottom);
 
   const xScale = useMemo(() => {
-    const first = data.reduce((min, r) => (r.firstCharge < min ? r.firstCharge : min), today);
+    const first = from ?? data.reduce((min, r) => (r.firstCharge < min ? r.firstCharge : min), today);
     return scaleUtc<number>({ domain: [toDate(first), toDate(today)], range: [0, xMax] });
-  }, [data, today, xMax]);
+  }, [data, today, from, xMax]);
+  // The marks inside the window; tooltips and Left / Right stepping only visit these.
+  const shown = useMemo(() => {
+    const m = new Map<string, { charges: TimelineCharge[]; changes: T["priceChanges"] }>();
+    for (const r of data) {
+      m.set(r.key, {
+        charges: from ? r.charges.filter((c) => c.date >= from) : r.charges,
+        changes: from ? r.priceChanges.filter((pc) => pc.date >= from) : r.priceChanges,
+      });
+    }
+    return m;
+  }, [data, from]);
+  const chargesOf = (row: T) => shown.get(row.key)?.charges ?? row.charges;
+  // A span that began before the window starts at the axis.
+  const spanStart = (row: T) => toDate(from && row.firstCharge < from ? from : row.firstCharge);
   const yScale = useMemo(() => scaleBand<string>({ domain: data.map(getKey), range: [0, yMax], padding: 0 }), [data, yMax]);
-  const numTicks = Math.max(2, Math.floor(xMax / 90));
+  const numTicks = Math.max(2, Math.floor(xMax / tickWidth));
   // Keyboard: the chart is one tab stop. Up / Down move between rows (Ctrl+Home / Ctrl+End to the
   // first / last), Left / Right (and Home / End) step through the focused row's charges.
   const roving = useRovingFocus(data.length, 0);
@@ -77,7 +105,8 @@ function Timeline<T extends TimelineRow>({
   const rowY = (row: T) => (yScale(row.key) ?? 0) + yScale.bandwidth() / 2;
 
   const showCharge = (row: T, index: number) => {
-    const charge = row.charges[Math.min(Math.max(index, 0), row.charges.length - 1)];
+    const charges = chargesOf(row);
+    const charge = charges[Math.min(Math.max(index, 0), charges.length - 1)];
     if (!charge) return;
     showTooltip({
       tooltipData: { row, charge, change: row.priceChanges.find((pc) => pc.date === charge.date) },
@@ -101,7 +130,8 @@ function Timeline<T extends TimelineRow>({
       roving.focusIndex(e.key === "Home" ? 0 : data.length - 1);
       return;
     }
-    const current = tooltipData?.row.key === row.key ? row.charges.indexOf(tooltipData.charge) : row.charges.length - 1;
+    const charges = chargesOf(row);
+    const current = tooltipData?.row.key === row.key ? charges.indexOf(tooltipData.charge) : charges.length - 1;
     const next =
       e.key === "ArrowLeft"
         ? current - 1
@@ -110,7 +140,7 @@ function Timeline<T extends TimelineRow>({
           : e.key === "Home"
             ? 0
             : e.key === "End"
-              ? row.charges.length - 1
+              ? charges.length - 1
               : null;
     if (next !== null) {
       e.preventDefault();
@@ -122,26 +152,16 @@ function Timeline<T extends TimelineRow>({
   };
 
   /** Everything the tooltip and marks show, as one sentence for screen readers. */
-  const rowLabel = (row: T) => {
-    const latest = row.charges.at(-1);
-    const changes = row.priceChanges.map(
-      (pc) => `${formatMoney(pc.from, row.currency)} to ${formatMoney(pc.to, row.currency)} on ${formatDate(pc.date)}`,
-    );
-    return [
-      `${row.name}: ${row.charges.length} charges from ${formatDate(row.firstCharge)} to ${formatDate(row.lastCharge)}`,
-      latest && `latest ${formatMoney(latest.amount, row.currency)}`,
-      changes.length && `price changes: ${changes.join("; ")}`,
-    ]
-      .filter(Boolean)
-      .join(", ");
-  };
+  const rowLabel = (row: T) => timelineRowLabel(row, { money: formatMoney, date: formatDate }, from);
 
   const onMove = (row: T, e: MouseEvent<SVGRectElement>) => {
     const p = localPoint(e);
     if (!p) return;
     const x = xScale.invert(p.x - labelWidth).getTime();
-    let charge = row.charges[0];
-    for (const c of row.charges) if (Math.abs(getChargeDate(c).getTime() - x) < Math.abs(getChargeDate(charge).getTime() - x)) charge = c;
+    const charges = chargesOf(row);
+    let charge = charges[0];
+    if (!charge) return;
+    for (const c of charges) if (Math.abs(getChargeDate(c).getTime() - x) < Math.abs(getChargeDate(charge).getTime() - x)) charge = c;
     showTooltip({
       tooltipData: { row, charge, change: row.priceChanges.find((pc) => pc.date === charge.date) },
       tooltipLeft: p.x,
@@ -190,13 +210,13 @@ function Timeline<T extends TimelineRow>({
                   {other && (
                     <>
                       <Line
-                        from={{ x: xScale(toDate(row.firstCharge)), y }}
+                        from={{ x: xScale(spanStart(row)), y }}
                         to={{ x: xScale(toDate(row.lastCharge)), y }}
                         stroke={tokens.textSecondary}
                         strokeWidth={marks.line + 2}
                         strokeLinecap="round"
                       />
-                      {row.charges.map((c) => {
+                      {chargesOf(row).map((c) => {
                         const x = xScale(getChargeDate(c));
                         return (
                           <Line
@@ -212,13 +232,13 @@ function Timeline<T extends TimelineRow>({
                     </>
                   )}
                   <Line
-                    from={{ x: xScale(toDate(row.firstCharge)), y }}
+                    from={{ x: xScale(spanStart(row)), y }}
                     to={{ x: xScale(toDate(row.lastCharge)), y }}
                     stroke={color}
                     strokeWidth={marks.line}
                     strokeLinecap="round"
                   />
-                  {row.charges.map((c) => {
+                  {chargesOf(row).map((c) => {
                     const x = xScale(getChargeDate(c));
                     return (
                       <Line
@@ -231,7 +251,7 @@ function Timeline<T extends TimelineRow>({
                       />
                     );
                   })}
-                  {row.priceChanges.map((pc) => (
+                  {(shown.get(row.key)?.changes ?? row.priceChanges).map((pc) => (
                     <Circle
                       key={pc.date}
                       cx={xScale(toDate(pc.date))}
@@ -259,7 +279,7 @@ function Timeline<T extends TimelineRow>({
                   onFocus={(e) => {
                     roving.onFocus(i, e);
                     setStepping(false);
-                    showCharge(row, row.charges.length - 1);
+                    showCharge(row, chargesOf(row).length - 1);
                   }}
                   onBlur={(e) => roving.onBlur(e) && hideTooltip()}
                   onKeyDown={(e) => onKeyDown(row, i, e)}

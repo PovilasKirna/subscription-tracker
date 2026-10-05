@@ -37,6 +37,8 @@ export type ExpectedCharge = {
   amount: Subscription["amount"];
   currency: Subscription["currency"];
   color: SeriesColor;
+  /** Domain the logo comes from; null = initials. */
+  website: Subscription["website"];
 };
 
 /** Today's date as the server saw it (keeps SSR and hydration in agreement). */

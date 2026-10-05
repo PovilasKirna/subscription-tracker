@@ -2,10 +2,8 @@ import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 import type { SearchParams } from "nuqs/server";
 import { Suspense } from "react";
 import { SyncStatus, SyncStatusSkeleton } from "@/components/data/SyncStatus";
-import { CHART_GRID, CHART_SLOT, TOP_GRID } from "@/components/overview/layout";
-import { MonthlyTotalTile, StatTiles } from "@/components/overview/StatTiles";
-import { MerchantSection, OnboardingBanner, RenewalsSection, SpendSection, TimelineSection } from "@/components/overview/sections";
-import { CalendarSkeleton, ChartCardSkeleton, MonthlyTotalSkeleton, StatTilesSkeleton } from "@/components/overview/skeletons";
+import { EditOverviewButton, OverviewWidgets } from "@/components/overview/OverviewWidgets";
+import { OnboardingBanner } from "@/components/overview/sections";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { getQueryClient } from "@/lib/query/client";
 import { historyQuery, statusQuery, subscriptionsQuery } from "@/lib/query/options";
@@ -26,41 +24,20 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
         title="Overview"
         description="What your recurring payments cost, and what's coming up."
         actions={
-          <Suspense fallback={<SyncStatusSkeleton />}>
-            <SyncStatus />
-          </Suspense>
+          <>
+            <EditOverviewButton />
+            <Suspense fallback={<SyncStatusSkeleton />}>
+              <SyncStatus />
+            </Suspense>
+          </>
         }
       />
       <div className="flex flex-col gap-4">
         <Suspense fallback={null}>
           <OnboardingBanner />
         </Suspense>
-        {/* Stat row: monthly total (the one hero figure) and three stats. */}
-        <div className={TOP_GRID}>
-          <Suspense fallback={<MonthlyTotalSkeleton />}>
-            <MonthlyTotalTile />
-          </Suspense>
-          <Suspense fallback={<StatTilesSkeleton />}>
-            <StatTiles />
-          </Suspense>
-        </div>
-        {/* Renewals come first in the DOM (phones read them before the spend chart); desktop places spend left. */}
-        <div className={CHART_GRID}>
-          <Suspense fallback={<CalendarSkeleton className={CHART_SLOT.renewals} />}>
-            <RenewalsSection />
-          </Suspense>
-          <Suspense fallback={<ChartCardSkeleton height={340} legend className={CHART_SLOT.spend} />}>
-            <SpendSection />
-          </Suspense>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
-          <Suspense fallback={<ChartCardSkeleton height={420} />}>
-            <TimelineSection />
-          </Suspense>
-          <Suspense fallback={<ChartCardSkeleton height={360} bars />}>
-            <MerchantSection />
-          </Suspense>
-        </div>
+        {/* The widgets, in this device's order; each streams in behind its own Suspense boundary. */}
+        <OverviewWidgets />
       </div>
     </HydrationBoundary>
   );
