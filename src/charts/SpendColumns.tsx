@@ -25,6 +25,8 @@ type Props<K extends string> = {
   formatMonthLong: (m: Month) => string;
   /** Total height including the x-axis band. */
   height?: number;
+  /** Grow past `height` to fill a flex parent (the card stretched by a taller neighbour). */
+  fill?: boolean;
 };
 
 const margin = { top: 20, right: 8, bottom: 28, left: 52 };
@@ -35,10 +37,12 @@ const getTotal: Accessor<MonthlySpend<string>, number> = (d) => d.total;
 export function SpendColumns<K extends string>(props: Props<K>) {
   const height = props.height ?? 300;
   return (
-    <div>
+    <div className={props.fill ? "flex flex-1 flex-col" : undefined}>
       <Legend items={props.series.map((s) => ({ key: s.key, label: s.name, color: s.color }))} />
-      <ParentSize initialSize={{ width: 560 }} style={{ height }} debounceTime={40}>
-        {({ width }) => (width > 0 ? <Columns {...props} width={width} height={height} /> : null)}
+      <ParentSize initialSize={{ width: 560, height }} style={props.fill ? { flex: 1, minHeight: height } : { height }} debounceTime={40}>
+        {({ width, height: measured }) =>
+          width > 0 ? <Columns {...props} width={width} height={props.fill ? Math.max(height, measured) : height} /> : null
+        }
       </ParentSize>
     </div>
   );
