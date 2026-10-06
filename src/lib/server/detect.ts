@@ -246,6 +246,29 @@ export function runInParallel(a: readonly string[], b: readonly string[]): boole
   return pa.length > 0 && pb.length > 0 && overlapping(pa, span(pb)) >= 2 && overlapping(pb, span(pa)) >= 2;
 }
 
+/**
+ * Price points (each charged at least twice) joined into plans: a point whose first charge lands
+ * when another's next charge was due (about one billing period after its last) continues that plan
+ * as a price change; the rest are plans of their own. Points come in any order; each chain is
+ * oldest price first.
+ */
+export function chainPricePoints<T extends { dates: readonly string[]; amountMinor: number }>(points: readonly T[]): T[][] {
+  const chains: T[][] = [];
+  for (const p of [...points].sort((a, b) => a.dates[0].localeCompare(b.dates[0]))) {
+    const gapOk = (chain: T[]) => {
+      const last = chain[chain.length - 1];
+      const gap = daysBetween(last.dates[last.dates.length - 1], p.dates[0]);
+      const period = daysBetween(last.dates[0], last.dates[last.dates.length - 1]) / (last.dates.length - 1);
+      return gap >= period * 0.5 && gap <= period * 1.5;
+    };
+    const distance = (chain: T[]) => Math.abs(chain[chain.length - 1].amountMinor - p.amountMinor);
+    const into = chains.filter(gapOk).sort((a, b) => distance(a) - distance(b))[0];
+    if (into) into.push(p);
+    else chains.push([p]);
+  }
+  return chains;
+}
+
 /** Any two of the price points bill side by side (see `runInParallel`). */
 function hasParallelPlans(parts: Found[]): boolean {
   const dates = parts.map((p) => p.sub.charges.map((c) => c.date));
@@ -267,28 +290,42 @@ function autoDetect(pool: TxRow[], overrides: Map<string, Override>, today: stri
     group.sort((a, b) => a.date.localeCompare(b.date));
     const [merchantKey, currency] = groupKey.split("|");
 
-    // 1) The whole merchant as one subscription (handles price changes well). A merchant the
-    //    user confirmed stays whole even when its charges would also split into price points.
+    // 1) The whole merchant as one subscription (handles price changes well). A merchant the user
+    //    confirmed, cancelled or ignored stays whole even when its charges would also split into
+    //    price points, so that decision keeps applying.
     const whole = score({ key: groupKey, merchantKey, currency, txs: group }, today, overrides.get(groupKey));
-    if (whole?.confirmed) {
+    if (whole && (whole.confirmed || overrides.get(groupKey)?.status)) {
       found.push({ sub: whole, txs: group });
       continue;
     }
     // 2) Several plans at different price points (Apple, or Prime plus its ad-free add-on).
-    const parts: Found[] = [];
-    for (const cluster of clusterByAmount(group)) {
-      if (cluster.length < 2) continue;
-      const mid = Math.round(-median(cluster.map((t) => t.amount_minor)));
-      const key = `${groupKey}|${mid}`;
-      const sub = score({ key, merchantKey, currency, txs: cluster }, today, overrides.get(key));
-      if (sub) parts.push({ sub, txs: cluster });
-    }
+    const points = clusterByAmount(group)
+      .filter((cluster) => cluster.length >= 2)
+      .map((txs) => ({
+        txs,
+        dates: toCharges(txs).map((c) => c.date),
+        amountMinor: Math.round(-median(txs.map((t) => t.amount_minor))),
+      }));
+    const part = (txs: TxRow[], amountMinor: number): Found | null => {
+      const key = `${groupKey}|${amountMinor}`;
+      const sub = score({ key, merchantKey, currency, txs }, today, overrides.get(key));
+      return sub ? { sub, txs } : null;
+    };
+    let parts = points.flatMap((p) => part(p.txs, p.amountMinor) ?? []);
     // The whole wins unless the price points bill side by side: several rows per payment day, or
     // two plans that each keep renewing over the same stretch of time (a price change doesn't).
     const manySameDayish = whole !== null && group.length > whole.chargeCount + 1;
-    if (whole && !manySameDayish && !hasParallelPlans(parts)) {
-      found.push({ sub: whole, txs: group });
-      continue;
+    if (whole && !manySameDayish) {
+      if (!hasParallelPlans(parts)) {
+        found.push({ sub: whole, txs: group });
+        continue;
+      }
+      // Plans billed side by side: a price change within one of them stays one subscription,
+      // keyed by its first price so the key survives later changes.
+      parts = chainPricePoints(points).flatMap((chain) => {
+        const txs = chain.flatMap((p) => p.txs).sort((a, b) => a.date.localeCompare(b.date));
+        return part(txs, chain[0].amountMinor) ?? [];
+      });
     }
     if (parts.length) {
       if (parts.length > 1) for (const p of parts) p.sub.name = `${p.sub.name} · ${p.sub.amount.toFixed(2)}`;

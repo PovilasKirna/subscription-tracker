@@ -425,14 +425,22 @@ const OVERRIDE_FIELDS = ["display_name", "category", "status", "color_slot", "co
  * One statement, so overlapping edits (e.g. a rename and a colour pick) never undo each other.
  */
 export async function saveOverride(db: Db, key: string, patch: Partial<Omit<Override, "key">>): Promise<void> {
+  const statement = overrideStatement(key, patch);
+  if (statement) await run(db, statement.sql, statement.args);
+}
+
+/** The upsert `saveOverride` runs, for callers that batch it with other writes; null if `patch` is empty. */
+export function overrideStatement(
+  key: string,
+  patch: Partial<Omit<Override, "key">>,
+): { sql: string; args: (string | number | null)[] } | null {
   const supplied = OVERRIDE_FIELDS.filter((f) => patch[f] !== undefined);
-  if (!supplied.length) return;
+  if (!supplied.length) return null;
   const set = supplied.map((f) => `${f} = excluded.${f}`).join(", ");
-  await run(
-    db,
-    `INSERT INTO overrides (key, ${OVERRIDE_FIELDS.join(", ")}) VALUES (?, ${OVERRIDE_FIELDS.map(() => "?").join(", ")}) ON CONFLICT(key) DO UPDATE SET ${set}`,
-    [key, ...OVERRIDE_FIELDS.map((f) => patch[f] ?? null)],
-  );
+  return {
+    sql: `INSERT INTO overrides (key, ${OVERRIDE_FIELDS.join(", ")}) VALUES (?, ${OVERRIDE_FIELDS.map(() => "?").join(", ")}) ON CONFLICT(key) DO UPDATE SET ${set}`,
+    args: [key, ...OVERRIDE_FIELDS.map((f) => patch[f] ?? null)],
+  };
 }
 
 export async function allOverrides(db: Db): Promise<Map<string, Override>> {

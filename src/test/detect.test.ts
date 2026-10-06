@@ -85,6 +85,53 @@ test("an add-on with only two cycles so far still splits off (billing periods ov
   assert.deepEqual(subscriptions.map((s) => s.amount).sort(), [2.99, 4.99]);
 });
 
+test("side-by-side plans keep a price change within one plan as one subscription", () => {
+  // Prime 4.49 for a year, then 4.99; the ad-free add-on bills alongside from month 10.
+  const prime = monthly("Amazon Prime*2K4LD8", 4.49, 12, 12).concat(monthly("Amazon Prime*2K4LD8", 4.99, 4, 12, 2026));
+  const adFree = monthly("Prime Video ad free", 2.99, 7, 14).map((t, i) => {
+    const d = new Date(Date.UTC(2025, 9 + i, 14));
+    return { ...t, date: d.toISOString().slice(0, 10) };
+  });
+  const { subscriptions } = detectSubscriptions([...prime, ...adFree], none, "2026-04-20");
+  const byAmount = Object.fromEntries(subscriptions.map((s) => [s.amount, s]));
+  assert.deepEqual(Object.keys(byAmount).sort(), ["2.99", "4.99"]);
+  assert.equal(byAmount["4.99"].key, "prime-video|EUR|449", "keyed by its first price");
+  assert.deepEqual(byAmount["4.99"].priceChanges, [{ date: "2026-01-12", from: 4.49, to: 4.99 }]);
+});
+
+test("a cancelled or ignored merchant stays whole instead of splitting", () => {
+  const txs = [...monthly("Amazon Prime*2K4LD8", 4.99, 16, 12), ...monthly("Prime Video ad free", 2.99, 4, 14, 2026)];
+  const key = "prime-video|EUR";
+  const withStatus = (status: "cancelled" | "ignored") =>
+    new Map<string, Override>([
+      [
+        key,
+        {
+          key,
+          display_name: null,
+          category: null,
+          status,
+          color_slot: null,
+          color_hex: null,
+          cadence: null,
+          website: null,
+          group_name: null,
+        },
+      ],
+    ]);
+  const cancelled = detectSubscriptions(txs, withStatus("cancelled"), "2026-04-20");
+  assert.deepEqual(
+    cancelled.subscriptions.map((s) => [s.key, s.status]),
+    [[key, "cancelled"]],
+  );
+  const ignored = detectSubscriptions(txs, withStatus("ignored"), "2026-04-20");
+  assert.equal(ignored.subscriptions.length, 0);
+  assert.deepEqual(
+    ignored.ignored.map((s) => s.key),
+    [key],
+  );
+});
+
 test("a plan switch with one overlapping month stays one subscription", () => {
   const before = monthly("Netflix.com", 12.99, 7, 7); // Jan–Jul
   const after = monthly("Netflix.com", 15.99, 6, 9).map((t, i) => ({ ...t, date: `2025-${String(i + 7).padStart(2, "0")}-09` })); // Jul–Dec

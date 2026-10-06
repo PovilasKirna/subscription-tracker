@@ -1,5 +1,5 @@
 import type { TxRow } from "./db";
-import { clusterByAmount, type Detection, median, runInParallel } from "./detect";
+import { chainPricePoints, clusterByAmount, type Detection, median, runInParallel } from "./detect";
 
 // Planning for "add these payments to that subscription". Kept pure (no DB) so it's testable;
 // the /api/assignments route loads the inputs and writes the result.
@@ -63,34 +63,19 @@ export function planAssignment(
 type Plan = { amountMinor: number; txs: TxRow[] };
 
 const datesOf = (txs: TxRow[]) => [...new Set(txs.map((t) => t.date))].sort();
-const daysBetween = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_400_000;
 
 /**
  * A subscription's charges grouped into the plans billed side by side, for "Split by price". Every
- * price paid at least twice is a price point; one whose first charge lands when another's next
- * charge was due (about one billing period after its last) continues that plan as a price change. One-off prices belong to no plan, so
- * they can't become a plan's latest charge (its price, and what its renewals are matched against).
- * Fewer than two plans means there is nothing to split. Plans come most expensive first, priced
- * at their latest charge.
+ * price paid at least twice is a price point, and a price change continues its plan (see
+ * `chainPricePoints`). One-off prices belong to no plan, so they can't become a plan's latest
+ * charge (its price, and what its renewals are matched against). Fewer than two plans means there
+ * is nothing to split. Plans come most expensive first, priced at their latest charge.
  */
 export function pricePlans(members: TxRow[]): Plan[] {
   const points = clusterByAmount(members)
     .filter((c) => c.length >= 2)
-    .map((txs) => ({ txs, dates: datesOf(txs), amountMinor: Math.round(-median(txs.map((t) => t.amount_minor))) }))
-    .sort((a, b) => a.dates[0].localeCompare(b.dates[0]));
-  const chains: (typeof points)[] = [];
-  for (const p of points) {
-    const candidates = chains.filter((chain) => {
-      const last = chain[chain.length - 1];
-      const gap = daysBetween(last.dates[last.dates.length - 1], p.dates[0]);
-      const period = daysBetween(last.dates[0], last.dates[last.dates.length - 1]) / (last.dates.length - 1);
-      return gap >= period * 0.5 && gap <= period * 1.5;
-    });
-    const closest = (chain: typeof points) => Math.abs(chain[chain.length - 1].amountMinor - p.amountMinor);
-    const into = candidates.sort((a, b) => closest(a) - closest(b))[0];
-    if (into) into.push(p);
-    else chains.push([p]);
-  }
+    .map((txs) => ({ txs, dates: datesOf(txs), amountMinor: Math.round(-median(txs.map((t) => t.amount_minor))) }));
+  const chains = chainPricePoints(points);
   if (chains.length < 2) return [];
   return chains
     .map((chain) => ({
@@ -107,7 +92,12 @@ export function plansOverlap(plans: Plan[]): boolean {
 }
 
 export type SplitPlan =
-  | { ok: true; parts: { key: string; txIds: string[]; amountMinor: number; isNew: boolean }[] }
+  | {
+      ok: true;
+      parts: { key: string; txIds: string[]; amountMinor: number; isNew: boolean }[];
+      /** Charges that belonged to the subscription but to none of its plans (one-offs): unpin them. */
+      released: string[];
+    }
   | { ok: false; status: number; error: string };
 
 /**
@@ -133,5 +123,6 @@ export function planSplit(txs: TxRow[], det: Detection, takenKeys: ReadonlySet<s
     used.add(key);
     return { key, txIds: p.txs.map((t) => t.id), amountMinor: p.amountMinor, isNew: true };
   });
-  return { ok: true, parts };
+  const kept = new Set(parts.flatMap((p) => p.txIds));
+  return { ok: true, parts, released: members.filter((t) => !kept.has(t.id)).map((t) => t.id) };
 }

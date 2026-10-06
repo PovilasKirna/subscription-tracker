@@ -102,6 +102,14 @@ test("splitting a confirmed merchant pins one subscription per price", () => {
     [4.99, "2026-06-12"],
   ]);
   assert.equal(split.txToSub.get(oneOff.id), undefined);
+  assert.deepEqual(plan.released, [oneOff.id]);
+
+  // Already pinned (the one-off assigned by hand too): the one-off is released, not left pinned.
+  const pinnedAll = new Map(all.map((t) => [t.id, key] as const));
+  const pinnedDet = detectSubscriptions(all, confirmed, "2026-05-20", "EUR", new Set(), pinnedAll);
+  const again = planSplit(all, pinnedDet, new Set([key]), key);
+  assert.ok(again.ok);
+  assert.deepEqual(again.released, [oneOff.id]);
 
   assert.equal(planSplit(txs, det, new Set(), "netflix|EUR").ok, false);
   // A price change (old price stops, new one starts) is not offered as a split.
