@@ -133,7 +133,10 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
                     <span className="block text-xs font-normal text-muted-foreground">
                       {relativeDays(s.nextCharge, data.today)}
                       {s.plans.length > 1 &&
-                        ` · ${fmt(s.plans[0].amount)}, then ${fmt(s.plans[1].amount)} on ${shortDate(s.plans[1].nextCharge)}`}
+                        ` · ${fmt(s.plans[0].amount)}, then ${s.plans
+                          .slice(1)
+                          .map((p) => `${fmt(p.amount)} on ${shortDate(p.nextCharge)}`)
+                          .join(", ")}`}
                     </span>
                   </>
                 ) : (

@@ -266,7 +266,7 @@ function subscriptionEvents(snapshot: NotificationSnapshot, settings: Settings, 
         dedupeKey: `overdue:${s.key}:${next}`,
         type: "subscription_overdue",
         title: `${s.name} hasn't charged yet`,
-        body: `${m(s.amount)} was expected around ${fullDate(next)}. If you cancelled it, mark it as cancelled.`,
+        body: `${m(nextAmount)} was expected around ${fullDate(next)}. If you cancelled it, mark it as cancelled.`,
         data: { url, subKey: s.key, date: next },
         ...(baseline && { silent: true }),
       });
