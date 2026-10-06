@@ -37,12 +37,15 @@ export function projectChargesBetween(subs: readonly Subscription[], from: strin
   const out: ExpectedCharge[] = [];
   for (const s of subs) {
     if (!isLive(s) || !s.nextCharge) continue;
-    const anchor = s.nextCharge;
-    let n = 0;
-    let d = anchor;
-    while (d < from) d = nthCharge(s, anchor, ++n);
-    for (; d < to; d = nthCharge(s, anchor, ++n)) {
-      out.push({ date: d, key: s.key, name: s.name, amount: s.amount, currency: s.currency, color: s.color, website: s.website });
+    // Plans billed side by side renew on their own dates, each at its own price.
+    const plans = s.plans?.length ? s.plans : [{ nextCharge: s.nextCharge, amount: s.amount }];
+    for (const { nextCharge: anchor, amount } of plans) {
+      let n = 0;
+      let d = anchor;
+      while (d < from) d = nthCharge(s, anchor, ++n);
+      for (; d < to; d = nthCharge(s, anchor, ++n)) {
+        out.push({ date: d, key: s.key, name: s.name, amount, currency: s.currency, color: s.color, website: s.website });
+      }
     }
   }
   return out.sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount);

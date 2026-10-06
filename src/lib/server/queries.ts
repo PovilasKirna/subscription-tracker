@@ -16,7 +16,6 @@ import type {
   TransactionItem,
   TransactionsPayload,
 } from "../types";
-import { plansOverlap, pricePlans } from "./assign";
 import { reconcileBankAccounts, visibleTransactions } from "./bankAccounts";
 import { bankConfigured, config } from "./config";
 import {
@@ -30,7 +29,16 @@ import {
   type ReimbursementData,
   type TxRow,
 } from "./db";
-import { buildHistory, type Detection, detectSubscriptions, parseSubKey, sameAmount, websiteResolver } from "./detect";
+import {
+  buildHistory,
+  type Detection,
+  detectSubscriptions,
+  parseSubKey,
+  plansOverlap,
+  pricePlans,
+  sameAmount,
+  websiteResolver,
+} from "./detect";
 import { merchantName } from "./merchant";
 import { applyReimbursements, chargeTotalMinor, summarizeSources } from "./reimburse";
 import { memoByVersion } from "./snapshot";

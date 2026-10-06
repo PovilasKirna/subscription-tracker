@@ -43,6 +43,7 @@ function groupRow(name: string, members: SubscriptionRow[]): SubscriptionRow {
     firstCharge: dates((m) => m.firstCharge)[0],
     lastCharge: dates((m) => m.lastCharge).at(-1) ?? first.lastCharge,
     nextCharge: dates((m) => m.nextCharge)[0] ?? null,
+    plans: [],
     chargeCount: members.reduce((s, m) => s + m.chargeCount, 0),
     totalSpent: round2(members.reduce((s, m) => s + m.totalSpent, 0)),
     totalReimbursed: round2(members.reduce((s, m) => s + m.totalReimbursed, 0)),
