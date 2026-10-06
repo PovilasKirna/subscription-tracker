@@ -1,5 +1,5 @@
 import type { TxRow } from "./db";
-import type { Detection } from "./detect";
+import { clusterByAmount, type Detection, median } from "./detect";
 
 // Planning for "add these payments to that subscription". Kept pure (no DB) so it's testable;
 // the /api/assignments route loads the inputs and writes the result.
@@ -58,4 +58,69 @@ export function planAssignment(
   }
   const members = [...det.txToSub].filter(([, k]) => k === subKey).map(([id]) => id);
   return { ok: true, key: subKey, txIds: [...new Set([...members, ...rows.map((t) => t.id)])] };
+}
+
+/**
+ * A subscription's charges grouped by price, for "Split by price": every price paid at least
+ * twice is a plan, and a one-off price joins the plan closest to it. Fewer than two plans means
+ * there is nothing to split. Plans come most expensive first.
+ */
+export function pricePlans(members: TxRow[]): { amountMinor: number; txs: TxRow[] }[] {
+  const clusters = clusterByAmount(members).map((txs) => ({ amountMinor: Math.round(-median(txs.map((t) => t.amount_minor))), txs }));
+  const plans = clusters.filter((c) => c.txs.length >= 2);
+  if (plans.length < 2) return [];
+  for (const c of clusters) {
+    if (c.txs.length >= 2) continue;
+    const nearest = plans.reduce((a, b) => (Math.abs(b.amountMinor - c.amountMinor) < Math.abs(a.amountMinor - c.amountMinor) ? b : a));
+    nearest.txs.push(...c.txs);
+  }
+  return plans.sort((a, b) => b.amountMinor - a.amountMinor);
+}
+
+/**
+ * True when two of the plans each charge at least twice while the other is charging too: plans
+ * billed side by side, not one price replacing another (a price change isn't worth splitting).
+ */
+export function plansOverlap(plans: { txs: TxRow[] }[]): boolean {
+  const span = (txs: TxRow[]) =>
+    txs.reduce((r, t) => ({ from: t.date < r.from ? t.date : r.from, to: t.date > r.to ? t.date : r.to }), { from: "9999", to: "" });
+  return plans.some((a, i) =>
+    plans.slice(i + 1).some((b) => {
+      const sa = span(a.txs);
+      const sb = span(b.txs);
+      const from = sa.from > sb.from ? sa.from : sb.from;
+      const to = sa.to < sb.to ? sa.to : sb.to;
+      const within = (txs: TxRow[]) => new Set(txs.filter((t) => t.date >= from && t.date <= to).map((t) => t.date)).size;
+      return from <= to && within(a.txs) >= 2 && within(b.txs) >= 2;
+    }),
+  );
+}
+
+export type SplitPlan =
+  | { ok: true; parts: { key: string; txIds: string[]; amountMinor: number; isNew: boolean }[] }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Splits one subscription into one per price it's billed at (e.g. Prime and its ad-free add-on
+ * under one merchant). Every part is pinned, so detection keeps them apart from now on. The most
+ * expensive plan keeps the subscription's key (and so its name, colour and other edits); the
+ * others get fresh keys. `takenKeys` are keys with saved edits that a new part must not inherit.
+ */
+export function planSplit(txs: TxRow[], det: Detection, takenKeys: ReadonlySet<string>, subKey: string): SplitPlan {
+  const target = det.subscriptions.find((s) => s.key === subKey);
+  if (!target) return { ok: false, status: 404, error: "Subscription not found" };
+  const members = txs.filter((t) => det.txToSub.get(t.id) === subKey);
+  const plans = pricePlans(members);
+  if (!plans.length) return { ok: false, status: 400, error: "This subscription is billed at a single price" };
+
+  const used = new Set([...takenKeys, ...det.subscriptions.map((s) => s.key), ...det.ignored.map((s) => s.key)]);
+  const base = `${target.merchantKey}|${target.currency}`;
+  const parts = plans.map((p, i) => {
+    if (i === 0) return { key: subKey, txIds: p.txs.map((t) => t.id), amountMinor: p.amountMinor, isNew: false };
+    let key = `${base}|${p.amountMinor}`;
+    for (let n = 2; used.has(key); n++) key = `${base}|${p.amountMinor}-${n}`;
+    used.add(key);
+    return { key, txIds: p.txs.map((t) => t.id), amountMinor: p.amountMinor, isNew: true };
+  });
+  return { ok: true, parts };
 }

@@ -16,6 +16,7 @@ import type {
   TransactionItem,
   TransactionsPayload,
 } from "../types";
+import { plansOverlap, pricePlans } from "./assign";
 import { reconcileBankAccounts, visibleTransactions } from "./bankAccounts";
 import { bankConfigured, config } from "./config";
 import {
@@ -178,7 +179,17 @@ export async function getSubscriptionDetail(key: string): Promise<SubscriptionDe
           exceptKey: key,
         })
       : [],
+    pricePlans: splittable(counted, Boolean(active)),
+    groups: [...new Set([...det.subscriptions, ...det.ignored].flatMap((s) => (s.group ? [s.group] : [])))].sort((a, b) =>
+      a.localeCompare(b),
+    ),
   };
+}
+
+/** The prices a subscription bills side by side (worth offering "Split by price"), else none. */
+function splittable(counted: TxRow[], active: boolean): number[] {
+  const plans = active ? pricePlans(counted) : [];
+  return plansOverlap(plans) ? plans.map((p) => p.amountMinor / 100) : [];
 }
 
 /** Name of a subscription started from this payment (what detection would call the merchant). */

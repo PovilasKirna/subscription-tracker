@@ -66,6 +66,26 @@ test("splits two plans billed under the same merchant", () => {
   assert.deepEqual(subscriptions.map((s) => s.amount).sort(), [2.99, 9.99]);
 });
 
+test("splits an add-on plan that starts long after the main one", () => {
+  // A year of Prime on the 12th, then the ad-free add-on on the 14th alongside it.
+  const prime = monthly("Amazon Prime*2K4LD8", 4.99, 16, 12);
+  const adFree = monthly("Prime Video ad free", 2.99, 4, 14, 2026);
+  const { subscriptions } = detectSubscriptions([...prime, ...adFree], none, "2026-04-20");
+  assert.deepEqual(subscriptions.map((s) => [s.amount, s.nextCharge]).sort(), [
+    [2.99, "2026-05-14"],
+    [4.99, "2026-05-12"],
+  ]);
+  assert.equal(subscriptions.reduce((sum, s) => sum + s.monthlyCost, 0).toFixed(2), "7.98");
+});
+
+test("a plan switch with one overlapping month stays one subscription", () => {
+  const before = monthly("Netflix.com", 12.99, 7, 7); // Jan–Jul
+  const after = monthly("Netflix.com", 15.99, 6, 9).map((t, i) => ({ ...t, date: `2025-${String(i + 7).padStart(2, "0")}-09` })); // Jul–Dec
+  const { subscriptions } = detectSubscriptions([...before, ...after], none, "2025-12-20");
+  assert.equal(subscriptions.length, 1);
+  assert.equal(subscriptions[0].amount, 15.99);
+});
+
 test("ignores irregular shopping and transfers", () => {
   const txs = [
     tx("2025-01-03", -23.1, "Maxima LT"),
@@ -86,7 +106,17 @@ test("marks a stopped subscription inactive and honours user overrides", () => {
     new Map([
       [
         key,
-        { key, display_name: null, category: null, status: "ignored", color_slot: null, color_hex: null, cadence: null, website: null },
+        {
+          key,
+          display_name: null,
+          category: null,
+          status: "ignored",
+          color_slot: null,
+          color_hex: null,
+          cadence: null,
+          website: null,
+          group_name: null,
+        },
       ],
     ]),
     "2025-12-01",
@@ -178,6 +208,7 @@ test("a confirmed merchant stays one subscription even if its charges split by p
         color_hex: null,
         cadence: null,
         website: null,
+        group_name: null,
       },
     ],
   ]);
@@ -209,7 +240,17 @@ test("a user-picked colour sticks and automatic slots skip it", () => {
   const picked = new Map([
     [
       gym.key,
-      { key: gym.key, display_name: null, category: null, status: null, color_slot: 1, color_hex: null, cadence: null, website: null },
+      {
+        key: gym.key,
+        display_name: null,
+        category: null,
+        status: null,
+        color_slot: 1,
+        color_hex: null,
+        cadence: null,
+        website: null,
+        group_name: null,
+      },
     ],
   ]);
   const det = detectSubscriptions(txs, picked, "2025-11-01");
@@ -239,6 +280,7 @@ test("a custom colour keeps its own series without taking a slot; 'none' folds i
         color_hex: "#123abc",
         cadence: null,
         website: null,
+        group_name: null,
       },
     ],
     [
@@ -252,6 +294,7 @@ test("a custom colour keeps its own series without taking a slot; 'none' folds i
         color_hex: null,
         cadence: null,
         website: null,
+        group_name: null,
       },
     ],
   ]);
@@ -290,6 +333,7 @@ test("a user-set cadence replaces the guess for a lone charge, and beats a detec
         color_hex: null,
         cadence: "yearly" as const,
         website: null,
+        group_name: null,
       },
     ],
   ]);
@@ -313,6 +357,7 @@ test("a user-set cadence replaces the guess for a lone charge, and beats a detec
         color_hex: null,
         cadence: "quarterly" as const,
         website: null,
+        group_name: null,
       },
     ],
   ]);
@@ -382,6 +427,7 @@ test("websites: built-in for known services, the user's wins, and one-off paymen
         color_hex: null,
         cadence: null,
         website: "hostinger.com",
+        group_name: null,
       },
     ],
   ]);

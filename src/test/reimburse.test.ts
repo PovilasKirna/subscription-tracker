@@ -265,6 +265,7 @@ test("applyReimbursements keeps the period history of ignored subscriptions", ()
     color_hex: null,
     cadence: null,
     website: null,
+    group_name: null,
   };
   const det = detectSubscriptions(txs, new Map([[ignore.key, ignore]]), "2025-06-20");
   assert.equal(det.ignored.length, 1);

@@ -20,7 +20,7 @@ const toDate = (t: number) => new Date(t).toISOString().slice(0, 10);
 const daysBetween = (a: string, b: string) => Math.round((toTime(b) - toTime(a)) / DAY);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-function median(xs: number[]): number {
+export function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   const mid = s.length >> 1;
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
@@ -97,7 +97,7 @@ function toCharges(txs: TxRow[]): Charge[] {
 type Candidate = { key: string; merchantKey: string; currency: string; txs: TxRow[] };
 
 /** Split a merchant's charges into clusters of similar amounts (Apple bills several plans under one name). */
-function clusterByAmount(txs: TxRow[]): TxRow[][] {
+export function clusterByAmount(txs: TxRow[]): TxRow[][] {
   const sorted = [...txs].sort((a, b) => a.amount_minor - b.amount_minor);
   const clusters: TxRow[][] = [];
   for (const t of sorted) {
@@ -165,6 +165,7 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
     ...overrideColor(override),
     website: override?.website || merchantDomain(c.merchantKey) || null,
     websiteChosen: Boolean(override?.website),
+    group: override?.group_name || null,
     priceChanges: priceChanges(charges),
     charges,
     // Filled in from the reimbursement periods by applyReimbursements (reimburse.ts).
@@ -223,6 +224,22 @@ export function assignColorSlots(subs: Subscription[], baseCurrency: string): vo
 
 type Found = { sub: Subscription; txs: TxRow[] };
 
+/**
+ * Two price points that each charge at least twice while the other is also charging: concurrent
+ * plans, not a price change (where the old price stops before the new one starts) or a switch
+ * with one month of overlap.
+ */
+function hasParallelPlans(parts: Found[]): boolean {
+  const within = (p: Found, from: string, to: string) => p.sub.charges.filter((c) => c.date >= from && c.date <= to).length;
+  return parts.some((a, i) =>
+    parts.slice(i + 1).some((b) => {
+      const from = a.sub.firstCharge > b.sub.firstCharge ? a.sub.firstCharge : b.sub.firstCharge;
+      const to = a.sub.lastCharge < b.sub.lastCharge ? a.sub.lastCharge : b.sub.lastCharge;
+      return from <= to && within(a, from, to) >= 2 && within(b, from, to) >= 2;
+    }),
+  );
+}
+
 /** Automatic detection over charges nobody assigned by hand, one merchant + currency at a time. */
 function autoDetect(pool: TxRow[], overrides: Map<string, Override>, today: string): Found[] {
   const groups = new Map<string, TxRow[]>();
@@ -241,13 +258,11 @@ function autoDetect(pool: TxRow[], overrides: Map<string, Override>, today: stri
     // 1) The whole merchant as one subscription (handles price changes well). A merchant the
     //    user confirmed stays whole even when its charges would also split into price points.
     const whole = score({ key: groupKey, merchantKey, currency, txs: group }, today, overrides.get(groupKey));
-    const charges = whole ? whole.chargeCount : 0;
-    const manySameDayish = group.length > charges + 1;
-    if (whole && (!manySameDayish || whole.confirmed)) {
+    if (whole?.confirmed) {
       found.push({ sub: whole, txs: group });
       continue;
     }
-    // 2) Otherwise look for several plans at different price points.
+    // 2) Several plans at different price points (Apple, or Prime plus its ad-free add-on).
     const parts: Found[] = [];
     for (const cluster of clusterByAmount(group)) {
       if (cluster.length < 2) continue;
@@ -255,6 +270,13 @@ function autoDetect(pool: TxRow[], overrides: Map<string, Override>, today: stri
       const key = `${groupKey}|${mid}`;
       const sub = score({ key, merchantKey, currency, txs: cluster }, today, overrides.get(key));
       if (sub) parts.push({ sub, txs: cluster });
+    }
+    // The whole wins unless the price points bill side by side: several rows per payment day, or
+    // two plans that each keep renewing over the same stretch of time (a price change doesn't).
+    const manySameDayish = whole !== null && group.length > whole.chargeCount + 1;
+    if (whole && !manySameDayish && !hasParallelPlans(parts)) {
+      found.push({ sub: whole, txs: group });
+      continue;
     }
     if (parts.length) {
       if (parts.length > 1) for (const p of parts) p.sub.name = `${p.sub.name} · ${p.sub.amount.toFixed(2)}`;

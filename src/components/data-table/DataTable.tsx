@@ -2,11 +2,14 @@
 
 import {
   type ColumnDef,
+  type ExpandedState,
   flexRender,
   getCoreRowModel,
+  getExpandedRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   type PaginationState,
+  type Row,
   type SortingState,
   type Table as TanstackTable,
   type Updater,
@@ -45,6 +48,8 @@ type BaseOptions<TData> = {
   pagination: PaginationState;
   onPaginationChange: (pagination: PaginationState) => void;
   initialColumnVisibility?: VisibilityState;
+  /** Rows nested under a row (e.g. a group's members), shown when it's expanded. */
+  getSubRows?: (row: TData) => TData[] | undefined;
 };
 
 export type UseDataTableOptions<TData> =
@@ -55,19 +60,22 @@ export type UseDataTableOptions<TData> =
 
 /** TanStack Table configured for either server- or client-side data. */
 export function useDataTable<TData>(options: UseDataTableOptions<TData>): TanstackTable<TData> {
-  const { data, columns, getRowId, sorting, onSortingChange, pagination, onPaginationChange } = options;
+  const { data, columns, getRowId, sorting, onSortingChange, pagination, onPaginationChange, getSubRows } = options;
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(options.initialColumnVisibility ?? {});
+  const [expanded, setExpanded] = useState<ExpandedState>({});
   return useReactTable({
     data,
     columns,
     getRowId,
     getCoreRowModel: getCoreRowModel(),
+    ...(getSubRows ? { getSubRows, getExpandedRowModel: getExpandedRowModel(), autoResetExpanded: false } : {}),
     ...(options.mode === "server"
       ? { manualPagination: true, manualSorting: true, manualFiltering: true, pageCount: options.pageCount, rowCount: options.rowCount }
       : { getSortedRowModel: getSortedRowModel(), getPaginationRowModel: getPaginationRowModel(), autoResetPageIndex: false }),
     enableSortingRemoval: false,
-    state: { sorting, pagination, columnVisibility },
+    state: { sorting, pagination, columnVisibility, expanded },
     onColumnVisibilityChange: setColumnVisibility,
+    onExpandedChange: setExpanded,
     onSortingChange: (u) => onSortingChange(resolve(u, sorting)),
     onPaginationChange: (u) => onPaginationChange(resolve(u, pagination)),
   });
@@ -103,7 +111,7 @@ export function DataTable<TData>({
   table: TanstackTable<TData>;
   onRowClick?: (row: TData) => void;
   /** Two-line list row for narrow cards. Rendered inside a button when `onRowClick` is set. */
-  renderMobileRow?: (row: TData) => ReactNode;
+  renderMobileRow?: (row: TData, tableRow: Row<TData>) => ReactNode;
   /** Row menu beside each list row; kept outside the row button so both stay operable. */
   renderMobileActions?: (row: TData) => ReactNode;
   /** Dims the table while a new page/filter loads (e.g. inside a transition). */
@@ -122,17 +130,18 @@ export function DataTable<TData>({
             {rows.length ? (
               <ul className="divide-y">
                 {rows.map((row) => (
-                  <li key={row.id} className="flex items-center gap-1 pr-1.5">
+                  <li key={row.id} className={cn("flex items-center gap-1 pr-1.5", row.depth > 0 && "bg-muted/30")}>
                     {onRowClick ? (
                       <button
                         type="button"
+                        aria-expanded={row.getCanExpand() ? row.getIsExpanded() : undefined}
                         onClick={() => onRowClick(row.original)}
                         className="min-w-0 flex-1 self-stretch py-2.5 pl-4 text-left hover:bg-muted/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring active:bg-muted/50"
                       >
-                        {renderMobileRow(row.original)}
+                        {renderMobileRow(row.original, row)}
                       </button>
                     ) : (
-                      <div className="min-w-0 flex-1 py-2.5 pl-4">{renderMobileRow(row.original)}</div>
+                      <div className="min-w-0 flex-1 py-2.5 pl-4">{renderMobileRow(row.original, row)}</div>
                     )}
                     {renderMobileActions && <div className="shrink-0">{renderMobileActions(row.original)}</div>}
                   </li>
@@ -168,7 +177,7 @@ export function DataTable<TData>({
                 rows.map((row) => (
                   <TableRow
                     key={row.id}
-                    className={cn(onRowClick && "cursor-pointer")}
+                    className={cn(onRowClick && "cursor-pointer", row.depth > 0 && "bg-muted/30")}
                     onClick={onRowClick ? (e) => !fromInteractive(e) && onRowClick(row.original) : undefined}
                   >
                     {row.getVisibleCells().map((cell) => (

@@ -19,6 +19,8 @@ export type OverrideInput = {
   cadence?: Cadence | null;
   /** Website for the logo, e.g. "hostinger.com"; "" or null = back to the built-in one. */
   website?: string | null;
+  /** Group on the Subscriptions page; "" or null = ungrouped. */
+  group?: string | null;
 };
 
 /** Every server-side derived view depends on transactions + overrides, so refresh them all. */
@@ -66,6 +68,16 @@ export function useAssign() {
   return useMutation({
     mutationFn: (input: { subKey: string | null; txIds: string[] }) =>
       api<{ key: string }>("/api/assignments", { method: "PUT", body: JSON.stringify(input) }),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(e.message),
+  });
+}
+
+/** Split a subscription into one per price it's billed at. Resolves to the new keys. */
+export function useSplit() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (key: string) => api<{ keys: string[] }>("/api/subscriptions/split", { method: "POST", body: JSON.stringify({ key }) }),
     onSuccess: invalidate,
     onError: (e) => toast.error(e.message),
   });
