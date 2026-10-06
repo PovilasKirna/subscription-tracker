@@ -20,7 +20,7 @@ const toDate = (t: number) => new Date(t).toISOString().slice(0, 10);
 const daysBetween = (a: string, b: string) => Math.round((toTime(b) - toTime(a)) / DAY);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-function median(xs: number[]): number {
+export function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   const mid = s.length >> 1;
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
@@ -97,7 +97,7 @@ function toCharges(txs: TxRow[]): Charge[] {
 type Candidate = { key: string; merchantKey: string; currency: string; txs: TxRow[] };
 
 /** Split a merchant's charges into clusters of similar amounts (Apple bills several plans under one name). */
-function clusterByAmount(txs: TxRow[]): TxRow[][] {
+export function clusterByAmount(txs: TxRow[]): TxRow[][] {
   const sorted = [...txs].sort((a, b) => a.amount_minor - b.amount_minor);
   const clusters: TxRow[][] = [];
   for (const t of sorted) {
@@ -165,6 +165,7 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
     ...overrideColor(override),
     website: override?.website || merchantDomain(c.merchantKey) || null,
     websiteChosen: Boolean(override?.website),
+    group: override?.group_name || null,
     priceChanges: priceChanges(charges),
     charges,
     // Filled in from the reimbursement periods by applyReimbursements (reimburse.ts).
@@ -223,6 +224,34 @@ export function assignColorSlots(subs: Subscription[], baseCurrency: string): vo
 
 type Found = { sub: Subscription; txs: TxRow[] };
 
+/**
+ * Whether two plans (their sorted charge dates) bill side by side: each has at least two billing
+ * periods that overlap the other plan's active span. A charge's period runs to the next charge, the
+ * last one's for a typical gap; a plan is active from its first charge to the end of its last period.
+ * So Jan 12/Feb 12 next to Jan 14/Feb 14 is parallel, while a price change (the old price stops as
+ * the new one starts) or a switch with one month of overlap is not.
+ */
+export function runInParallel(a: readonly string[], b: readonly string[]): boolean {
+  const periods = (dates: readonly string[]) => {
+    const times = dates.map(toTime);
+    const gaps = times.slice(1).map((t, i) => t - times[i]);
+    const typical = gaps.length ? median(gaps) : 30.44 * DAY;
+    return times.map((from, i) => ({ from, to: times[i + 1] ?? from + typical }));
+  };
+  const pa = periods(a);
+  const pb = periods(b);
+  const span = (ps: { from: number; to: number }[]) => ({ from: ps[0].from, to: ps[ps.length - 1].to });
+  const overlapping = (ps: { from: number; to: number }[], s: { from: number; to: number }) =>
+    ps.filter((p) => p.from < s.to && p.to > s.from).length;
+  return pa.length > 0 && pb.length > 0 && overlapping(pa, span(pb)) >= 2 && overlapping(pb, span(pa)) >= 2;
+}
+
+/** Any two of the price points bill side by side (see `runInParallel`). */
+function hasParallelPlans(parts: Found[]): boolean {
+  const dates = parts.map((p) => p.sub.charges.map((c) => c.date));
+  return dates.some((a, i) => dates.slice(i + 1).some((b) => runInParallel(a, b)));
+}
+
 /** Automatic detection over charges nobody assigned by hand, one merchant + currency at a time. */
 function autoDetect(pool: TxRow[], overrides: Map<string, Override>, today: string): Found[] {
   const groups = new Map<string, TxRow[]>();
@@ -241,13 +270,11 @@ function autoDetect(pool: TxRow[], overrides: Map<string, Override>, today: stri
     // 1) The whole merchant as one subscription (handles price changes well). A merchant the
     //    user confirmed stays whole even when its charges would also split into price points.
     const whole = score({ key: groupKey, merchantKey, currency, txs: group }, today, overrides.get(groupKey));
-    const charges = whole ? whole.chargeCount : 0;
-    const manySameDayish = group.length > charges + 1;
-    if (whole && (!manySameDayish || whole.confirmed)) {
+    if (whole?.confirmed) {
       found.push({ sub: whole, txs: group });
       continue;
     }
-    // 2) Otherwise look for several plans at different price points.
+    // 2) Several plans at different price points (Apple, or Prime plus its ad-free add-on).
     const parts: Found[] = [];
     for (const cluster of clusterByAmount(group)) {
       if (cluster.length < 2) continue;
@@ -255,6 +282,13 @@ function autoDetect(pool: TxRow[], overrides: Map<string, Override>, today: stri
       const key = `${groupKey}|${mid}`;
       const sub = score({ key, merchantKey, currency, txs: cluster }, today, overrides.get(key));
       if (sub) parts.push({ sub, txs: cluster });
+    }
+    // The whole wins unless the price points bill side by side: several rows per payment day, or
+    // two plans that each keep renewing over the same stretch of time (a price change doesn't).
+    const manySameDayish = whole !== null && group.length > whole.chargeCount + 1;
+    if (whole && !manySameDayish && !hasParallelPlans(parts)) {
+      found.push({ sub: whole, txs: group });
+      continue;
     }
     if (parts.length) {
       if (parts.length > 1) for (const p of parts) p.sub.name = `${p.sub.name} · ${p.sub.amount.toFixed(2)}`;
@@ -354,10 +388,12 @@ export function detectSubscriptions(
   const found: Subscription[] = [];
   const txToSub = new Map<string, string>();
   for (const f of autoDetect(pool, overrides, today)) {
-    // Detection landed on a pinned key (e.g. new charges at a new price): fold them in.
+    // Detection landed on a pinned key (e.g. new charges at a new price): fold them in. A lone
+    // charge only "detected" because the key is confirmed (a one-off left over after a split)
+    // stays out, so it can't become the pinned subscription's latest price.
     const into = pinned.get(f.sub.key);
     if (into) {
-      into.push(...f.txs);
+      if (f.sub.chargeCount >= 2) into.push(...f.txs);
       continue;
     }
     found.push(f.sub);

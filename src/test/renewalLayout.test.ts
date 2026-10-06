@@ -34,7 +34,8 @@ test("a phone card (343px) fits two 16px logos, or one plus +k", () => {
   assert.deepEqual(dayLogoLayout(w, 3), { size: 16, shown: 1, more: 2 });
 });
 
-test("desktop cells use 20px logos", () => {
-  assert.deepEqual(dayLogoLayout(100, 3), { size: 20, shown: 3, more: 0 });
-  assert.deepEqual(dayLogoLayout(100, 6), { size: 20, shown: 3, more: 3 });
+test("desktop cells use 20px logos, at most two, then +k", () => {
+  assert.deepEqual(dayLogoLayout(100, 2), { size: 20, shown: 2, more: 0 });
+  assert.deepEqual(dayLogoLayout(100, 3), { size: 20, shown: 2, more: 1 });
+  assert.deepEqual(dayLogoLayout(100, 6), { size: 20, shown: 2, more: 4 });
 });

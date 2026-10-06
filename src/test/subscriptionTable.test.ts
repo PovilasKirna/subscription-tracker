@@ -45,6 +45,7 @@ const sub = (
     color: null,
     colorChosen: false,
     website: null,
+    group: null,
     websiteChosen: false,
     priceChanges: [],
     charges: Array.from({ length: 18 }, (_, i) => ({ date: `2025-${String((i % 12) + 1).padStart(2, "0")}-01`, amount })),
@@ -162,4 +163,38 @@ test("subscription params: invalid values fall back to defaults and serialise ro
   assert.deepEqual(p.cadence, []);
   const f = params("q=net&status=late,ignored&category=Fitness&sort=amount&dir=desc&page=2&perPage=50");
   assert.deepEqual(loadSubscriptionParams(new URLSearchParams(serializeSubscriptionParams(f))), f);
+});
+
+test("subscriptions table: a group is one row with its members, summed and soonest-first", () => {
+  const odido = (name: string, amount: number, nextCharge: string) => ({
+    ...sub(name, { category: "Utilities", amount, nextCharge }),
+    group: "Odido",
+  });
+  const grouped = {
+    ...det,
+    subscriptions: [...det.subscriptions, odido("Odido wifi", 45, "2026-07-10"), odido("Odido phone", 20, "2026-06-24")],
+  };
+  const r = querySubscriptions(grouped, params("sort=name&dir=asc"));
+  assert.deepEqual(names(r), ["Adobe", "Gym", "iCloud", "Netflix", "Odido", "Spotify"]);
+  assert.equal(r.total, 6);
+  const group = r.items.find((i) => i.name === "Odido");
+  assert.ok(group?.members);
+  assert.equal(group.key, "group:Odido|EUR");
+  assert.deepEqual(
+    group.members.map((m) => m.name),
+    ["Odido phone", "Odido wifi"],
+  );
+  assert.equal(group.amount, 65);
+  assert.equal(group.netMonthlyCost, 65);
+  assert.equal(group.nextCharge, "2026-06-24");
+  assert.equal(group.category, "Utilities");
+  // Facets still count subscriptions, and the group's name finds its members.
+  assert.equal(r.facets.category.Utilities, 2);
+  assert.deepEqual(names(querySubscriptions(grouped, params("q=odido"))), ["Odido"]);
+  // Search and filters apply per member.
+  const soon = querySubscriptions(grouped, params("q=phone"));
+  assert.deepEqual(
+    soon.items[0].members?.map((m) => m.name),
+    ["Odido phone"],
+  );
 });

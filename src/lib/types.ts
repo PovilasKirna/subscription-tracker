@@ -72,6 +72,8 @@ export type Subscription = {
   website: string | null;
   /** True when the user set `website` themselves. */
   websiteChosen: boolean;
+  /** Group the user listed it under on the Subscriptions page (e.g. "Odido"); null = on its own. */
+  group: string | null;
   priceChanges: PriceChange[];
   charges: Charge[];
   /** The reimbursement period in force today; null = not reimbursed (never set up, or stopped). */
@@ -124,7 +126,11 @@ export type SubscriptionsPayload = {
 
 export type SubscriptionRowStatus = SubStatus | "ignored";
 /** A subscriptions-table row: a subscription plus whether the user ignored it. */
-export type SubscriptionRow = Subscription & { rowStatus: SubscriptionRowStatus };
+export type SubscriptionRow = Subscription & {
+  rowStatus: SubscriptionRowStatus;
+  /** Set on a group's summary row (key `group:<name>|<currency>`): the subscriptions inside it. */
+  members?: SubscriptionRow[];
+};
 
 export type SubscriptionsTablePayload = {
   today: string;
@@ -214,6 +220,10 @@ export type SubscriptionDetailPayload = {
   excluded: TransactionItem[];
   /** Other payments to the same merchant that aren't counted here (e.g. after a plan change). */
   related: RelatedTransaction[];
+  /** Prices it's billed at side by side, most expensive first; two or more offer "Split by price". */
+  pricePlans: number[];
+  /** Every group name in use, for the group picker. */
+  groups: string[];
 };
 
 /** A payment that could belong to a subscription but isn't counted in it. */

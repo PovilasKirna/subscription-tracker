@@ -48,6 +48,7 @@ function sub(over: Partial<Subscription> & { key: string }): Subscription {
     color: null,
     colorChosen: false,
     website: null,
+    group: null,
     websiteChosen: false,
     priceChanges: [],
     charges: [],

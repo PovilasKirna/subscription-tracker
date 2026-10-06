@@ -15,7 +15,11 @@ type Body = {
   color?: unknown;
   cadence?: string | null;
   website?: string | null;
+  group?: string | null;
 };
+
+/** Longest group name accepted. */
+const MAX_GROUP = 60;
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ key: string }> }) {
   const denied = await guard();
@@ -35,6 +39,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ key:
   if (body.website != null && typeof body.website !== "string") {
     return NextResponse.json({ error: "Invalid website" }, { status: 400 });
   }
+  if (body.group != null && (typeof body.group !== "string" || body.group.trim().length > MAX_GROUP)) {
+    return NextResponse.json({ error: "Invalid group name" }, { status: 400 });
+  }
   // An empty website (or null) clears it, back to the built-in logo if any.
   const websiteInput = body.website?.trim() ?? "";
   const website = websiteInput ? normalizeWebsite(websiteInput) : null;
@@ -49,6 +56,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ key:
     ...(color !== undefined ? colorColumns(color) : {}),
     cadence: body.cadence as Cadence | null | undefined,
     website: body.website !== undefined ? website : undefined,
+    group_name: body.group !== undefined ? body.group?.trim() || null : undefined,
   });
   return NextResponse.json({ ok: true });
 }

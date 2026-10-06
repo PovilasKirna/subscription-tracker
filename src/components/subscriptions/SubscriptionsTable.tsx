@@ -17,7 +17,7 @@ import { subscriptionFilters } from "./shared";
  * TanStack Query fetches the matching page from /api/subscriptions/table. URL updates run in a
  * transition so the current page stays visible (dimmed) while the next one loads. Opening a row
  * (its name button, a click anywhere on it, or the whole row on phones) opens the detail drawer
- * (?sub=, independent of the table params).
+ * (?sub=, independent of the table params). A group's row expands to its members instead.
  */
 export function SubscriptionsTable() {
   const [isPending, startTransition] = useTransition();
@@ -41,6 +41,7 @@ export function SubscriptionsTable() {
     data: data.items,
     columns,
     getRowId: (row) => row.key,
+    getSubRows: (row) => row.members,
     pageCount: data.pageCount,
     rowCount: data.total,
     sorting: [{ id: params.sort, desc: params.dir === "desc" }],
@@ -71,11 +72,18 @@ export function SubscriptionsTable() {
       <DataTable
         table={table}
         pending={isPending}
-        onRowClick={(row) => open(row.key)}
-        renderMobileRow={(row) => <SubscriptionMobileRow sub={row} today={data.today} />}
-        renderMobileActions={(row) => (
-          <SubscriptionActions sub={row} onOpen={() => open(row.key)} trigger={{ className: "size-11 data-popup-open:bg-muted" }} />
+        // A group's row opens and closes its members; any other row opens the drawer.
+        onRowClick={(row) => (row.members ? table.getRow(row.key).toggleExpanded() : open(row.key))}
+        renderMobileRow={(row, tableRow) => (
+          <SubscriptionMobileRow sub={row} today={data.today} depth={tableRow.depth} expanded={tableRow.getIsExpanded()} />
         )}
+        renderMobileActions={(row) =>
+          row.members ? (
+            <span className="block size-11" />
+          ) : (
+            <SubscriptionActions sub={row} onOpen={() => open(row.key)} trigger={{ className: "size-11 data-popup-open:bg-muted" }} />
+          )
+        }
         empty={
           data.detected ? (
             "No subscriptions match these filters."

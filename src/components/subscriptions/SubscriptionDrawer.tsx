@@ -6,6 +6,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CircleXIcon,
+  FolderIcon,
   HandCoinsIcon,
   MinusCircleIcon,
   MoreHorizontalIcon,
@@ -13,6 +14,7 @@ import {
   PlusCircleIcon,
   RotateCcwIcon,
   SparklesIcon,
+  SplitIcon,
   TrendingUpIcon,
   XIcon,
 } from "lucide-react";
@@ -38,7 +40,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CADENCE_LABEL, fullDate, money, monthYearLabel, relativeDays } from "@/lib/format";
-import { useAssign, useExclusion, useOverride, useReimbursement } from "@/lib/query/mutations";
+import { useAssign, useExclusion, useOverride, useReimbursement, useSplit } from "@/lib/query/mutations";
 import { subscriptionDetailQuery } from "@/lib/query/options";
 import { expectedFor } from "@/lib/reimbursement";
 import { CADENCES, subscriptionDrawerParams } from "@/lib/search-params";
@@ -93,6 +95,7 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
               <>
                 <span>{s.category}</span>
                 <CadencePicker sub={s} />
+                <GroupPicker subKey={subKey} name={s.name} group={s.group} groups={data.groups} />
                 <StatusBadge status={data.ignored ? "ignored" : s.status} />
               </>
             )}
@@ -140,6 +143,8 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
                 <span className="block text-xs font-normal text-muted-foreground">{s.chargeCount} charges</span>
               </Stat>
             </dl>
+
+            {data.pricePlans.length > 1 && <SplitCallout subKey={subKey} name={s.name} currency={s.currency} prices={data.pricePlans} />}
 
             <ReimbursementSection sub={s} transactions={data.transactions} today={data.today} ignored={data.ignored} />
 
@@ -416,6 +421,123 @@ function CadencePicker({ sub }: { sub: Pick<Subscription, "key" | "name" | "cade
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** Which group the subscription is listed under on the Subscriptions page (its renewals stay its own). */
+function GroupPicker({ subKey, name, group, groups }: { subKey: string; name: string; group: string | null; groups: string[] }) {
+  const override = useOverride();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const save = (next: string | null) =>
+    override.mutate(
+      { key: subKey, group: next },
+      {
+        onSuccess: () => {
+          setOpen(false);
+          toast.success(next ? `${name} added to ${next}` : `${name} removed from ${group}`);
+        },
+      },
+    );
+  const others = groups.filter((g) => g !== group);
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (o) setValue("");
+      }}
+    >
+      <PopoverTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="xs"
+            className="-mx-2 font-normal text-muted-foreground data-popup-open:bg-muted"
+            disabled={override.isPending}
+            aria-label={group ? `In group ${group}. Change group` : "Not in a group. Add to a group"}
+          />
+        }
+      >
+        <FolderIcon data-icon="inline-start" />
+        {group ?? "No group"}
+        <ChevronDownIcon data-icon="inline-end" />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72">
+        <PopoverHeader>
+          <PopoverTitle>Group</PopoverTitle>
+          <PopoverDescription className="text-xs">
+            Listed together on the Subscriptions page. Each one still renews on its own date.
+          </PopoverDescription>
+        </PopoverHeader>
+        {others.length > 0 && (
+          <ul className="flex flex-col">
+            {others.map((g) => (
+              <li key={g}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start font-normal"
+                  disabled={override.isPending}
+                  onClick={() => save(g)}
+                >
+                  <FolderIcon /> {g}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save(value.trim());
+          }}
+        >
+          <Input
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="New group, e.g. Odido"
+            className="h-8"
+            aria-label="New group name"
+            maxLength={60}
+            autoComplete="off"
+          />
+          <Button type="submit" size="icon-sm" disabled={override.isPending || !value.trim()} aria-label="Add to new group">
+            <CheckIcon />
+          </Button>
+        </form>
+        {group && (
+          <Button variant="outline" size="sm" disabled={override.isPending} onClick={() => save(null)}>
+            <XIcon /> Remove from {group}
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Offered when charges at two or more prices run side by side, like a plan plus its add-on. */
+function SplitCallout({ subKey, name, currency, prices }: { subKey: string; name: string; currency: string; prices: number[] }) {
+  const split = useSplit();
+  const list = prices.map((p) => money(p, currency));
+  return (
+    <section className="flex flex-col gap-2 rounded-lg border p-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <p className="text-muted-foreground">
+        Billed at {prices.length} prices side by side ({list.join(" and ")}). If these are separate plans, split them so each one is counted
+        and shown on its own renewal date.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="shrink-0"
+        disabled={split.isPending}
+        onClick={() => split.mutate(subKey, { onSuccess: () => toast.success(`${name} split into ${prices.length} subscriptions`) })}
+      >
+        <SplitIcon /> Split by price
+      </Button>
+    </section>
   );
 }
 
