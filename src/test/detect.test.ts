@@ -274,6 +274,51 @@ test("a confirmed merchant stays one subscription even if its charges split by p
   for (const t of txs) assert.equal(det.txToSub.get(t.id), key);
 });
 
+test("a merchant kept whole renews each plan billed side by side on its own date", () => {
+  // Prime on the 6th since Sept 2024, the ad-free add-on on the 13th since June 2026; the user
+  // confirmed the merchant, so it stays one subscription.
+  const prime = Array.from({ length: 25 }, (_, i) => {
+    const d = new Date(Date.UTC(2024, 8 + i, 6));
+    return tx(d.toISOString().slice(0, 10), -4.99, "Amznprimenl*nv15i8dm4");
+  });
+  const adFree = [6, 7, 8, 9].map((m) => tx(`2026-0${m}-13`, -2.99, "Amznprimenl*ad free"));
+  const key = "prime-video|EUR";
+  const confirmed = new Map<string, Override>([
+    [
+      key,
+      {
+        key,
+        display_name: null,
+        category: null,
+        status: "confirmed",
+        color_slot: null,
+        color_hex: null,
+        cadence: null,
+        website: null,
+        group_name: null,
+      },
+    ],
+  ]);
+  const [s] = detectSubscriptions([...prime, ...adFree], confirmed, "2026-10-06").subscriptions;
+  assert.equal(s.key, key);
+  assert.equal(s.cadence, "monthly");
+  assert.equal(s.nextCharge, "2026-10-06", "the €4.99 plan renews first, today");
+  assert.deepEqual(s.plans, [
+    { amount: 4.99, nextCharge: "2026-10-06" },
+    { amount: 2.99, nextCharge: "2026-10-13" },
+  ]);
+  assert.equal(s.amount, 7.98);
+  assert.equal(s.monthlyCost, 7.98);
+
+  // Once the add-on stops, only the main plan renews and counts.
+  const more = ["2026-10-06", "2026-11-06"].map((d) => tx(d, -4.99, "Amznprimenl*dt06m33k5"));
+  const [later] = detectSubscriptions([...prime, ...more, ...adFree], confirmed, "2026-11-20").subscriptions;
+  assert.equal(later.status, "active");
+  assert.equal(later.nextCharge, "2026-12-06");
+  assert.deepEqual(later.plans, []);
+  assert.equal(later.amount, 4.99);
+});
+
 test("charges detected under a pinned key fold into it", () => {
   const old = monthly("Spotify", 9.99, 3);
   const later = monthly("Spotify", 11.99, 3, 7, 2025).map((t, i) => ({ ...t, date: `2025-${String(i + 5).padStart(2, "0")}-07` }));

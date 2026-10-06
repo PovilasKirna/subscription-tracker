@@ -33,6 +33,7 @@ export type Charge = {
   reimbursement?: ChargeReimbursement;
 };
 export type PriceChange = { date: string; from: number; to: number };
+export type PlanRenewal = { amount: number; nextCharge: string };
 
 export type Subscription = {
   key: string;
@@ -44,13 +45,22 @@ export type Subscription = {
   /** True when the user set `cadence` themselves rather than leaving it to detection. */
   cadenceChosen: boolean;
   periodDays: number;
-  /** Latest charged amount, positive, in major units. */
+  /**
+   * Latest charged amount, positive, in major units. Billed at several prices side by side (see
+   * `plans`): what one round of those plans costs together.
+   */
   amount: number;
   monthlyCost: number;
   yearlyCost: number;
   firstCharge: string;
   lastCharge: string;
   nextCharge: string | null;
+  /**
+   * The plans still billed side by side on different days (Prime on the 6th, its ad-free add-on on
+   * the 13th), each with its own next charge, earliest first; `nextCharge` is the first of them.
+   * Empty when it renews as one.
+   */
+  plans: PlanRenewal[];
   chargeCount: number;
   totalSpent: number;
   status: SubStatus;

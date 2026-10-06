@@ -1,5 +1,5 @@
 import { isHexColor } from "../color";
-import type { Cadence, Charge, HistoryPayload, PriceChange, SubStatus, Subscription } from "../types";
+import type { Cadence, Charge, HistoryPayload, PlanRenewal, PriceChange, SubStatus, Subscription } from "../types";
 import { NO_COLOR_SLOT, type Override, type TxRow } from "./db";
 import { isKnownSubscription, merchantCategory, merchantDomain, merchantName } from "./merchant";
 
@@ -127,18 +127,31 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
 
   // The user's cadence beats the detected one; with neither (a lone hand-assigned charge), assume monthly.
   const chosen = override?.cadence ? PERIODS.find((p) => p.cadence === override.cadence) : undefined;
-  const period = chosen ?? fit ?? { cadence: "monthly" as Cadence, days: 30.44, months: 1 };
-  const last = charges[n - 1];
-  const next = period.months ? addMonths(last.date, period.months) : toDate(toTime(last.date) + period.days * DAY);
-  const daysLate = daysBetween(next, today);
+  // Plans billed side by side (Prime plus its ad-free add-on, kept as one subscription) each renew
+  // on their own date, at the rhythm of one plan rather than of their charges mixed together.
+  const plans = pricePlans(c.txs);
+  const sides = plansOverlap(plans) ? plans : [];
+  const period = chosen ??
+    (sides.length ? fitCadence(datesOf(sides[0].txs)) : null) ??
+    fit ?? { cadence: "monthly" as Cadence, days: 30.44, months: 1 };
+  const after = (date: string) => (period.months ? addMonths(date, period.months) : toDate(toTime(date) + period.days * DAY));
   const grace = Math.max(3, period.days * 0.2);
+  // A plan that has stopped (overdue like an inactive subscription) no longer renews or costs anything.
+  const renewals = renewalsByDate(
+    sides
+      .map((p) => ({ amountMinor: p.amountMinor, nextCharge: after(datesOf(p.txs).at(-1) as string) }))
+      .filter((r) => daysBetween(r.nextCharge, today) <= period.days * 0.75 + grace),
+  );
+  const last = charges[n - 1];
+  const next = renewals[0]?.nextCharge ?? after(last.date);
+  const daysLate = daysBetween(next, today);
   let status: SubStatus;
   if (override?.status === "cancelled") status = "cancelled";
   else if (daysLate <= grace) status = "active";
   else if (daysLate <= period.days * 0.75 + grace) status = "late";
   else status = "inactive";
 
-  const amount = last.amount;
+  const amount = renewals.length ? renewals.reduce((sum, r) => sum + r.amount, 0) : last.amount;
   const monthlyCost = (amount * 30.4375) / period.days;
   return {
     key: c.key,
@@ -155,6 +168,7 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
     firstCharge: charges[0].date,
     lastCharge: last.date,
     nextCharge: status === "active" || status === "late" ? next : null,
+    plans: (status === "active" || status === "late") && renewals.length > 1 ? renewals : [],
     chargeCount: n,
     totalSpent: round2(charges.reduce((s, ch) => s + ch.amount, 0)),
     status,
@@ -175,6 +189,13 @@ function score(c: Candidate, today: string, override: Override | undefined, pinn
     totalReimbursed: 0,
     pendingReimbursements: 0,
   };
+}
+
+/** Plans' next charges, those on the same day as one (in major units), earliest first. */
+function renewalsByDate(plans: { amountMinor: number; nextCharge: string }[]): PlanRenewal[] {
+  const byDate = new Map<string, number>();
+  for (const p of plans) byDate.set(p.nextCharge, (byDate.get(p.nextCharge) ?? 0) + p.amountMinor);
+  return [...byDate].sort(([a], [b]) => a.localeCompare(b)).map(([nextCharge, minor]) => ({ amount: minor / 100, nextCharge }));
 }
 
 export type Detection = { subscriptions: Subscription[]; ignored: Subscription[]; txToSub: Map<string, string> };
@@ -267,6 +288,37 @@ export function chainPricePoints<T extends { dates: readonly string[]; amountMin
     else chains.push([p]);
   }
   return chains;
+}
+
+export type Plan = { amountMinor: number; txs: TxRow[] };
+
+const datesOf = (txs: TxRow[]) => [...new Set(txs.map((t) => t.date))].sort();
+
+/**
+ * A subscription's charges grouped into the plans billed side by side, for "Split by price". Every
+ * price paid at least twice is a price point, and a price change continues its plan (see
+ * `chainPricePoints`). One-off prices belong to no plan, so they can't become a plan's latest
+ * charge (its price, and what its renewals are matched against). Fewer than two plans means there
+ * is nothing to split. Plans come most expensive first, priced at their latest charge.
+ */
+export function pricePlans(members: TxRow[]): Plan[] {
+  const points = clusterByAmount(members)
+    .filter((c) => c.length >= 2)
+    .map((txs) => ({ txs, dates: datesOf(txs), amountMinor: Math.round(-median(txs.map((t) => t.amount_minor))) }));
+  const chains = chainPricePoints(points);
+  if (chains.length < 2) return [];
+  return chains
+    .map((chain) => ({
+      amountMinor: chain[chain.length - 1].amountMinor,
+      txs: chain.flatMap((p) => p.txs).sort((a, b) => a.date.localeCompare(b.date)),
+    }))
+    .sort((a, b) => b.amountMinor - a.amountMinor);
+}
+
+/** True when two of the plans bill side by side (see `runInParallel`): worth offering a split. */
+export function plansOverlap(plans: Plan[]): boolean {
+  const dates = plans.map((p) => datesOf(p.txs));
+  return dates.some((a, i) => dates.slice(i + 1).some((b) => runInParallel(a, b)));
 }
 
 /** Any two of the price points bill side by side (see `runInParallel`). */

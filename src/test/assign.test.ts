@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { planAssignment, planSplit, plansOverlap, pricePlans } from "../lib/server/assign";
+import { planAssignment, planSplit } from "../lib/server/assign";
 import type { Override, TxRow } from "../lib/server/db";
-import { detectSubscriptions } from "../lib/server/detect";
+import { detectSubscriptions, plansOverlap, pricePlans } from "../lib/server/detect";
 import { merchantKey } from "../lib/server/merchant";
 
 let n = 0;

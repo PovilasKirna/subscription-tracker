@@ -14,6 +14,7 @@ function sub(over: Partial<Subscription> & Pick<Subscription, "key" | "charges">
     status: "active",
     amount: 10,
     nextCharge: null,
+    plans: [],
     color: null,
     ...over,
   } as Subscription;
@@ -75,6 +76,22 @@ test("projected charges between two dates: only live subscriptions, stepping by 
       ["2026-11-20", "monthly"],
       ["2026-11-20", "weekly"],
       ["2026-11-27", "weekly"],
+    ],
+  );
+});
+
+test("projected charges show each plan billed side by side on its own date and price", () => {
+  const plans = [
+    { amount: 4.99, nextCharge: "2026-10-06" },
+    { amount: 2.99, nextCharge: "2026-10-13" },
+  ];
+  const subs = [sub({ key: "prime", nextCharge: "2026-10-06", amount: 7.98, plans, charges: [] })];
+  assert.deepEqual(
+    projectChargesBetween(subs, "2026-10-06", "2026-11-10").map((c) => [c.date, c.amount]),
+    [
+      ["2026-10-06", 4.99],
+      ["2026-10-13", 2.99],
+      ["2026-11-06", 4.99],
     ],
   );
 });

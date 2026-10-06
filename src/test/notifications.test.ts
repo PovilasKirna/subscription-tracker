@@ -57,6 +57,7 @@ function sub(over: Partial<Subscription> & { key: string }): Subscription {
     netMonthlyCost: 10,
     totalReimbursed: 0,
     pendingReimbursements: 0,
+    plans: [],
     ...over,
   };
 }
@@ -393,6 +394,19 @@ test("upcoming charge: 3 days ahead for every cadence but yearly, today included
     assert.ok(!plan("2026-10-20T12:00:00Z", [{ ...netflix, status }]).some((c) => c.type === "upcoming_charge"));
   }
   assert.deepEqual(plan("2026-10-20T12:00:00Z", [{ ...netflix, nextCharge: null }]), []);
+});
+
+test("plans billed side by side: upcoming and overdue charges quote the plan that's due", () => {
+  const plans = [
+    { amount: 4.99, nextCharge: "2026-10-06" },
+    { amount: 2.99, nextCharge: "2026-10-13" },
+  ];
+  const prime = sub({ key: "prime|EUR", name: "Prime", amount: 7.98, nextCharge: "2026-10-06", plans });
+  const plan = (now: string, s: Subscription) =>
+    planNotifications(snapshot({ subscriptions: [s], knownSubscriptions: new Set([s.key]) }), settings(), at(now));
+  assert.equal(plan("2026-10-05T12:00:00Z", prime)[0].body, "Monthly charge of about €4.99 on 6 Oct 2026.");
+  const overdue = plan("2026-10-12T12:00:00Z", { ...prime, status: "late" }).find((c) => c.type === "subscription_overdue");
+  assert.equal(overdue?.body, "€4.99 was expected around 6 Oct 2026. If you cancelled it, mark it as cancelled.");
 });
 
 const fresh = { firstCharge: "2026-08-15", lastCharge: "2026-10-15", nextCharge: "2026-11-15", chargeCount: 3 };
