@@ -236,13 +236,15 @@ function subscriptionEvents(snapshot: NotificationSnapshot, settings: Settings, 
     }
 
     const next = s.nextCharge;
+    // Of plans billed side by side, only the one renewing next is charged then.
+    const nextAmount = s.plans?.find((p) => p.nextCharge === next)?.amount ?? s.amount;
     if (s.status === "active" && s.cadence === "yearly" && next && next > today && next <= addDays(today, RENEWAL_NOTICE_DAYS)) {
       const left = daysBetween(today, next);
       out.push({
         dedupeKey: `renewal:${s.key}:${next}`,
         type: "yearly_renewal",
         title: `${s.name} renews ${left === 1 ? "tomorrow" : `in ${left} days`}`,
-        body: `Yearly renewal of about ${m(s.amount)} on ${fullDate(next)}. Cancel before then if you don't need it.`,
+        body: `Yearly renewal of about ${m(nextAmount)} on ${fullDate(next)}. Cancel before then if you don't need it.`,
         data: { url, subKey: s.key, date: next },
       });
     }
@@ -254,7 +256,7 @@ function subscriptionEvents(snapshot: NotificationSnapshot, settings: Settings, 
         dedupeKey: `upcoming:${s.key}:${next}`,
         type: "upcoming_charge",
         title: `${s.name} charges ${left === 0 ? "today" : left === 1 ? "tomorrow" : `in ${left} days`}`,
-        body: `${CADENCE_LABEL[s.cadence]} charge of about ${m(s.amount)} on ${fullDate(next)}.`,
+        body: `${CADENCE_LABEL[s.cadence]} charge of about ${m(nextAmount)} on ${fullDate(next)}.`,
         data: { url, subKey: s.key, date: next },
       });
     }

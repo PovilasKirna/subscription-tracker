@@ -32,6 +32,7 @@ const sub = (
     netMonthlyCost: amount,
     totalReimbursed: 0,
     pendingReimbursements: 0,
+    plans: [],
     firstCharge: "2025-01-01",
     lastCharge: "2026-06-01",
     nextCharge,

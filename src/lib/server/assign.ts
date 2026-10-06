@@ -1,5 +1,5 @@
 import type { TxRow } from "./db";
-import { chainPricePoints, clusterByAmount, type Detection, median, runInParallel } from "./detect";
+import { type Detection, plansOverlap, pricePlans } from "./detect";
 
 // Planning for "add these payments to that subscription". Kept pure (no DB) so it's testable;
 // the /api/assignments route loads the inputs and writes the result.
@@ -58,37 +58,6 @@ export function planAssignment(
   }
   const members = [...det.txToSub].filter(([, k]) => k === subKey).map(([id]) => id);
   return { ok: true, key: subKey, txIds: [...new Set([...members, ...rows.map((t) => t.id)])] };
-}
-
-type Plan = { amountMinor: number; txs: TxRow[] };
-
-const datesOf = (txs: TxRow[]) => [...new Set(txs.map((t) => t.date))].sort();
-
-/**
- * A subscription's charges grouped into the plans billed side by side, for "Split by price". Every
- * price paid at least twice is a price point, and a price change continues its plan (see
- * `chainPricePoints`). One-off prices belong to no plan, so they can't become a plan's latest
- * charge (its price, and what its renewals are matched against). Fewer than two plans means there
- * is nothing to split. Plans come most expensive first, priced at their latest charge.
- */
-export function pricePlans(members: TxRow[]): Plan[] {
-  const points = clusterByAmount(members)
-    .filter((c) => c.length >= 2)
-    .map((txs) => ({ txs, dates: datesOf(txs), amountMinor: Math.round(-median(txs.map((t) => t.amount_minor))) }));
-  const chains = chainPricePoints(points);
-  if (chains.length < 2) return [];
-  return chains
-    .map((chain) => ({
-      amountMinor: chain[chain.length - 1].amountMinor,
-      txs: chain.flatMap((p) => p.txs).sort((a, b) => a.date.localeCompare(b.date)),
-    }))
-    .sort((a, b) => b.amountMinor - a.amountMinor);
-}
-
-/** True when two of the plans bill side by side (see `runInParallel`): worth offering a split. */
-export function plansOverlap(plans: Plan[]): boolean {
-  const dates = plans.map((p) => datesOf(p.txs));
-  return dates.some((a, i) => dates.slice(i + 1).some((b) => runInParallel(a, b)));
 }
 
 export type SplitPlan =

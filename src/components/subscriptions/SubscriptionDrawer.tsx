@@ -39,7 +39,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CADENCE_LABEL, fullDate, money, monthYearLabel, relativeDays } from "@/lib/format";
+import { CADENCE_LABEL, fullDate, money, monthYearLabel, relativeDays, shortDate } from "@/lib/format";
 import { useAssign, useExclusion, useOverride, useReimbursement, useSplit } from "@/lib/query/mutations";
 import { subscriptionDetailQuery } from "@/lib/query/options";
 import { expectedFor } from "@/lib/reimbursement";
@@ -113,7 +113,12 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
         {s ? (
           <>
             <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Stat label="Price">{fmt(s.amount)}</Stat>
+              <Stat label="Price">
+                {fmt(s.amount)}
+                {s.plans.length > 1 && (
+                  <span className="block text-xs font-normal text-muted-foreground">{s.plans.map((p) => fmt(p.amount)).join(" + ")}</span>
+                )}
+              </Stat>
               <Stat label="Per month">
                 {fmt(s.netMonthlyCost)}
                 {s.reimbursement && (
@@ -125,7 +130,11 @@ function SubscriptionDetail({ subKey }: { subKey: string }) {
                 {s.nextCharge ? (
                   <>
                     {fullDate(s.nextCharge)}
-                    <span className="block text-xs font-normal text-muted-foreground">{relativeDays(s.nextCharge, data.today)}</span>
+                    <span className="block text-xs font-normal text-muted-foreground">
+                      {relativeDays(s.nextCharge, data.today)}
+                      {s.plans.length > 1 &&
+                        ` · ${fmt(s.plans[0].amount)}, then ${fmt(s.plans[1].amount)} on ${shortDate(s.plans[1].nextCharge)}`}
+                    </span>
                   </>
                 ) : (
                   "—"
@@ -525,8 +534,8 @@ function SplitCallout({ subKey, name, currency, prices }: { subKey: string; name
   return (
     <section className="flex flex-col gap-2 rounded-lg border p-3 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <p className="text-muted-foreground">
-        Billed at {prices.length} prices side by side ({list.join(" and ")}). If these are separate plans, split them so each one is counted
-        and shown on its own renewal date.
+        Billed at {prices.length} prices side by side ({list.join(" and ")}). If these are separate plans, split them to track, colour and
+        reimburse each one on its own.
       </p>
       <Button
         variant="outline"

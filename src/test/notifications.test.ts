@@ -57,6 +57,7 @@ function sub(over: Partial<Subscription> & { key: string }): Subscription {
     netMonthlyCost: 10,
     totalReimbursed: 0,
     pendingReimbursements: 0,
+    plans: [],
     ...over,
   };
 }
