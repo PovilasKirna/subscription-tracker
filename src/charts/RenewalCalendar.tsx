@@ -1,7 +1,7 @@
 "use client";
 
 import { Group } from "@visx/group";
-import { ParentSize } from "@visx/responsive";
+import { useParentSize } from "@visx/responsive";
 import { scaleBand } from "@visx/scale";
 import { Bar } from "@visx/shape";
 import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
@@ -9,7 +9,7 @@ import { MerchantIcon } from "@/components/MerchantIcon";
 import { cn } from "@/lib/utils";
 import { ChartTooltip, TooltipRow, useChartTooltip, useRovingFocus } from "./ChartTooltip";
 import { focusRing, MIN_TEXT, tokens } from "./palette";
-import { dayLogoLayout, logoX } from "./renewalLayout";
+import { dayBaseline, dayLogoLayout, gridSize, HEADER, logoBottom, logoX } from "./renewalLayout";
 import type { Accessor, ExpectedCharge, Today } from "./types";
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
@@ -31,21 +31,12 @@ type Props = {
 
 type Cell = { date: string; day: number; col: number; row: number; inWindow: boolean; charges: ExpectedCharge[] };
 
-const HEADER = 22;
-/** Cell height over cell width: 1 draws square days. */
-const CELL_ASPECT = 1;
-/** Space between two days, across and down. */
-const CELL_GAP = 6;
-/** Gap between a day's logo row and the bottom of its cell (tighter on the narrowest phones). */
-const logoBottom = (cellW: number) => (cellW < 40 ? 3 : 6);
-/** Grid geometry for a container `width` px wide. */
-function gridSize(width: number, rows: number) {
-  const cellW = Math.max(0, (width - 6 * CELL_GAP) / 7);
-  const cellH = cellW * CELL_ASPECT;
-  return { cellW, cellH, height: HEADER + rows * cellH + (rows - 1) * CELL_GAP };
-}
 /** MerchantIcon sizes below its smallest preset, keyed by `logoSize`. */
-const LOGO_CLASS: Record<number, string | undefined> = { 16: "size-4 rounded-[4px] text-[7px]", 14: "size-3.5 rounded-[3px] text-[6px]" };
+const LOGO_CLASS: Record<number, string | undefined> = {
+  16: "size-4 rounded-[4px] text-[7px]",
+  14: "size-3.5 rounded-[3px] text-[6px]",
+  12: "size-3 rounded-[3px] text-[5px]",
+};
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAY = 86_400_000;
 const toTime = (d: string) => Date.parse(`${d}T00:00:00Z`);
@@ -80,15 +71,11 @@ function buildCells(charges: readonly ExpectedCharge[], today: string, month: st
 export function RenewalCalendar(props: Props) {
   const cells = useMemo(() => buildCells(props.charges, props.today, props.month), [props.charges, props.today, props.month]);
   const rows = (cells.at(-1)?.row ?? 0) + 1;
-  // ParentSize lays its content out absolutely, so its height is set up front: gridSize's sum in CSS,
-  // with 100cqw (the outer div's width) standing in for the measured width.
-  const cellH = `((100cqw - ${6 * CELL_GAP}px) / 7 * ${CELL_ASPECT})`;
-  const height = `calc(${HEADER}px + ${rows} * ${cellH} + ${(rows - 1) * CELL_GAP}px)`;
+  // The height follows the measured width (the cells keep their aspect), so only the width is watched.
+  const { parentRef, width } = useParentSize({ initialSize: { width: 345 }, debounceTime: 40, ignoreDimensions: "height" });
   return (
-    <div style={{ containerType: "inline-size" }}>
-      <ParentSize initialSize={{ width: 345 }} debounceTime={40} style={{ height }}>
-        {({ width }) => (width > 0 ? <Calendar {...props} cells={cells} rows={rows} width={width} /> : null)}
-      </ParentSize>
+    <div ref={parentRef} style={{ height: gridSize(width, rows).height }}>
+      {width > 0 ? <Calendar {...props} cells={cells} rows={rows} width={width} /> : null}
     </div>
   );
 }
@@ -104,19 +91,19 @@ function Calendar({
 }: Props & { cells: Cell[]; rows: number; width: number }) {
   const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip, containerRef, TooltipInPortal } =
     useChartTooltip<Cell>();
-  const { cellW, cellH, height } = gridSize(width, rows);
+  const { gap, cellW, cellH, height } = gridSize(width, rows);
   const xScale = useMemo(
-    () => scaleBand<number>({ domain: [0, 1, 2, 3, 4, 5, 6], range: [0, width], paddingInner: CELL_GAP / (cellW + CELL_GAP) }),
-    [width, cellW],
+    () => scaleBand<number>({ domain: [0, 1, 2, 3, 4, 5, 6], range: [0, width], paddingInner: gap / (cellW + gap) }),
+    [width, cellW, gap],
   );
   const yScale = useMemo(
     () =>
       scaleBand<number>({
         domain: Array.from({ length: rows }, (_, i) => i),
         range: [HEADER, height],
-        paddingInner: CELL_GAP / (cellH + CELL_GAP),
+        paddingInner: gap / (cellH + gap),
       }),
-    [rows, height, cellH],
+    [rows, height, cellH, gap],
   );
   const showAmounts = cellW >= 70;
   const exact = formatAmount ?? formatMoney;
@@ -219,7 +206,7 @@ function Calendar({
                 />
                 <text
                   x={8}
-                  y={16}
+                  y={dayBaseline(cellW)}
                   fontSize={MIN_TEXT}
                   fontWeight={isToday ? 700 : 400}
                   fill={isToday ? tokens.textPrimary : c.inWindow ? tokens.textSecondary : tokens.textMuted}
