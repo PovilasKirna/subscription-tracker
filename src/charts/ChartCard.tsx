@@ -13,12 +13,15 @@ export function ChartCard({
   controls,
   children,
   className,
+  fill,
 }: {
   title: string;
   description?: ReactNode;
   controls?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** Let the content take the card's spare height, for a chart that grows to match a taller neighbour. */
+  fill?: boolean;
 }) {
   return (
     <Card className={cn("@container/chart", className)}>
@@ -34,7 +37,7 @@ export function ChartCard({
           </CardAction>
         )}
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent className={cn(fill && "flex flex-1 flex-col")}>{children}</CardContent>
     </Card>
   );
 }

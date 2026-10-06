@@ -121,6 +121,7 @@ export function SpendSection() {
       title="Monthly recurring spend"
       description={`${money(spent, cur)} ${span}, stacked by subscription${reimbursed > 0 ? ` · ${money(reimbursed, cur)} reimbursed` : ""}`}
       className={cn(isPending && "opacity-60 transition-opacity")}
+      fill
       controls={<RangeToggle label="Spend range" value={range} onChange={(r) => setParams({ range: r === "12m" ? null : r })} />}
     >
       <SpendColumns
@@ -128,6 +129,7 @@ export function SpendSection() {
         keys={keys}
         series={series}
         height={300}
+        fill
         formatValue={fmt}
         formatAxisValue={fmtAxis}
         formatMonth={monthLabel}

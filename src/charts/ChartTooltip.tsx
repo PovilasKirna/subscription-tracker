@@ -39,10 +39,24 @@ export function ChartTooltip({
 }
 
 /** A row inside a tooltip: colour key beside the text; the text stays in text tokens. */
-export function TooltipRow({ color, label, value, strong }: { color?: Paint; label: ReactNode; value: ReactNode; strong?: boolean }) {
+export function TooltipRow({
+  color,
+  icon,
+  label,
+  value,
+  strong,
+}: {
+  color?: Paint;
+  /** Shown in place of the colour swatch, e.g. a merchant logo. */
+  icon?: ReactNode;
+  label: ReactNode;
+  value: ReactNode;
+  strong?: boolean;
+}) {
   return (
     <div className="flex items-center gap-2 py-0.5 text-[var(--text-secondary)]">
-      {color !== undefined && (
+      {icon}
+      {icon === undefined && color !== undefined && (
         <span
           className={cn("size-2.5 shrink-0 rounded-[3px]", isOther(color) && "border border-[var(--text-secondary)]")}
           style={{ background: seriesColor(color) }}
