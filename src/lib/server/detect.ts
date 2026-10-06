@@ -225,19 +225,31 @@ export function assignColorSlots(subs: Subscription[], baseCurrency: string): vo
 type Found = { sub: Subscription; txs: TxRow[] };
 
 /**
- * Two price points that each charge at least twice while the other is also charging: concurrent
- * plans, not a price change (where the old price stops before the new one starts) or a switch
- * with one month of overlap.
+ * Whether two plans (their sorted charge dates) bill side by side: each has at least two billing
+ * periods that overlap the other plan's active span. A charge's period runs to the next charge, the
+ * last one's for a typical gap; a plan is active from its first charge to the end of its last period.
+ * So Jan 12/Feb 12 next to Jan 14/Feb 14 is parallel, while a price change (the old price stops as
+ * the new one starts) or a switch with one month of overlap is not.
  */
+export function runInParallel(a: readonly string[], b: readonly string[]): boolean {
+  const periods = (dates: readonly string[]) => {
+    const times = dates.map(toTime);
+    const gaps = times.slice(1).map((t, i) => t - times[i]);
+    const typical = gaps.length ? median(gaps) : 30.44 * DAY;
+    return times.map((from, i) => ({ from, to: times[i + 1] ?? from + typical }));
+  };
+  const pa = periods(a);
+  const pb = periods(b);
+  const span = (ps: { from: number; to: number }[]) => ({ from: ps[0].from, to: ps[ps.length - 1].to });
+  const overlapping = (ps: { from: number; to: number }[], s: { from: number; to: number }) =>
+    ps.filter((p) => p.from < s.to && p.to > s.from).length;
+  return pa.length > 0 && pb.length > 0 && overlapping(pa, span(pb)) >= 2 && overlapping(pb, span(pa)) >= 2;
+}
+
+/** Any two of the price points bill side by side (see `runInParallel`). */
 function hasParallelPlans(parts: Found[]): boolean {
-  const within = (p: Found, from: string, to: string) => p.sub.charges.filter((c) => c.date >= from && c.date <= to).length;
-  return parts.some((a, i) =>
-    parts.slice(i + 1).some((b) => {
-      const from = a.sub.firstCharge > b.sub.firstCharge ? a.sub.firstCharge : b.sub.firstCharge;
-      const to = a.sub.lastCharge < b.sub.lastCharge ? a.sub.lastCharge : b.sub.lastCharge;
-      return from <= to && within(a, from, to) >= 2 && within(b, from, to) >= 2;
-    }),
-  );
+  const dates = parts.map((p) => p.sub.charges.map((c) => c.date));
+  return dates.some((a, i) => dates.slice(i + 1).some((b) => runInParallel(a, b)));
 }
 
 /** Automatic detection over charges nobody assigned by hand, one merchant + currency at a time. */
@@ -376,10 +388,12 @@ export function detectSubscriptions(
   const found: Subscription[] = [];
   const txToSub = new Map<string, string>();
   for (const f of autoDetect(pool, overrides, today)) {
-    // Detection landed on a pinned key (e.g. new charges at a new price): fold them in.
+    // Detection landed on a pinned key (e.g. new charges at a new price): fold them in. A lone
+    // charge only "detected" because the key is confirmed (a one-off left over after a split)
+    // stays out, so it can't become the pinned subscription's latest price.
     const into = pinned.get(f.sub.key);
     if (into) {
-      into.push(...f.txs);
+      if (f.sub.chargeCount >= 2) into.push(...f.txs);
       continue;
     }
     found.push(f.sub);

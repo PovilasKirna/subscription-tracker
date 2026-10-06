@@ -1,5 +1,5 @@
 import type { TxRow } from "./db";
-import { clusterByAmount, type Detection, median } from "./detect";
+import { clusterByAmount, type Detection, median, runInParallel } from "./detect";
 
 // Planning for "add these payments to that subscription". Kept pure (no DB) so it's testable;
 // the /api/assignments route loads the inputs and writes the result.
@@ -60,40 +60,50 @@ export function planAssignment(
   return { ok: true, key: subKey, txIds: [...new Set([...members, ...rows.map((t) => t.id)])] };
 }
 
-/**
- * A subscription's charges grouped by price, for "Split by price": every price paid at least
- * twice is a plan, and a one-off price joins the plan closest to it. Fewer than two plans means
- * there is nothing to split. Plans come most expensive first.
- */
-export function pricePlans(members: TxRow[]): { amountMinor: number; txs: TxRow[] }[] {
-  const clusters = clusterByAmount(members).map((txs) => ({ amountMinor: Math.round(-median(txs.map((t) => t.amount_minor))), txs }));
-  const plans = clusters.filter((c) => c.txs.length >= 2);
-  if (plans.length < 2) return [];
-  for (const c of clusters) {
-    if (c.txs.length >= 2) continue;
-    const nearest = plans.reduce((a, b) => (Math.abs(b.amountMinor - c.amountMinor) < Math.abs(a.amountMinor - c.amountMinor) ? b : a));
-    nearest.txs.push(...c.txs);
-  }
-  return plans.sort((a, b) => b.amountMinor - a.amountMinor);
-}
+type Plan = { amountMinor: number; txs: TxRow[] };
+
+const datesOf = (txs: TxRow[]) => [...new Set(txs.map((t) => t.date))].sort();
+const daysBetween = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_400_000;
 
 /**
- * True when two of the plans each charge at least twice while the other is charging too: plans
- * billed side by side, not one price replacing another (a price change isn't worth splitting).
+ * A subscription's charges grouped into the plans billed side by side, for "Split by price". Every
+ * price paid at least twice is a price point; one whose first charge lands when another's next
+ * charge was due (about one billing period after its last) continues that plan as a price change. One-off prices belong to no plan, so
+ * they can't become a plan's latest charge (its price, and what its renewals are matched against).
+ * Fewer than two plans means there is nothing to split. Plans come most expensive first, priced
+ * at their latest charge.
  */
-export function plansOverlap(plans: { txs: TxRow[] }[]): boolean {
-  const span = (txs: TxRow[]) =>
-    txs.reduce((r, t) => ({ from: t.date < r.from ? t.date : r.from, to: t.date > r.to ? t.date : r.to }), { from: "9999", to: "" });
-  return plans.some((a, i) =>
-    plans.slice(i + 1).some((b) => {
-      const sa = span(a.txs);
-      const sb = span(b.txs);
-      const from = sa.from > sb.from ? sa.from : sb.from;
-      const to = sa.to < sb.to ? sa.to : sb.to;
-      const within = (txs: TxRow[]) => new Set(txs.filter((t) => t.date >= from && t.date <= to).map((t) => t.date)).size;
-      return from <= to && within(a.txs) >= 2 && within(b.txs) >= 2;
-    }),
-  );
+export function pricePlans(members: TxRow[]): Plan[] {
+  const points = clusterByAmount(members)
+    .filter((c) => c.length >= 2)
+    .map((txs) => ({ txs, dates: datesOf(txs), amountMinor: Math.round(-median(txs.map((t) => t.amount_minor))) }))
+    .sort((a, b) => a.dates[0].localeCompare(b.dates[0]));
+  const chains: (typeof points)[] = [];
+  for (const p of points) {
+    const candidates = chains.filter((chain) => {
+      const last = chain[chain.length - 1];
+      const gap = daysBetween(last.dates[last.dates.length - 1], p.dates[0]);
+      const period = daysBetween(last.dates[0], last.dates[last.dates.length - 1]) / (last.dates.length - 1);
+      return gap >= period * 0.5 && gap <= period * 1.5;
+    });
+    const closest = (chain: typeof points) => Math.abs(chain[chain.length - 1].amountMinor - p.amountMinor);
+    const into = candidates.sort((a, b) => closest(a) - closest(b))[0];
+    if (into) into.push(p);
+    else chains.push([p]);
+  }
+  if (chains.length < 2) return [];
+  return chains
+    .map((chain) => ({
+      amountMinor: chain[chain.length - 1].amountMinor,
+      txs: chain.flatMap((p) => p.txs).sort((a, b) => a.date.localeCompare(b.date)),
+    }))
+    .sort((a, b) => b.amountMinor - a.amountMinor);
+}
+
+/** True when two of the plans bill side by side (see `runInParallel`): worth offering a split. */
+export function plansOverlap(plans: Plan[]): boolean {
+  const dates = plans.map((p) => datesOf(p.txs));
+  return dates.some((a, i) => dates.slice(i + 1).some((b) => runInParallel(a, b)));
 }
 
 export type SplitPlan =
@@ -104,14 +114,15 @@ export type SplitPlan =
  * Splits one subscription into one per price it's billed at (e.g. Prime and its ad-free add-on
  * under one merchant). Every part is pinned, so detection keeps them apart from now on. The most
  * expensive plan keeps the subscription's key (and so its name, colour and other edits); the
- * others get fresh keys. `takenKeys` are keys with saved edits that a new part must not inherit.
+ * others get fresh keys. One-off charges at other prices stay out of every part. `takenKeys` are
+ * keys with saved edits that a new part must not inherit.
  */
 export function planSplit(txs: TxRow[], det: Detection, takenKeys: ReadonlySet<string>, subKey: string): SplitPlan {
   const target = det.subscriptions.find((s) => s.key === subKey);
   if (!target) return { ok: false, status: 404, error: "Subscription not found" };
   const members = txs.filter((t) => det.txToSub.get(t.id) === subKey);
   const plans = pricePlans(members);
-  if (!plans.length) return { ok: false, status: 400, error: "This subscription is billed at a single price" };
+  if (!plansOverlap(plans)) return { ok: false, status: 400, error: "This subscription isn't billed at several prices side by side" };
 
   const used = new Set([...takenKeys, ...det.subscriptions.map((s) => s.key), ...det.ignored.map((s) => s.key)]);
   const base = `${target.merchantKey}|${target.currency}`;

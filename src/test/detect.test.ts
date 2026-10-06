@@ -78,6 +78,13 @@ test("splits an add-on plan that starts long after the main one", () => {
   assert.equal(subscriptions.reduce((sum, s) => sum + s.monthlyCost, 0).toFixed(2), "7.98");
 });
 
+test("an add-on with only two cycles so far still splits off (billing periods overlap)", () => {
+  const prime = monthly("Amazon Prime*2K4LD8", 4.99, 16, 12); // Jan 2025 – Apr 2026, on the 12th
+  const adFree = monthly("Prime Video ad free", 2.99, 2, 14, 2026).map((t, i) => ({ ...t, date: `2026-0${i + 3}-14` })); // Mar 14, Apr 14
+  const { subscriptions } = detectSubscriptions([...prime, ...adFree], none, "2026-04-20");
+  assert.deepEqual(subscriptions.map((s) => s.amount).sort(), [2.99, 4.99]);
+});
+
 test("a plan switch with one overlapping month stays one subscription", () => {
   const before = monthly("Netflix.com", 12.99, 7, 7); // Jan–Jul
   const after = monthly("Netflix.com", 15.99, 6, 9).map((t, i) => ({ ...t, date: `2025-${String(i + 7).padStart(2, "0")}-09` })); // Jul–Dec
