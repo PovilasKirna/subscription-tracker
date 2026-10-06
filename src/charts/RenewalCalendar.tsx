@@ -32,10 +32,18 @@ type Props = {
 type Cell = { date: string; day: number; col: number; row: number; inWindow: boolean; charges: ExpectedCharge[] };
 
 const HEADER = 22;
-const CELL_H = 54;
+/** Cell height over cell width: 1 draws square days. */
+const CELL_ASPECT = 1;
+/** Space between two days, across and down. */
 const CELL_GAP = 6;
-/** Gap between a day's logo row and the bottom of its cell. */
-const LOGO_BOTTOM = 6;
+/** Gap between a day's logo row and the bottom of its cell (tighter on the narrowest phones). */
+const logoBottom = (cellW: number) => (cellW < 40 ? 3 : 6);
+/** Grid geometry for a container `width` px wide. */
+function gridSize(width: number, rows: number) {
+  const cellW = Math.max(0, (width - 6 * CELL_GAP) / 7);
+  const cellH = cellW * CELL_ASPECT;
+  return { cellW, cellH, height: HEADER + rows * cellH + (rows - 1) * CELL_GAP };
+}
 /** MerchantIcon sizes below its smallest preset, keyed by `logoSize`. */
 const LOGO_CLASS: Record<number, string | undefined> = { 16: "size-4 rounded-[4px] text-[7px]", 14: "size-3.5 rounded-[3px] text-[6px]" };
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -72,11 +80,16 @@ function buildCells(charges: readonly ExpectedCharge[], today: string, month: st
 export function RenewalCalendar(props: Props) {
   const cells = useMemo(() => buildCells(props.charges, props.today, props.month), [props.charges, props.today, props.month]);
   const rows = (cells.at(-1)?.row ?? 0) + 1;
-  const height = HEADER + rows * (CELL_H + CELL_GAP);
+  // ParentSize lays its content out absolutely, so its height is set up front: gridSize's sum in CSS,
+  // with 100cqw (the outer div's width) standing in for the measured width.
+  const cellH = `((100cqw - ${6 * CELL_GAP}px) / 7 * ${CELL_ASPECT})`;
+  const height = `calc(${HEADER}px + ${rows} * ${cellH} + ${(rows - 1) * CELL_GAP}px)`;
   return (
-    <ParentSize initialSize={{ width: 345 }} debounceTime={40} style={{ height }}>
-      {({ width }) => (width > 0 ? <Calendar {...props} cells={cells} rows={rows} width={width} /> : null)}
-    </ParentSize>
+    <div style={{ containerType: "inline-size" }}>
+      <ParentSize initialSize={{ width: 345 }} debounceTime={40} style={{ height }}>
+        {({ width }) => (width > 0 ? <Calendar {...props} cells={cells} rows={rows} width={width} /> : null)}
+      </ParentSize>
+    </div>
   );
 }
 
@@ -91,18 +104,19 @@ function Calendar({
 }: Props & { cells: Cell[]; rows: number; width: number }) {
   const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip, containerRef, TooltipInPortal } =
     useChartTooltip<Cell>();
-  const xScale = useMemo(() => scaleBand<number>({ domain: [0, 1, 2, 3, 4, 5, 6], range: [0, width], paddingInner: 0.08 }), [width]);
-  const cellW = xScale.bandwidth();
-  const cellH = CELL_H;
-  const height = HEADER + rows * (CELL_H + CELL_GAP);
+  const { cellW, cellH, height } = gridSize(width, rows);
+  const xScale = useMemo(
+    () => scaleBand<number>({ domain: [0, 1, 2, 3, 4, 5, 6], range: [0, width], paddingInner: CELL_GAP / (cellW + CELL_GAP) }),
+    [width, cellW],
+  );
   const yScale = useMemo(
     () =>
       scaleBand<number>({
         domain: Array.from({ length: rows }, (_, i) => i),
         range: [HEADER, height],
-        paddingInner: CELL_GAP / (CELL_H + CELL_GAP),
+        paddingInner: CELL_GAP / (cellH + CELL_GAP),
       }),
-    [rows, height],
+    [rows, height, cellH],
   );
   const showAmounts = cellW >= 70;
   const exact = formatAmount ?? formatMoney;
@@ -228,7 +242,7 @@ function Calendar({
                 {logos.more > 0 && (
                   <text
                     x={logoX(logos.size, logos.shown)}
-                    y={cellH - LOGO_BOTTOM - logos.size / 2}
+                    y={cellH - logoBottom(cellW) - logos.size / 2}
                     dominantBaseline="central"
                     fontSize={MIN_TEXT}
                     fill={tokens.textMuted}
@@ -285,7 +299,7 @@ function Calendar({
         {cells.map((c) => {
           if (!c.charges.length) return null;
           const logos = dayLogoLayout(cellW, c.charges.length);
-          const top = (yScale(c.row) ?? 0) + cellH - LOGO_BOTTOM - logos.size;
+          const top = (yScale(c.row) ?? 0) + cellH - logoBottom(cellW) - logos.size;
           return c.charges
             .slice(0, logos.shown)
             .map((ch, k) => (
@@ -304,7 +318,12 @@ function Calendar({
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
           <div className="mb-1 font-medium">{formatDate(tooltipData.date)}</div>
           {tooltipData.charges.map((ch) => (
-            <TooltipRow key={ch.key} color={ch.color} label={ch.name} value={exact(ch.amount, ch.currency)} />
+            <TooltipRow
+              key={ch.key}
+              icon={<MerchantIcon name={ch.name} website={ch.website} size="sm" />}
+              label={ch.name}
+              value={exact(ch.amount, ch.currency)}
+            />
           ))}
         </ChartTooltip>
       )}
