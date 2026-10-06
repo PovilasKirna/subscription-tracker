@@ -1,5 +1,5 @@
 import type { TxRow } from "./db";
-import type { Detection } from "./detect";
+import { chainPricePoints, clusterByAmount, type Detection, median, runInParallel } from "./detect";
 
 // Planning for "add these payments to that subscription". Kept pure (no DB) so it's testable;
 // the /api/assignments route loads the inputs and writes the result.
@@ -58,4 +58,71 @@ export function planAssignment(
   }
   const members = [...det.txToSub].filter(([, k]) => k === subKey).map(([id]) => id);
   return { ok: true, key: subKey, txIds: [...new Set([...members, ...rows.map((t) => t.id)])] };
+}
+
+type Plan = { amountMinor: number; txs: TxRow[] };
+
+const datesOf = (txs: TxRow[]) => [...new Set(txs.map((t) => t.date))].sort();
+
+/**
+ * A subscription's charges grouped into the plans billed side by side, for "Split by price". Every
+ * price paid at least twice is a price point, and a price change continues its plan (see
+ * `chainPricePoints`). One-off prices belong to no plan, so they can't become a plan's latest
+ * charge (its price, and what its renewals are matched against). Fewer than two plans means there
+ * is nothing to split. Plans come most expensive first, priced at their latest charge.
+ */
+export function pricePlans(members: TxRow[]): Plan[] {
+  const points = clusterByAmount(members)
+    .filter((c) => c.length >= 2)
+    .map((txs) => ({ txs, dates: datesOf(txs), amountMinor: Math.round(-median(txs.map((t) => t.amount_minor))) }));
+  const chains = chainPricePoints(points);
+  if (chains.length < 2) return [];
+  return chains
+    .map((chain) => ({
+      amountMinor: chain[chain.length - 1].amountMinor,
+      txs: chain.flatMap((p) => p.txs).sort((a, b) => a.date.localeCompare(b.date)),
+    }))
+    .sort((a, b) => b.amountMinor - a.amountMinor);
+}
+
+/** True when two of the plans bill side by side (see `runInParallel`): worth offering a split. */
+export function plansOverlap(plans: Plan[]): boolean {
+  const dates = plans.map((p) => datesOf(p.txs));
+  return dates.some((a, i) => dates.slice(i + 1).some((b) => runInParallel(a, b)));
+}
+
+export type SplitPlan =
+  | {
+      ok: true;
+      parts: { key: string; txIds: string[]; amountMinor: number; isNew: boolean }[];
+      /** Charges that belonged to the subscription but to none of its plans (one-offs): unpin them. */
+      released: string[];
+    }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Splits one subscription into one per price it's billed at (e.g. Prime and its ad-free add-on
+ * under one merchant). Every part is pinned, so detection keeps them apart from now on. The most
+ * expensive plan keeps the subscription's key (and so its name, colour and other edits); the
+ * others get fresh keys. One-off charges at other prices stay out of every part. `takenKeys` are
+ * keys with saved edits that a new part must not inherit.
+ */
+export function planSplit(txs: TxRow[], det: Detection, takenKeys: ReadonlySet<string>, subKey: string): SplitPlan {
+  const target = det.subscriptions.find((s) => s.key === subKey);
+  if (!target) return { ok: false, status: 404, error: "Subscription not found" };
+  const members = txs.filter((t) => det.txToSub.get(t.id) === subKey);
+  const plans = pricePlans(members);
+  if (!plansOverlap(plans)) return { ok: false, status: 400, error: "This subscription isn't billed at several prices side by side" };
+
+  const used = new Set([...takenKeys, ...det.subscriptions.map((s) => s.key), ...det.ignored.map((s) => s.key)]);
+  const base = `${target.merchantKey}|${target.currency}`;
+  const parts = plans.map((p, i) => {
+    if (i === 0) return { key: subKey, txIds: p.txs.map((t) => t.id), amountMinor: p.amountMinor, isNew: false };
+    let key = `${base}|${p.amountMinor}`;
+    for (let n = 2; used.has(key); n++) key = `${base}|${p.amountMinor}-${n}`;
+    used.add(key);
+    return { key, txIds: p.txs.map((t) => t.id), amountMinor: p.amountMinor, isNew: true };
+  });
+  const kept = new Set(parts.flatMap((p) => p.txIds));
+  return { ok: true, parts, released: members.filter((t) => !kept.has(t.id)).map((t) => t.id) };
 }

@@ -1,17 +1,22 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { BadgeCheckIcon } from "lucide-react";
+import { BadgeCheckIcon, ChevronRightIcon } from "lucide-react";
 import { ChargeSparkline } from "@/charts";
 import { DataTableColumnHeader } from "@/components/data-table";
 import { MerchantIcon } from "@/components/MerchantIcon";
 import { CADENCE_LABEL, fullDate, money, relativeDays } from "@/lib/format";
 import { isLive } from "@/lib/insights";
+import { cn } from "@/lib/utils";
 import { ColorSwatch } from "./ColorPicker";
 import { StatusBadge } from "./StatusBadge";
 import { SubscriptionActions } from "./SubscriptionActions";
 import { SubscriptionFlags } from "./SubscriptionFlags";
 import type { SubscriptionRow } from "./shared";
+
+/** "Mixed" when a group's members renew on different schedules. */
+export const billingLabel = (s: SubscriptionRow) =>
+  s.members && new Set(s.members.map((m) => m.cadence)).size > 1 ? "Mixed" : CADENCE_LABEL[s.cadence];
 
 /** Column ids that can be sorted match the URL's `sort` values; the server does the sorting. */
 export function subscriptionColumns(today: string, open: (key: string) => void): ColumnDef<SubscriptionRow>[] {
@@ -23,27 +28,58 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       // Takes the leftover width and truncates instead of pushing the table wider.
       meta: { label: "Subscription", className: "w-full max-w-0 min-w-44" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Subscription" />,
-      cell: ({ row: { original: s } }) => (
-        <div className="flex items-center gap-2.5">
-          <ColorSwatch color={s.color} none={s.colorChosen && s.color === null} className="size-2.5" />
-          <MerchantIcon name={s.name} website={s.website} />
-          <div className="min-w-0">
-            {/* The row's keyboard and screen-reader entry point; the row click is a mouse shortcut. */}
-            <button
-              type="button"
-              onClick={() => open(s.key)}
-              className="block max-w-full truncate rounded-sm text-left font-medium hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
-            >
-              {s.name}
-            </button>
-            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
-              {s.category}
-              {s.confirmed && <BadgeCheckIcon className="size-3.5 text-[var(--status-good)]" aria-label="Confirmed by you" />}
-              <SubscriptionFlags sub={s} />
+      cell: ({ row }) => {
+        const s = row.original;
+        if (s.members) {
+          const open = row.getIsExpanded();
+          return (
+            <div className="flex items-center gap-2.5">
+              <ChevronRightIcon
+                className={cn(
+                  "size-4 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none",
+                  open && "rotate-90",
+                )}
+                aria-hidden
+              />
+              <MerchantIcon name={s.name} website={s.website} />
+              <div className="min-w-0">
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={row.getToggleExpandedHandler()}
+                  className="block max-w-full truncate rounded-sm text-left font-medium hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
+                >
+                  {s.name}
+                </button>
+                <div className="text-xs text-muted-foreground">
+                  {s.members.length} subscription{s.members.length === 1 ? "" : "s"} · {s.category}
+                </div>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className={cn("flex items-center gap-2.5", row.depth > 0 && "pl-6.5")}>
+            <ColorSwatch color={s.color} none={s.colorChosen && s.color === null} className="size-2.5" />
+            <MerchantIcon name={s.name} website={s.website} />
+            <div className="min-w-0">
+              {/* The row's keyboard and screen-reader entry point; the row click is a mouse shortcut. */}
+              <button
+                type="button"
+                onClick={() => open(s.key)}
+                className="block max-w-full truncate rounded-sm text-left font-medium hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
+              >
+                {s.name}
+              </button>
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+                {s.category}
+                {s.confirmed && <BadgeCheckIcon className="size-3.5 text-[var(--status-good)]" aria-label="Confirmed by you" />}
+                <SubscriptionFlags sub={s} />
+              </div>
             </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       id: "cadence",
@@ -51,7 +87,7 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       enableSorting: false,
       meta: { label: "Billing", className: "hidden whitespace-nowrap @3xl/data-table:table-cell" },
       header: ({ column }) => <DataTableColumnHeader column={column} title="Billing" />,
-      cell: ({ row }) => <span className="text-muted-foreground">{CADENCE_LABEL[row.original.cadence]}</span>,
+      cell: ({ row }) => <span className="text-muted-foreground">{billingLabel(row.original)}</span>,
     },
     {
       id: "amount",
@@ -115,7 +151,7 @@ export function subscriptionColumns(today: string, open: (key: string) => void):
       enableHiding: false,
       meta: { className: "w-10" },
       header: () => <span className="sr-only">Actions</span>,
-      cell: ({ row }) => <SubscriptionActions sub={row.original} onOpen={() => open(row.original.key)} />,
+      cell: ({ row }) => (row.original.members ? null : <SubscriptionActions sub={row.original} onOpen={() => open(row.original.key)} />),
     },
   ];
 }

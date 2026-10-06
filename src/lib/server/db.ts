@@ -35,6 +35,8 @@ export type Override = {
   cadence: Cadence | null;
   /** Website the logo is looked up from (e.g. "hostinger.com"); null = the built-in one, if any. */
   website: string | null;
+  /** Name of the group it's listed under on the Subscriptions page; null = on its own. */
+  group_name: string | null;
 };
 
 /** `color_slot` for a subscription the user explicitly left uncoloured. */
@@ -236,6 +238,7 @@ const COLUMNS: Record<string, Record<string, string>> = {
     color_hex: "TEXT", // user-picked custom colour
     cadence: "TEXT", // user-set renewal cadence; null = detected
     website: "TEXT", // user-set website for the logo; null = built-in
+    group_name: "TEXT", // user-set group on the Subscriptions page; null = ungrouped
   },
 };
 
@@ -260,7 +263,8 @@ export async function openDb(url = config.databaseUrl, authToken = config.databa
 // Bump SCHEMA_VERSION when SCHEMA/COLUMNS change so a cached client gets migrated too.
 // 14: PR3 (notifications) uses 13 and this branch used 12 for push_subscriptions; a client migrated
 // at either must still pick up the other side's tables.
-const SCHEMA_VERSION = 14;
+// 15: overrides.group_name.
+const SCHEMA_VERSION = 15;
 const g = globalThis as unknown as { __trackerDb?: Promise<Client>; __trackerDbVersion?: number };
 export function getDb(): Promise<Client> {
   if (!g.__trackerDb || g.__trackerDbVersion !== SCHEMA_VERSION) {
@@ -414,21 +418,29 @@ export async function allAssignments(db: Db): Promise<Map<string, string>> {
   return new Map(rows.map((r) => [r.tx_id, r.sub_key]));
 }
 
-const OVERRIDE_FIELDS = ["display_name", "category", "status", "color_slot", "color_hex", "cadence", "website"] as const;
+const OVERRIDE_FIELDS = ["display_name", "category", "status", "color_slot", "color_hex", "cadence", "website", "group_name"] as const;
 
 /**
  * Upsert one override, changing only the fields present in `patch` (null clears a field).
  * One statement, so overlapping edits (e.g. a rename and a colour pick) never undo each other.
  */
 export async function saveOverride(db: Db, key: string, patch: Partial<Omit<Override, "key">>): Promise<void> {
+  const statement = overrideStatement(key, patch);
+  if (statement) await run(db, statement.sql, statement.args);
+}
+
+/** The upsert `saveOverride` runs, for callers that batch it with other writes; null if `patch` is empty. */
+export function overrideStatement(
+  key: string,
+  patch: Partial<Omit<Override, "key">>,
+): { sql: string; args: (string | number | null)[] } | null {
   const supplied = OVERRIDE_FIELDS.filter((f) => patch[f] !== undefined);
-  if (!supplied.length) return;
+  if (!supplied.length) return null;
   const set = supplied.map((f) => `${f} = excluded.${f}`).join(", ");
-  await run(
-    db,
-    `INSERT INTO overrides (key, ${OVERRIDE_FIELDS.join(", ")}) VALUES (?, ${OVERRIDE_FIELDS.map(() => "?").join(", ")}) ON CONFLICT(key) DO UPDATE SET ${set}`,
-    [key, ...OVERRIDE_FIELDS.map((f) => patch[f] ?? null)],
-  );
+  return {
+    sql: `INSERT INTO overrides (key, ${OVERRIDE_FIELDS.join(", ")}) VALUES (?, ${OVERRIDE_FIELDS.map(() => "?").join(", ")}) ON CONFLICT(key) DO UPDATE SET ${set}`,
+    args: [key, ...OVERRIDE_FIELDS.map((f) => patch[f] ?? null)],
+  };
 }
 
 export async function allOverrides(db: Db): Promise<Map<string, Override>> {
