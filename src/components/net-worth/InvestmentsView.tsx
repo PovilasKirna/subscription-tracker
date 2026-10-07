@@ -232,7 +232,7 @@ function PositionRow({ p, currency, share }: { p: BrokerPosition; currency: stri
   const rate = p.profitLoss !== null && p.cost ? p.profitLoss / p.cost : null;
   return (
     <li className="flex items-center gap-3 py-2.5">
-      <MerchantIcon name={p.name} website={null} />
+      <MerchantIcon name={p.name} website={null} logo={`/api/logo/ticker/${encodeURIComponent(p.ticker)}`} />
       <div className="min-w-0">
         <div className="truncate font-medium">{p.name}</div>
         <div className="text-xs text-[var(--text-muted)]">
