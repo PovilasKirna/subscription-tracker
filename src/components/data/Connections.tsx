@@ -223,19 +223,24 @@ function ConnectionTile({ session: s, onOpen }: { session: BankSession; onOpen: 
 
 /** Trading 212's status (it has no consent to renew, so the tile links to the Investments page). */
 function Trading212Tile() {
-  const { data, isPending } = useQuery(investmentsQuery());
+  const { data, isPending, isError } = useQuery(investmentsQuery());
   if (isPending) return <Skeleton className="h-[104px] rounded-xl" />;
+  // A failed request isn't "not set up": without the payload we can't tell whether a key is set.
+  // (A failed background refetch keeps the last data, which is still worth showing.)
+  const failed = isError && !data;
   const h = data?.holding ?? null;
   const configured = data?.configured ?? false;
-  const status: { tone: ConnectionTone | "off"; label: string } = !configured
-    ? { tone: "off", label: "Not set up" }
-    : h?.error
-      ? { tone: "warning", label: "Last fetch failed" }
-      : !h?.asOf
-        ? { tone: "off", label: "Not fetched yet" }
-        : h.stale
-          ? { tone: "warning", label: "Out of date" }
-          : { tone: "good", label: "Healthy" };
+  const status: { tone: ConnectionTone | "off"; label: string } = failed
+    ? { tone: "warning", label: "Status unavailable" }
+    : !configured
+      ? { tone: "off", label: "Not set up" }
+      : h?.error
+        ? { tone: "warning", label: "Last fetch failed" }
+        : !h?.asOf
+          ? { tone: "off", label: "Not fetched yet" }
+          : h.stale
+            ? { tone: "warning", label: "Out of date" }
+            : { tone: "good", label: "Healthy" };
   const positions = h?.broker?.positions?.length;
   const deposits = data?.deposits;
   return (
@@ -256,7 +261,9 @@ function Trading212Tile() {
           <span className="text-foreground">{status.label}</span>
         </div>
         <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
-          {!configured ? (
+          {failed ? (
+            <div>Couldn't load Trading 212 just now — open Investments to retry</div>
+          ) : !configured ? (
             <div>Add a read-only API key to track your portfolio</div>
           ) : (
             <>
@@ -265,7 +272,7 @@ function Trading212Tile() {
               {h?.value != null && h.currency && (
                 <div>
                   {money(h.value, h.currency)}
-                  {positions ? ` · ${plural(positions, "position")}` : ""}
+                  {positions !== undefined && ` · ${plural(positions, "position")}`}
                 </div>
               )}
               {deposits?.error ? (
