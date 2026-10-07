@@ -334,22 +334,22 @@ function reminderCharges(
 /** The bell's feed: newest first, resolution checked live so recording a charge shows at once. */
 export async function getNotificationFeed(): Promise<NotificationsPayload> {
   const db = await getDb();
-  const page = () =>
-    all<Row>(db, `SELECT ${COLUMNS} FROM notifications WHERE silent = 0 ORDER BY created_at DESC, id DESC LIMIT ?`, [FEED_LIMIT]);
-  let rows = await page();
+  // The page and the unread count go out together: each is a round trip to a remote database.
+  const read = () =>
+    Promise.all([
+      all<Row>(db, `SELECT ${COLUMNS} FROM notifications WHERE silent = 0 ORDER BY created_at DESC, id DESC LIMIT ?`, [FEED_LIMIT]),
+      all<{ n: number }>(db, "SELECT COUNT(*) AS n FROM notifications WHERE silent = 0 AND read_at IS NULL AND resolved_at IS NULL"),
+    ]);
+  let [rows, unread] = await read();
   let pending = new Set<string>();
   let records: ReadonlyMap<string, number> = new Map();
   if (rows.some((r) => r.type === "reimbursement_reminder" || (!r.resolved_at && RESOLVABLE.includes(r.type)))) {
     // The detection snapshot is cached until the data changes, so this is cheap on a poll.
-    const snapshot = await loadSnapshot(db);
-    if (await resolveOpen(db, snapshot, new Date())) rows = await page();
+    const [snapshot, { reimbursement }] = await Promise.all([loadSnapshot(db), detection()]);
+    if (await resolveOpen(db, snapshot, new Date())) [rows, unread] = await read();
     pending = new Set(snapshot.pendingCharges.map((c) => c.txId));
-    records = (await detection()).reimbursement.records;
+    records = reimbursement.records;
   }
-  const unread = await all<{ n: number }>(
-    db,
-    "SELECT COUNT(*) AS n FROM notifications WHERE silent = 0 AND read_at IS NULL AND resolved_at IS NULL",
-  );
   return {
     items: rows.map((r): NotificationItem => {
       const data = parseData(r.data_json);

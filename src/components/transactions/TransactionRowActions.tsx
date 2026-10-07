@@ -4,6 +4,7 @@ import {
   ArrowRightLeftIcon,
   CopyIcon,
   EyeOffIcon,
+  Loader2Icon,
   MinusCircleIcon,
   MoreHorizontalIcon,
   RepeatIcon,
@@ -27,7 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CATEGORIES } from "@/lib/categories";
-import { useExclusion, useOverride } from "@/lib/query/mutations";
+import { useCategoryPending, useExclusion, useOverride } from "@/lib/query/mutations";
 import type { TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AddToSubscriptionDialog } from "./AddToSubscriptionDialog";
@@ -45,6 +46,7 @@ export function TransactionRowActions({
 }) {
   const override = useOverride();
   const exclusion = useExclusion();
+  const savingCategory = useCategoryPending(tx);
   const [assigning, setAssigning] = useState(false);
   const outgoing = tx.amount < 0;
 
@@ -66,9 +68,12 @@ export function TransactionRowActions({
         <DropdownMenuContent align="end" className="w-60">
           {/* The category, here too: on phones the table's category column isn't shown. */}
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <CategoryIconFor tx={tx} />
-              <span className="truncate">Category: {CATEGORIES[tx.category].label}</span>
+            <DropdownMenuSubTrigger disabled={savingCategory} aria-busy={savingCategory} className="data-disabled:opacity-50">
+              {savingCategory ? <Loader2Icon className="animate-spin" aria-hidden /> : <CategoryIconFor tx={tx} />}
+              <span className="truncate">
+                Category: {CATEGORIES[tx.category].label}
+                {savingCategory && <span className="sr-only"> (saving)</span>}
+              </span>
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="max-h-[70vh] w-64 overflow-y-auto">
               <CategoryMenuItems tx={tx} />
