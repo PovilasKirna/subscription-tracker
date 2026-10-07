@@ -66,9 +66,17 @@ const DERIVED: ReadonlySet<unknown> = new Set([
   keys.notifications[0], // resolves "new subscription" and reimbursement reminders
   "spending",
   keys.netWorth[0], // an account's page lists its payments
+  keys.categoryUsage[0], // Settings → Categories counts payments per category
 ]);
 /** Where a payment's category shows. Subscriptions and their history don't use it. */
-const CATEGORIZED: ReadonlySet<unknown> = new Set(["transactions", "subscription-detail", "assign-options", "spending", keys.netWorth[0]]);
+const CATEGORIZED: ReadonlySet<unknown> = new Set([
+  "transactions",
+  "subscription-detail",
+  "assign-options",
+  "spending",
+  keys.netWorth[0],
+  keys.categoryUsage[0],
+]);
 
 const refresh = (qc: QueryClient, kinds: ReadonlySet<unknown>) => qc.invalidateQueries({ predicate: (q) => kinds.has(q.queryKey[0]) });
 
