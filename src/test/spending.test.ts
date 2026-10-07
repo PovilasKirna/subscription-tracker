@@ -133,6 +133,28 @@ test("a month's totals, categories, running total and comparison with the month 
   assert.deepEqual(s.otherCurrencies, ["GBP"]);
 });
 
+test("a recurring transfer filed under Savings isn't projected as spending", () => {
+  const txs = [
+    tx("2026-09-25", -300, "To Emergency Fund", { type: "TRANSFER" }),
+    tx("2026-09-12", -10, "Netflix.com"),
+    tx("2026-10-02", -20, "Lidl Vilnius"),
+  ];
+  const [fund, netflix] = txs;
+  const txToSub = new Map([
+    [fund.id, "to-emergency-fund|EUR"],
+    [netflix.id, "netflix|EUR"],
+  ]);
+  const categoryOf = categorizeAll(txs, txToSub, { byTx: new Map(), byMerchant: new Map([[fund.merchant_key, "savings"]]) });
+  const subscriptions = [
+    sub({ key: "to-emergency-fund|EUR", name: "Emergency fund", amount: 300, nextCharge: "2026-10-25" }),
+    sub({ key: "netflix|EUR", name: "Netflix", amount: 10, nextCharge: "2026-10-12" }),
+  ];
+  const s = buildSpending({ txs, txToSub, categoryOf, subscriptions, base: "EUR", range: "1m", at: "", today: "2026-10-10" });
+  assert.equal(s.upcomingSubscriptions, 10, "only Netflix is still to be spent");
+  assert.equal(s.points[24].projectedAmount ?? 0, 0, "nothing expected on the fund's day");
+  assert.equal(s.points[11].projectedAmount, 10);
+});
+
 test("the current month compares with the same day last month and projects to month end", () => {
   const txs = [
     // Three finished months of 310 a month of day-to-day spending (10/day in 31-day months).

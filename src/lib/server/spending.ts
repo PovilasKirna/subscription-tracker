@@ -138,6 +138,15 @@ export function buildSpending(input: {
   //   follows your rhythm instead of running straight.
   // - Months still to come (6M, 1Y): your usual month (the same months' average, everything included).
   const projecting = isCurrent && today < period.end;
+  // A subscription is projected as spending while its latest charge counts as one: a recurring
+  // transfer filed under Savings (or between your own accounts) is money kept, not spent.
+  const latestCharge = new Map<string, { date: string; kind: CategoryKind }>();
+  for (const tx of input.txs) {
+    const key = input.txToSub?.get(tx.id);
+    if (!key || (latestCharge.get(key)?.date ?? "") > tx.date) continue;
+    latestCharge.set(key, { date: tx.date, kind: categories.of(input.categoryOf.get(tx.id) ?? "general").kind });
+  }
+  const spentOn = (s: Subscription) => (latestCharge.get(s.key)?.kind ?? "spend") === "spend";
   const expected = new Map<string, number>();
   let upcomingSubscriptions = 0;
   let monthRemainder = 0; // the rest of the current month, for month-by-month periods
@@ -146,7 +155,7 @@ export function buildSpending(input: {
     const currentMonth = today.slice(0, 7);
     const dailyEnd = period.unit === "day" ? period.end : lastOf(currentMonth);
     const due = projectChargesBetween(
-      input.subscriptions.filter((s) => isLive(s) && s.currency === base),
+      input.subscriptions.filter((s) => isLive(s) && s.currency === base && spentOn(s)),
       addDays(today, 1),
       addDays(dailyEnd, 1),
     );

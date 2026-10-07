@@ -43,8 +43,10 @@ export function parseCategoryInput(body: unknown, target: Category | null, taken
     const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!name && !target?.builtIn) return fail("Give the category a name");
     if (name.length > MAX_CATEGORY_NAME) return fail(`Keep the name under ${MAX_CATEGORY_NAME} characters`);
-    if (name && taken(name)) return fail(`There's already a category called ${name}`);
     const builtIn = target && isBuiltinCategoryId(target.id) ? BUILTIN_CATEGORIES[target.id] : null;
+    // A cleared built-in name means its own again, which must be free too.
+    const shown = name || builtIn?.label || "";
+    if (shown && taken(shown)) return fail(`There's already a category called ${shown}`);
     out.label = builtIn && (!name || name === builtIn.label) ? null : name;
   }
 

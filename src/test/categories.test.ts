@@ -190,6 +190,15 @@ test("new and edited categories are validated", () => {
   assert.deepEqual(parseCategoryInput({ hidden: true }, c.of("transfers"), free), { ok: true, value: { hidden: true } });
   assert.equal(parseCategoryInput({ hidden: true }, c.of("general"), free).ok, false, "a catch-all can't be hidden");
   assert.equal(parseCategoryInput({ hidden: true }, c.of("c_fund0000"), free).ok, false, "custom ones are deleted instead");
+
+  // Groceries renamed to Food, then a custom "Groceries": clearing Food's name would bring back a taken one.
+  const renamed = buildCategories([
+    row({ id: "groceries", label: "Food", kind: null }),
+    row({ id: "c_groc0000", label: "Groceries", kind: "spend" }),
+  ]);
+  const r = categoryLookup(renamed);
+  assert.equal(parseCategoryInput({ name: "" }, r.of("groceries"), nameTaken(renamed, "groceries")).ok, false);
+  assert.equal(parseCategoryInput({ name: "Groceries" }, r.of("groceries"), nameTaken(renamed, "groceries")).ok, false);
 });
 
 // ---------- storage ----------
