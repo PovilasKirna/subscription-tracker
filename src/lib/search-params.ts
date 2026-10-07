@@ -8,7 +8,6 @@ import {
   parseAsString,
   parseAsStringLiteral,
 } from "nuqs/server";
-import { CATEGORY_IDS } from "./categories";
 
 // Type-safe URL state (nuqs). The same parsers are read on the server (to prefetch the
 // right query), by the API route (to parse the request) and on the client (useQueryStates),
@@ -93,7 +92,8 @@ export const transactionParams = {
   type: parseAsArrayOf(parseAsStringLiteral(TX_TYPES)).withDefault([]),
   source: parseAsArrayOf(parseAsStringLiteral(SOURCES)).withDefault([]),
   sub: parseAsArrayOf(parseAsStringLiteral(SUBSCRIPTION_MEMBERSHIP)).withDefault([]),
-  category: parseAsArrayOf(parseAsStringLiteral(CATEGORY_IDS)).withDefault([]),
+  /** Category ids: built-in ones, or the user's own ("c_…"), so any string. */
+  category: parseAsArrayOf(parseAsString).withDefault([]),
   /** One calendar month (YYYY-MM); "" = all time. */
   month: parseAsString.withDefault(""),
   /** A date range (YYYY-MM-DD, inclusive), e.g. a period on the Spending page; "" = open-ended. */

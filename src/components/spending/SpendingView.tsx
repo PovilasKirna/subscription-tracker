@@ -10,23 +10,24 @@ import {
   CircleMinusIcon,
   CirclePlusIcon,
   ListIcon,
+  PiggyBankIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useQueryStates } from "nuqs";
 import { type PointerEvent, useMemo, useRef, useState, useTransition } from "react";
-import { type SpendingBarPoint, SpendingBars, SpendingPace, type SpendingPacePoint } from "@/charts";
+import { type SpendingBarPoint, SpendingBars, SpendingPace, type SpendingPacePoint, seriesColor } from "@/charts";
 import { ChartCardSkeleton } from "@/components/overview/skeletons";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { CATEGORIES } from "@/lib/categories";
 import { money } from "@/lib/format";
 import { spendingQuery } from "@/lib/query/options";
+import { useCategories } from "@/lib/query/useCategories";
 import { SPENDING_RANGES, spendingParams } from "@/lib/search-params";
 import type { SpendingCategory, SpendingPayload, SpendingRange } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { CategoryIcon } from "./CategoryIcon";
+import { CategoryIcon, categoryColor } from "./CategoryIcon";
 
 // ---------- period labels ----------
 
@@ -125,6 +126,7 @@ export function SpendingView() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
           <IncomeCard data={data} />
           <CashflowCard data={data} />
+          <SavedCard data={data} className="sm:col-span-2 lg:col-span-1" />
         </div>
       </div>
     </div>
@@ -328,9 +330,35 @@ function Change({ value, currency, moreIsBad }: { value: number; currency: strin
 const transactionsHref = (data: SpendingPayload, category?: string) =>
   `/transactions?${new URLSearchParams({ ...(category && { category }), from: data.period.start, to: data.period.cutoff })}`;
 
-// ---------- income & cashflow ----------
+// ---------- income, savings & cashflow ----------
 
-const INCOME_COLOR: Record<string, string> = { salary: "var(--series-1)", income: "var(--series-3)" };
+/** A stacked bar of categories' shares and a list of them, each linking to its payments. */
+function Breakdown({ data, categories }: { data: SpendingPayload; categories: SpendingCategory[] }) {
+  const lookup = useCategories();
+  const cur = data.baseCurrency;
+  // Unlike spending categories, these are told apart by colour; the neutral grey stands in for none.
+  const color = (id: string) => seriesColor(lookup.of(id).color);
+  return (
+    <>
+      <div className="mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full" aria-hidden>
+        {categories.map((c) => (
+          <div key={c.id} style={{ width: `${Math.max(0, c.share) * 100}%`, background: color(c.id) }} />
+        ))}
+      </div>
+      <ul className="mt-2.5 flex flex-col gap-1 text-[13px]">
+        {categories.map((c) => (
+          <li key={c.id}>
+            <Link href={transactionsHref(data, c.id)} className="flex items-center gap-2 rounded-md hover:text-foreground">
+              <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: color(c.id) }} />
+              <span className="truncate text-[var(--text-secondary)]">{lookup.of(c.id).label}</span>
+              <span className="ml-auto font-medium tabular-nums">{money(c.amount, cur, { cents: false })}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
 
 function IncomeCard({ data }: { data: SpendingPayload }) {
   const cur = data.baseCurrency;
@@ -343,25 +371,48 @@ function IncomeCard({ data }: { data: SpendingPayload }) {
         <div className="mt-1 text-[12.5px] text-[var(--text-muted)]">
           <Change value={total - previous} currency={cur} /> vs {previousName(data)}
         </div>
-        {total > 0 && (
-          <>
-            <div className="mt-4 flex h-2 gap-0.5 overflow-hidden rounded-full" aria-hidden>
-              {categories.map((c) => (
-                <div key={c.id} style={{ width: `${c.share * 100}%`, background: INCOME_COLOR[c.id] ?? "var(--series-other)" }} />
-              ))}
-            </div>
-            <ul className="mt-2.5 flex flex-col gap-1 text-[13px]">
-              {categories.map((c) => (
-                <li key={c.id}>
-                  <Link href={transactionsHref(data, c.id)} className="flex items-center gap-2 rounded-md hover:text-foreground">
-                    <span className="size-2.5 shrink-0 rounded-[3px]" style={{ background: INCOME_COLOR[c.id] ?? "var(--series-other)" }} />
-                    <span className="text-[var(--text-secondary)]">{CATEGORIES[c.id].label}</span>
-                    <span className="ml-auto font-medium tabular-nums">{money(c.amount, cur, { cents: false })}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </>
+        {total > 0 && <Breakdown data={data} categories={categories} />}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Money put aside in savings categories: neither spent nor earned, so it isn't in Spent or the
+ * cashflow. Money taken back out of savings counts against it, so the total can be negative. Shown
+ * while there's a savings category to put payments in, or anything saved in either period.
+ */
+function SavedCard({ data, className }: { data: SpendingPayload; className?: string }) {
+  const lookup = useCategories();
+  const cur = data.baseCurrency;
+  const { total, previous, categories } = data.saved;
+  const hasSavings = lookup.list.some((c) => c.kind === "savings" && !c.hidden);
+  if (!hasSavings && !total && !previous) return null;
+  const ofIncome = data.income.total > 0 && total > 0 ? Math.round((total / data.income.total) * 100) : null;
+  return (
+    <Card className={className}>
+      <CardContent>
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <PiggyBankIcon className="size-3.5" aria-hidden /> Saved
+        </div>
+        <div className="mt-1 text-[28px] font-semibold tracking-tight tabular-nums">
+          {total < 0 && "−"}
+          {money(Math.abs(total), cur, { cents: false })}
+        </div>
+        <div className="mt-1 text-[12.5px] text-[var(--text-muted)]">
+          <Change value={total - previous} currency={cur} /> vs {previousName(data)}
+          {ofIncome !== null && <> · {ofIncome}% of income</>}
+        </div>
+        {categories.length > 0 ? (
+          <Breakdown data={data} categories={categories} />
+        ) : (
+          <p className="mt-3 text-[12.5px] text-[var(--text-muted)]">
+            Nothing put aside in this period. Payments in a{" "}
+            <Link href="/settings/categories" className="underline underline-offset-2 hover:text-foreground">
+              savings category
+            </Link>{" "}
+            show up here.
+          </p>
         )}
       </CardContent>
     </Card>
@@ -458,6 +509,7 @@ function CategoriesCard({ data }: { data: SpendingPayload }) {
 }
 
 function CategoryRow({ c, href, currency, max }: { c: SpendingCategory; href: string; currency: string; max: number }) {
+  const category = useCategories().of(c.id);
   const diff = c.amount - c.previous;
   return (
     <li>
@@ -465,13 +517,16 @@ function CategoryRow({ c, href, currency, max }: { c: SpendingCategory; href: st
         <CategoryIcon id={c.id} />
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
-            <span className="truncate font-medium">{CATEGORIES[c.id].label}</span>
+            <span className="truncate font-medium">{category.label}</span>
             <span className="shrink-0 text-xs text-[var(--text-muted)]">
               {c.count} payment{c.count === 1 ? "" : "s"}
             </span>
           </div>
           <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden>
-            <div className="h-full rounded-full bg-[var(--text-muted)]" style={{ width: `${(Math.max(0, c.amount) / max) * 100}%` }} />
+            <div
+              className="h-full rounded-full"
+              style={{ width: `${(Math.max(0, c.amount) / max) * 100}%`, background: categoryColor(category.color) }}
+            />
           </div>
         </div>
         <div className="text-right">

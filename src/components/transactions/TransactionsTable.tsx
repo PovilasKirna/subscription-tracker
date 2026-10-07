@@ -10,9 +10,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fullDate, localDate, monthYearLabel } from "@/lib/format";
 import { transactionsQuery } from "@/lib/query/options";
+import { useCategories } from "@/lib/query/useCategories";
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES, TX_SORT_COLUMNS, transactionClientParams } from "@/lib/search-params";
 import { transactionColumns } from "./columns";
-import { TRANSACTION_FILTERS } from "./filters";
+import { transactionFilters } from "./filters";
 import { TransactionMobileRow } from "./TransactionMobileRow";
 import { TransactionRowActions } from "./TransactionRowActions";
 
@@ -36,6 +37,8 @@ export function TransactionsTable() {
 
   const showMerchant = useCallback((merchantKey: string) => void setParams({ q: merchantKey, page: null }), [setParams]);
   const columns = useMemo(() => transactionColumns(showMerchant), [showMerchant]);
+  const categories = useCategories();
+  const filterDefs = useMemo(() => transactionFilters(categories), [categories]);
   // Only decides whether phone rows show the year; a mismatch at New Year would just re-render.
   const [today] = useState(() => localDate(new Date().toISOString()));
 
@@ -81,7 +84,7 @@ export function TransactionsTable() {
           placeholder: "Search description or merchant…",
         }}
         filters={{
-          defs: TRANSACTION_FILTERS,
+          defs: filterDefs,
           selection,
           facets: data.facets,
           onChange: (key, values) =>

@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronDownIcon, Loader2Icon, RotateCcwIcon } from "lucide-react";
+import { ChevronDownIcon, Loader2Icon, RotateCcwIcon, Settings2Icon } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,24 +16,21 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CATEGORIES, CATEGORY_IDS, type CategoryId, type CategoryKind } from "@/lib/categories";
+import { CATEGORY_KINDS, type CategoryId, KIND_LABEL } from "@/lib/categories";
 import { useCategoryPending, useSetCategory } from "@/lib/query/mutations";
+import { useCategories } from "@/lib/query/useCategories";
 import type { TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { CATEGORY_ICON } from "./CategoryIcon";
-
-const GROUPS: { kind: CategoryKind; label: string }[] = [
-  { kind: "spend", label: "Spending" },
-  { kind: "income", label: "Income" },
-  { kind: "internal", label: "Not spending or income" },
-];
+import { CATEGORY_ICONS, CategoryIconOnly } from "./CategoryIcon";
 
 /**
  * The category choices for one payment, as menu items: "All payments from <merchant>" (on by
- * default, since every Lidl receipt is groceries), the categories by kind, and "Back to automatic"
- * once one was picked. Used by the table's category cell and the row's ⋯ menu (phones).
+ * default, since every Lidl receipt is groceries), the categories by kind (hidden ones left out),
+ * and "Back to automatic" once one was picked. Used by the table's category cell and the row's ⋯
+ * menu (phones).
  */
 export function CategoryMenuItems({ tx }: { tx: TransactionItem }) {
+  const categories = useCategories();
   const set = useSetCategory();
   const [allFromMerchant, setAllFromMerchant] = useState(tx.categoryChosen !== "payment");
   const merchant = tx.merchantKey.replace(/-/g, " ");
@@ -50,19 +48,24 @@ export function CategoryMenuItems({ tx }: { tx: TransactionItem }) {
         value={tx.category}
         onValueChange={(v: string) => pick(v as CategoryId, allFromMerchant ? "merchant" : "payment")}
       >
-        {GROUPS.map((g) => (
-          <DropdownMenuGroup key={g.kind}>
-            <DropdownMenuLabel>{g.label}</DropdownMenuLabel>
-            {CATEGORY_IDS.filter((id) => CATEGORIES[id].kind === g.kind).map((id) => {
-              const ItemIcon = CATEGORY_ICON[id];
-              return (
-                <DropdownMenuRadioItem key={id} value={id} title={CATEGORIES[id].hint}>
-                  <ItemIcon /> {CATEGORIES[id].label}
-                </DropdownMenuRadioItem>
-              );
-            })}
-          </DropdownMenuGroup>
-        ))}
+        {CATEGORY_KINDS.map((kind) => {
+          const items = categories.list.filter((c) => c.kind === kind && !c.hidden);
+          return (
+            items.length > 0 && (
+              <DropdownMenuGroup key={kind}>
+                <DropdownMenuLabel>{KIND_LABEL[kind]}</DropdownMenuLabel>
+                {items.map((c) => {
+                  const ItemIcon = CATEGORY_ICONS[c.icon];
+                  return (
+                    <DropdownMenuRadioItem key={c.id} value={c.id} title={c.hint}>
+                      <ItemIcon /> {c.label}
+                    </DropdownMenuRadioItem>
+                  );
+                })}
+              </DropdownMenuGroup>
+            )
+          );
+        })}
       </DropdownMenuRadioGroup>
       {tx.categoryChosen && (
         <>
@@ -73,6 +76,10 @@ export function CategoryMenuItems({ tx }: { tx: TransactionItem }) {
           </DropdownMenuItem>
         </>
       )}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem render={<Link href="/settings/categories" />}>
+        <Settings2Icon /> Manage categories
+      </DropdownMenuItem>
     </>
   );
 }
@@ -82,7 +89,7 @@ export function CategoryMenuItems({ tx }: { tx: TransactionItem }) {
  * shows at once; while it saves the button spins and waits, the rest of the table stays usable.
  */
 export function CategoryPicker({ tx }: { tx: TransactionItem }) {
-  const Icon = CATEGORY_ICON[tx.category];
+  const label = useCategories().of(tx.category).label;
   const saving = useCategoryPending(tx);
   return (
     <DropdownMenu>
@@ -93,13 +100,13 @@ export function CategoryPicker({ tx }: { tx: TransactionItem }) {
             variant="ghost"
             size="sm"
             className={cn("-ml-2 h-7 max-w-full gap-1.5 px-2 font-normal text-muted-foreground")}
-            aria-label={`Category: ${CATEGORIES[tx.category].label}. ${saving ? "Saving…" : "Change"}`}
+            aria-label={`Category: ${label}. ${saving ? "Saving…" : "Change"}`}
             aria-busy={saving}
           />
         }
       >
-        <Icon className="size-3.5" />
-        <span className="truncate">{CATEGORIES[tx.category].label}</span>
+        <CategoryIconOnly id={tx.category} className="size-3.5" />
+        <span className="truncate">{label}</span>
         {saving ? <Loader2Icon className="size-3 animate-spin" aria-hidden /> : <ChevronDownIcon className="size-3 opacity-60" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-[70vh] w-64">

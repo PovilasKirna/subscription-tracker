@@ -1,13 +1,14 @@
-import { CATEGORIES, type CategoryId } from "../categories";
+import { type BuiltinCategoryId, type CategoryId, type CategoryKind, type CategoryLookup, DEFAULT_CATEGORIES } from "../categories";
 import type { TxRow } from "./db";
 
 // Puts every transaction in a spending category. In order of precedence:
 //   1. the user's choice for this payment, 2. the user's rule for its merchant,
-//   3. money moving between the user's own accounts (savings, pockets, exchanges, card top-ups),
-//   4. the transaction type (ATM, fee, refund, incoming money), 5. a detected subscription,
-//   6. well-known merchant names, 7. the card network's merchant category code (bank sync only;
-//   it's often generic, e.g. "digital goods" for a supermarket's app payment), 8. transfers out,
-//   9. "general". Pure.
+//   3. money put aside (savings accounts, vaults, pockets) or moved between the user's own
+//   accounts (exchanges, card top-ups), 4. the transaction type (ATM, fee, refund, incoming money),
+//   5. a detected subscription, 6. well-known merchant names, 7. the card network's merchant
+//   category code (bank sync only; it's often generic, e.g. "digital goods" for a supermarket's app
+//   payment), 8. transfers out, 9. "general". Custom categories only ever come from 1 and 2; a
+//   built-in the user hid passes what 3–9 would put in it on to its HIDDEN_FALLBACK. Pure.
 
 export type CategoryRules = {
   /** Transaction id → category the user picked for that one payment. */
@@ -16,8 +17,17 @@ export type CategoryRules = {
   byMerchant: ReadonlyMap<string, CategoryId>;
 };
 
+/**
+ * The rules that still apply: ones pointing at a deleted or hidden category are left out (a hidden
+ * category's rules apply again once it's shown again).
+ */
+export function usableRules(rules: CategoryRules, categories: CategoryLookup): CategoryRules {
+  const keep = (m: ReadonlyMap<string, CategoryId>) => new Map([...m].filter(([, c]) => categories.selectable(c)));
+  return { byTx: keep(rules.byTx), byMerchant: keep(rules.byMerchant) };
+}
+
 /** ISO 18245 merchant category codes → category (ranges inclusive). */
-const MCC_RANGES: [number, number, CategoryId][] = [
+const MCC_RANGES: [number, number, BuiltinCategoryId][] = [
   [3000, 3350, "travel"], // airlines
   [3351, 3500, "transport"], // car rental
   [3501, 3999, "travel"], // hotels
@@ -56,17 +66,17 @@ const MCC_RANGES: [number, number, CategoryId][] = [
   [9311, 9399, "bills"], // taxes, government
 ];
 
-function mccCategory(mcc: string | null | undefined): CategoryId | null {
+function mccCategory(mcc: string | null | undefined): BuiltinCategoryId | null {
   const n = Number(mcc);
   if (!mcc || !Number.isInteger(n)) return null;
   // Narrow ranges are listed after the broad ones they sit in, so the last match wins.
-  let found: CategoryId | null = null;
+  let found: BuiltinCategoryId | null = null;
   for (const [lo, hi, c] of MCC_RANGES) if (n >= lo && n <= hi) found = c;
   return found;
 }
 
 /** Merchant name patterns (matched against the merchant key and description, lowercased). */
-const KEYWORDS: [RegExp, CategoryId][] = [
+const KEYWORDS: [RegExp, BuiltinCategoryId][] = [
   [/bolt[ -]?food|wolt|glovo|foodora|uber[ -]?eats|deliveroo|just ?eat/, "restaurants"],
   [
     /\b(maxima|rimi|iki|norfa|lidl|aldi|aibe|silas|prisma|tesco|sainsbury|asda|carrefour|kaufland|biedronka|spar|auchan|edeka|rewe|billa|coop|selver|food ?market)\b|iki-express|rimi-hyper/,
@@ -103,8 +113,10 @@ const KEYWORDS: [RegExp, CategoryId][] = [
   ],
 ];
 
-const INTERNAL =
-  /^(to|from|į|iš)\b.*\b(savings?|vault|pocket|taupym|kaupim)|savings vault|exchanged? to|^top-?up by|^top up by|(apple|google) ?pay top-?up|^transfer to own|^own account/;
+/** Money put into (or taken back out of) a savings account, vault or pocket. */
+const SAVINGS = /^(to|from|į|iš)\b.*\b(savings?|vault|pocket|taupym|kaupim)|savings vault/;
+/** Money moved between the user's own accounts without being put aside. */
+const INTERNAL = /exchanged? to|^top-?up by|^top up by|(apple|google) ?pay top-?up|^transfer to own|^own account/;
 const INTEREST = /interest|palūkan/;
 
 /** Payers who sent money in at least this many different months are taken to be an employer. */
@@ -116,7 +128,8 @@ export function salaryPayers(txs: readonly TxRow[]): Set<string> {
   const byPayer = new Map<string, { months: Set<string>; amounts: number[] }>();
   for (const t of txs) {
     if (t.amount_minor <= 0 || (t.type !== "TOPUP" && t.type !== "TRANSFER" && t.type !== null)) continue;
-    if (INTERNAL.test(t.description.toLowerCase())) continue;
+    const description = t.description.toLowerCase();
+    if (SAVINGS.test(description) || INTERNAL.test(description)) continue;
     const p = byPayer.get(t.merchant_key) ?? { months: new Set(), amounts: [] };
     p.months.add(t.date.slice(0, 7));
     p.amounts.push(t.amount_minor);
@@ -133,13 +146,15 @@ export function salaryPayers(txs: readonly TxRow[]): Set<string> {
 export type AutoContext = { inSubscription: boolean; salary: ReadonlySet<string> };
 
 /** The category the app picks by itself (steps 3–9 above). */
-export function autoCategory(t: TxRow, ctx: AutoContext): CategoryId {
+export function autoCategory(t: TxRow, ctx: AutoContext): BuiltinCategoryId {
   const text = `${t.merchant_key} ${t.description}`.toLowerCase();
   const incoming = t.amount_minor > 0;
   if (t.type === "EXCHANGE" || INTERNAL.test(t.description.toLowerCase())) return "internal";
   if (INTEREST.test(text) && incoming) return "income";
-  // Revolut statements list vault movements on a "Savings" product row.
+  // Revolut statements list vault movements on a "Savings" product row too: the other side of a move
+  // the current account already shows (as savings below), so it isn't counted twice.
   if (t.source === "csv" && t.account && /savings|deposit/i.test(t.account)) return "internal";
+  if (SAVINGS.test(t.description.toLowerCase())) return "savings";
   if (t.type === "ATM") return "cash";
   if (t.type === "FEE") return "fees";
   if (t.type === "CARD_REFUND" || t.type === "REFUND") return "refunds";
@@ -159,23 +174,31 @@ export function autoCategory(t: TxRow, ctx: AutoContext): CategoryId {
  * Category of every transaction. A user rule can't turn money in into spending or the other way
  * round by accident: an incoming payment ruled into a spending category counts as a refund of it.
  */
-export function categorizeAll(txs: readonly TxRow[], txToSub: ReadonlyMap<string, string>, rules: CategoryRules): Map<string, CategoryId> {
+export function categorizeAll(
+  txs: readonly TxRow[],
+  txToSub: ReadonlyMap<string, string>,
+  rules: CategoryRules,
+  categories: CategoryLookup = DEFAULT_CATEGORIES,
+): Map<string, CategoryId> {
   const salary = salaryPayers(txs);
   const out = new Map<string, CategoryId>();
   for (const t of txs) {
     const chosen = rules.byTx.get(t.id) ?? rules.byMerchant.get(t.merchant_key);
-    out.set(t.id, chosen ?? autoCategory(t, { inSubscription: txToSub.has(t.id), salary }));
+    out.set(t.id, chosen ?? categories.visible(autoCategory(t, { inSubscription: txToSub.has(t.id), salary })));
   }
   return out;
 }
 
-/** How a payment in `category` counts: +amount spent, +amount earned, or nothing. Minor units, positive. */
-export function flowOf(t: Pick<TxRow, "amount_minor">, category: CategoryId): { spent: number; earned: number } {
-  const kind = CATEGORIES[category].kind;
-  if (kind === "internal") return { spent: 0, earned: 0 };
-  if (kind === "income") return { spent: 0, earned: t.amount_minor };
+export type Flow = { spent: number; earned: number; saved: number };
+
+/** How a payment in a category of `kind` counts: amount spent, earned or saved, or nothing. Minor units. */
+export function flowOf(t: Pick<TxRow, "amount_minor">, kind: CategoryKind): Flow {
+  if (kind === "internal") return { spent: 0, earned: 0, saved: 0 };
+  if (kind === "income") return { spent: 0, earned: t.amount_minor, saved: 0 };
+  // Savings: money put aside adds, money taken back out subtracts.
+  if (kind === "savings") return { spent: 0, earned: 0, saved: -t.amount_minor };
   // Spending categories: money out adds, money back (refunds) subtracts.
-  return { spent: -t.amount_minor, earned: 0 };
+  return { spent: -t.amount_minor, earned: 0, saved: 0 };
 }
 
 /** The category fields of a TransactionItem. */

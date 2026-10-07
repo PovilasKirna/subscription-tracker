@@ -34,7 +34,13 @@ test("merchants, card codes and types land in the expected categories", () => {
   assert.equal(autoCategory(tx("2026-09-01", -50, "ATM", { type: "ATM" }), none), "cash");
   assert.equal(autoCategory(tx("2026-09-01", -5, "Premium plan fee", { type: "FEE" }), none), "fees");
   assert.equal(autoCategory(tx("2026-09-01", -100, "Exchanged to USD", { type: "EXCHANGE" }), none), "internal");
-  assert.equal(autoCategory(tx("2026-09-01", -200, "To EUR Savings", { type: "TRANSFER" }), none), "internal");
+  assert.equal(autoCategory(tx("2026-09-01", -200, "To EUR Savings", { type: "TRANSFER" }), none), "savings");
+  assert.equal(autoCategory(tx("2026-09-01", 50, "From Holiday pocket", { type: "TRANSFER" }), none), "savings");
+  assert.equal(
+    autoCategory(tx("2026-09-01", 200, "From EUR Current", { type: "TRANSFER", account: "Savings" }), none),
+    "internal",
+    "the savings account's side of the same move isn't counted twice",
+  );
   assert.equal(autoCategory(tx("2026-09-01", 100, "Top-up by *1234"), none), "internal");
   assert.equal(autoCategory(tx("2026-09-01", 15, "Amazon", { type: "CARD_REFUND" }), none), "refunds");
   assert.equal(autoCategory(tx("2026-09-01", -60, "Jonas Jonaitis", { type: "TRANSFER" }), none), "transfers");
@@ -71,11 +77,13 @@ test("a payment's own choice beats its merchant's rule, which beats the automati
   assert.equal(cats.get(b.id), "shopping");
 });
 
-test("spending adds money out and subtracts refunds; internal moves count for nothing", () => {
-  assert.deepEqual(flowOf({ amount_minor: -1000 }, "groceries"), { spent: 1000, earned: 0 });
-  assert.deepEqual(flowOf({ amount_minor: 300 }, "refunds"), { spent: -300, earned: 0 });
-  assert.deepEqual(flowOf({ amount_minor: 240000 }, "salary"), { spent: 0, earned: 240000 });
-  assert.deepEqual(flowOf({ amount_minor: -50000 }, "internal"), { spent: 0, earned: 0 });
+test("spending adds money out and subtracts refunds; savings count as saved; internal moves count for nothing", () => {
+  assert.deepEqual(flowOf({ amount_minor: -1000 }, "spend"), { spent: 1000, earned: 0, saved: 0 });
+  assert.deepEqual(flowOf({ amount_minor: 300 }, "spend"), { spent: -300, earned: 0, saved: 0 }, "a refund");
+  assert.deepEqual(flowOf({ amount_minor: 240000 }, "income"), { spent: 0, earned: 240000, saved: 0 });
+  assert.deepEqual(flowOf({ amount_minor: -20000 }, "savings"), { spent: 0, earned: 0, saved: 20000 });
+  assert.deepEqual(flowOf({ amount_minor: 5000 }, "savings"), { spent: 0, earned: 0, saved: -5000 }, "taken back out");
+  assert.deepEqual(flowOf({ amount_minor: -50000 }, "internal"), { spent: 0, earned: 0, saved: 0 });
 });
 
 // ---------- the Spending page ----------
@@ -123,6 +131,28 @@ test("a month's totals, categories, running total and comparison with the month 
     "no projection for a finished month",
   );
   assert.deepEqual(s.otherCurrencies, ["GBP"]);
+});
+
+test("a recurring transfer filed under Savings isn't projected as spending", () => {
+  const txs = [
+    tx("2026-09-25", -300, "To Emergency Fund", { type: "TRANSFER" }),
+    tx("2026-09-12", -10, "Netflix.com"),
+    tx("2026-10-02", -20, "Lidl Vilnius"),
+  ];
+  const [fund, netflix] = txs;
+  const txToSub = new Map([
+    [fund.id, "to-emergency-fund|EUR"],
+    [netflix.id, "netflix|EUR"],
+  ]);
+  const categoryOf = categorizeAll(txs, txToSub, { byTx: new Map(), byMerchant: new Map([[fund.merchant_key, "savings"]]) });
+  const subscriptions = [
+    sub({ key: "to-emergency-fund|EUR", name: "Emergency fund", amount: 300, nextCharge: "2026-10-25" }),
+    sub({ key: "netflix|EUR", name: "Netflix", amount: 10, nextCharge: "2026-10-12" }),
+  ];
+  const s = buildSpending({ txs, txToSub, categoryOf, subscriptions, base: "EUR", range: "1m", at: "", today: "2026-10-10" });
+  assert.equal(s.upcomingSubscriptions, 10, "only Netflix is still to be spent");
+  assert.equal(s.points[24].projectedAmount ?? 0, 0, "nothing expected on the fund's day");
+  assert.equal(s.points[11].projectedAmount, 10);
 });
 
 test("the current month compares with the same day last month and projects to month end", () => {

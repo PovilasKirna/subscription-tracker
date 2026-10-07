@@ -18,7 +18,9 @@ export async function GET() {
     reimbursements: await all(db, "SELECT * FROM reimbursements"),
     // Which bank accounts are switched off (their transactions are kept but hidden).
     bankAccounts: await all(db, "SELECT * FROM bank_accounts"),
-    // Spending categories you picked, per payment and per merchant.
+    // Your own spending categories and changes to the built-in ones, and the categories you picked,
+    // per payment and per merchant.
+    categories: await all(db, "SELECT * FROM categories"),
     categoryRules: await all(db, "SELECT * FROM category_rules"),
     transactionCategories: await all(db, "SELECT * FROM tx_categories"),
     // Net worth: bank and brokerage accounts (with their latest breakdown), daily values, deposits,

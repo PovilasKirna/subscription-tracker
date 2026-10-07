@@ -1,12 +1,12 @@
-import { CATEGORIES, type CategoryId } from "../categories";
+import { type CategoryId, type CategoryKind, type CategoryLookup, DEFAULT_CATEGORIES } from "../categories";
 import { isLive, projectChargesBetween } from "../insights";
 import type { SpendingCategory, SpendingPayload, SpendingPoint, SpendingRange, Subscription } from "../types";
 import { flowOf } from "./categorize";
 import type { TxRow } from "./db";
 
-// The Spending page for one period (a week, a month, 6 months or a year): spending and income by
-// category, the running total against the period before, and (for the current month) where it's
-// heading. Pure; base currency only.
+// The Spending page for one period (a week, a month, 6 months or a year): spending, income and
+// savings by category, the running total against the period before, and (for the current month)
+// where it's heading. Pure; base currency only.
 
 const DAY = 86_400_000;
 const time = (date: string) => Date.parse(`${date}T00:00:00Z`);
@@ -58,7 +58,7 @@ export function previousPeriod(range: SpendingRange, p: Period): Period {
   return periodOf(range, range === "1w" ? addDays(p.start, -7) : addDays(p.start, -1));
 }
 
-type Rec = { date: string; category: CategoryId; spent: number; earned: number; inSubscription: boolean };
+type Rec = { date: string; category: CategoryId; spent: number; earned: number; saved: number; inSubscription: boolean };
 
 /** A real calendar date (YYYY-MM-DD) or month (YYYY-MM, its first day), else null. Pure. */
 export function validDate(value: string): string | null {
@@ -84,6 +84,8 @@ export function buildSpending(input: {
   /** Payment id → subscription it belongs to (subscriptions are projected on their own, not as usual spending). */
   txToSub?: ReadonlyMap<string, string>;
   categoryOf: ReadonlyMap<string, CategoryId>;
+  /** What each category counts as (its kind). */
+  categories?: CategoryLookup;
   subscriptions: readonly Subscription[];
   base: string;
   range: SpendingRange;
@@ -91,7 +93,7 @@ export function buildSpending(input: {
   at: string;
   today: string;
 }): SpendingPayload {
-  const { base, today, range } = input;
+  const { base, today, range, categories = DEFAULT_CATEGORIES } = input;
   const at = validDate(input.at) ?? today;
   const period = periodOf(range, at > today ? today : at);
   const prev = previousPeriod(range, period);
@@ -109,8 +111,9 @@ export function buildSpending(input: {
       continue;
     }
     const category = input.categoryOf.get(tx.id) ?? "general";
-    const { spent, earned } = flowOf(tx, category);
-    if (spent || earned) recs.push({ date: tx.date, category, spent, earned, inSubscription: input.txToSub?.has(tx.id) ?? false });
+    const { spent, earned, saved } = flowOf(tx, categories.of(category).kind);
+    if (spent || earned || saved)
+      recs.push({ date: tx.date, category, spent, earned, saved, inSubscription: input.txToSub?.has(tx.id) ?? false });
   }
 
   const bucket = (p: Period, date: string) => (p.unit === "day" ? date : date.slice(0, 7));
@@ -135,6 +138,15 @@ export function buildSpending(input: {
   //   follows your rhythm instead of running straight.
   // - Months still to come (6M, 1Y): your usual month (the same months' average, everything included).
   const projecting = isCurrent && today < period.end;
+  // A subscription is projected as spending while its latest charge counts as one: a recurring
+  // transfer filed under Savings (or between your own accounts) is money kept, not spent.
+  const latestCharge = new Map<string, { date: string; kind: CategoryKind }>();
+  for (const tx of input.txs) {
+    const key = input.txToSub?.get(tx.id);
+    if (!key || (latestCharge.get(key)?.date ?? "") > tx.date) continue;
+    latestCharge.set(key, { date: tx.date, kind: categories.of(input.categoryOf.get(tx.id) ?? "general").kind });
+  }
+  const spentOn = (s: Subscription) => (latestCharge.get(s.key)?.kind ?? "spend") === "spend";
   const expected = new Map<string, number>();
   let upcomingSubscriptions = 0;
   let monthRemainder = 0; // the rest of the current month, for month-by-month periods
@@ -143,7 +155,7 @@ export function buildSpending(input: {
     const currentMonth = today.slice(0, 7);
     const dailyEnd = period.unit === "day" ? period.end : lastOf(currentMonth);
     const due = projectChargesBetween(
-      input.subscriptions.filter((s) => isLive(s) && s.currency === base),
+      input.subscriptions.filter((s) => isLive(s) && s.currency === base && spentOn(s)),
       addDays(today, 1),
       addDays(dailyEnd, 1),
     );
@@ -211,27 +223,29 @@ export function buildSpending(input: {
   const prevCutoff = previousCutoff(range, cutoff);
   const comparable = isCurrent ? recs.reduce((s, r) => (r.date >= prev.start && r.date <= prevCutoff ? s + r.spent : s), 0) : previousTotal;
 
-  // Categories and income over the period (to today) against the whole period before.
+  // Categories, income and savings over the period (to today) against the whole period before.
   const tally = (p: Period, until: string) => {
     const byCategory = new Map<CategoryId, { amount: number; count: number }>();
     let spentTotal = 0;
     let earnedTotal = 0;
+    let savedTotal = 0;
     for (const r of recs) {
       if (r.date < p.start || r.date > until) continue;
       spentTotal += r.spent;
       earnedTotal += r.earned;
+      savedTotal += r.saved;
       const c = byCategory.get(r.category) ?? { amount: 0, count: 0 };
-      c.amount += r.spent || r.earned;
+      c.amount += r.spent || r.earned || r.saved;
       c.count += 1;
       byCategory.set(r.category, c);
     }
-    return { byCategory, spent: spentTotal, earned: earnedTotal };
+    return { byCategory, spent: spentTotal, earned: earnedTotal, saved: savedTotal };
   };
   const cur = tally(period, cutoff);
   const before = tally(prev, prev.end);
-  const categoriesOf = (kind: "spend" | "income", total: number): SpendingCategory[] =>
+  const categoriesOf = (kind: Exclude<CategoryKind, "internal">, total: number): SpendingCategory[] =>
     [...cur.byCategory.entries()]
-      .filter(([id]) => CATEGORIES[id].kind === kind)
+      .filter(([id]) => categories.of(id).kind === kind)
       .map(([id, c]) => ({
         id,
         amount: c.amount / 100,
@@ -256,6 +270,7 @@ export function buildSpending(input: {
     upcomingSubscriptions: upcomingSubscriptions / 100,
     points,
     income: { total: cur.earned / 100, previous: before.earned / 100, categories: categoriesOf("income", cur.earned) },
+    saved: { total: cur.saved / 100, previous: before.saved / 100, categories: categoriesOf("savings", cur.saved) },
     cashflow: (cur.earned - cur.spent) / 100,
     categories: categoriesOf("spend", cur.spent),
     otherCurrencies: [...other].sort(),

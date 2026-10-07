@@ -1,5 +1,5 @@
 import { type Client, createClient, type InStatement, type InValue } from "@libsql/client";
-import { type CategoryId, isCategoryId } from "../categories";
+import { buildCategories, type Category, type CategoryId, type CategoryKind, type CategoryRow } from "../categories";
 import type { ColorChoice, HexColor } from "../color";
 import type { Cadence, ReimbursementMode } from "../types";
 import type { CategoryRules } from "./categorize";
@@ -225,6 +225,17 @@ const SCHEMA = `
     category    TEXT NOT NULL,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  -- The user's own categories (id "c_…") and their changes to built-in ones (built-in id; a row
+  -- only once changed). See buildCategories in src/lib/categories.ts.
+  CREATE TABLE IF NOT EXISTS categories (
+    id          TEXT PRIMARY KEY,
+    label       TEXT,               -- null = the built-in's own name
+    kind        TEXT,               -- custom only: spend | income | savings | internal
+    icon        TEXT,               -- lucide icon name; null = the built-in's own
+    color       INTEGER,            -- palette slot 1–8, 0 = none; null = the built-in's default
+    hidden      INTEGER NOT NULL DEFAULT 0, -- built-ins only
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 
   -- Net worth: everything that holds money — bank accounts (balances fetched during sync) and
   -- brokerage accounts (Trading 212). id is "bank:<account key>" or "t212:<account id>".
@@ -280,7 +291,7 @@ ${["transactions", "overrides", "tx_exclusions", "tx_assignments", "reimbursemen
     ),
   )
   .join("")}
-${["category_rules", "tx_categories"]
+${["category_rules", "tx_categories", "categories"]
   .flatMap((table) =>
     ["INSERT", "UPDATE", "DELETE"].map(
       (op) => `
@@ -344,8 +355,8 @@ export async function openDb(url = config.databaseUrl, authToken = config.databa
 // 15: overrides.group_name. 18: net worth (holdings, holding_values, fx_rates, broker_cash_flows),
 // spending categories (category_rules, tx_categories, transactions.mcc); 16–17 were used by its
 // branch before it met 15, so it skips past all three. 19: category_version (category writes no
-// longer bump data_version).
-const SCHEMA_VERSION = 19;
+// longer bump data_version). 20: categories (custom and changed built-in ones).
+const SCHEMA_VERSION = 20;
 const g = globalThis as unknown as { __trackerDb?: Promise<Client>; __trackerDbVersion?: number };
 export function getDb(): Promise<Client> {
   if (!g.__trackerDb || g.__trackerDbVersion !== SCHEMA_VERSION) {
@@ -483,7 +494,7 @@ export async function dataVersion(db: Db): Promise<number> {
   return Number((await one<{ value: number }>(db, "SELECT value FROM meta WHERE key = 'data_version'"))?.value ?? 0);
 }
 
-/** `dataVersion` and the spending categories' version (category rules and per-payment picks), in one read. */
+/** `dataVersion` and the spending categories' version (the categories, rules and per-payment picks), in one read. */
 export async function dataVersions(db: Db): Promise<{ data: number; categories: number }> {
   const rows = await all<{ key: string; value: number }>(
     db,
@@ -600,14 +611,57 @@ export async function sourceNameTaken(db: Db, name: string, exceptId?: number): 
   );
 }
 
-/** The user's category choices: per payment and per merchant (unknown ids from older versions are dropped). */
+/** The user's category choices: per payment and per merchant (usableRules drops the ones that no longer apply). */
 export async function allCategoryRules(db: Db): Promise<CategoryRules> {
   const [tx, merchants] = await Promise.all([
     all<{ tx_id: string; category: string }>(db, "SELECT tx_id, category FROM tx_categories"),
     all<{ merchant_key: string; category: string }>(db, "SELECT merchant_key, category FROM category_rules"),
   ]);
   return {
-    byTx: new Map(tx.filter((r) => isCategoryId(r.category)).map((r) => [r.tx_id, r.category as CategoryId])),
-    byMerchant: new Map(merchants.filter((r) => isCategoryId(r.category)).map((r) => [r.merchant_key, r.category as CategoryId])),
+    byTx: new Map(tx.map((r) => [r.tx_id, r.category])),
+    byMerchant: new Map(merchants.map((r) => [r.merchant_key, r.category])),
   };
+}
+
+/** Every category: the built-ins with the user's changes, then the custom ones, oldest first. */
+export async function allCategories(db: Db): Promise<Category[]> {
+  return buildCategories(
+    await all<CategoryRow>(db, "SELECT id, label, kind, icon, color, hidden FROM categories ORDER BY created_at, rowid"),
+  );
+}
+
+export type CategoryChanges = { label?: string | null; kind?: CategoryKind; icon?: string | null; color?: number | null; hidden?: boolean };
+
+/** Adds a custom category, or changes one or a built-in; only the fields given change. */
+export async function saveCategory(db: Db, id: CategoryId, c: CategoryChanges): Promise<void> {
+  const fields = {
+    label: c.label,
+    kind: c.kind,
+    icon: c.icon,
+    color: c.color,
+    hidden: c.hidden === undefined ? undefined : Number(c.hidden),
+  };
+  const cols = Object.entries(fields).filter((e): e is [string, string | number | null] => e[1] !== undefined);
+  if (!cols.length) return;
+  await run(
+    db,
+    `INSERT INTO categories (id, ${cols.map(([k]) => k).join(", ")}) VALUES (?, ${cols.map(() => "?").join(", ")})
+     ON CONFLICT(id) DO UPDATE SET ${cols.map(([k]) => `${k} = excluded.${k}`).join(", ")}`,
+    [id, ...cols.map(([, v]) => v)],
+  );
+}
+
+/**
+ * Deletes a custom category and the choices that put payments in it, so those payments go back to
+ * automatic categorisation. One batch: all or nothing.
+ */
+export async function deleteCategory(db: Db, id: CategoryId): Promise<void> {
+  await db.batch(
+    [
+      { sql: "DELETE FROM category_rules WHERE category = ?", args: [id] },
+      { sql: "DELETE FROM tx_categories WHERE category = ?", args: [id] },
+      { sql: "DELETE FROM categories WHERE id = ?", args: [id] },
+    ],
+    "write",
+  );
 }
