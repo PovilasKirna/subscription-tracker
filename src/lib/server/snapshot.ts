@@ -3,15 +3,18 @@
 // every transaction while still seeing writes made by any other instance.
 
 /**
- * Returns a getter that calls `load` only when `version()` changes. Concurrent callers share the
- * in-flight load; failures are not cached. Callers must treat the value as read-only.
+ * Returns a loader that calls `load` only when the version it's given changes, keeping the value
+ * for the latest version. Concurrent callers share the in-flight load; failures are not cached.
+ * Extra arguments are passed to `load` and must be the same for the same version. Callers must
+ * treat the value as read-only.
  */
-export function memoByVersion<T>(version: () => Promise<string>, load: (version: string) => Promise<T>): () => Promise<T> {
+export function memoLatest<T, A extends unknown[] = []>(
+  load: (version: string, ...args: A) => Promise<T>,
+): (version: string, ...args: A) => Promise<T> {
   let memo: { version: string; value: Promise<T> } | undefined;
-  return async () => {
-    const v = await version();
+  return (v, ...args) => {
     if (memo?.version === v) return memo.value;
-    const value = load(v);
+    const value = load(v, ...args);
     const entry = { version: v, value };
     memo = entry;
     value.catch(() => {

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { isColorChoice } from "../lib/color";
-import { colorColumns, dataVersion, NO_COLOR_SLOT, type Override, one, openDb, run, saveOverride } from "../lib/server/db";
-import { memoByVersion } from "../lib/server/snapshot";
+import { colorColumns, dataVersion, dataVersions, NO_COLOR_SLOT, type Override, one, openDb, run, saveOverride } from "../lib/server/db";
+import { memoLatest } from "../lib/server/snapshot";
 
 const dir = mkdtempSync(join(tmpdir(), "subtracker-snapshot-"));
 const db = await openDb(`file:${join(dir, "t.db").replaceAll("\\", "/")}`);
@@ -44,39 +44,55 @@ test("migrating twice keeps the version and triggers intact", async () => {
   again.close();
 });
 
-test("memoByVersion reuses the snapshot until the version changes, sharing in-flight loads", async () => {
-  let version = "1";
-  let loads = 0;
-  const get = memoByVersion(
-    async () => version,
-    async (v) => {
-      loads++;
-      await new Promise((r) => setTimeout(r, 5));
-      return `snapshot@${v}`;
-    },
+test("category picks bump their own version, not the data version", async () => {
+  const before = await dataVersions(db);
+  await run(db, "INSERT INTO category_rules (merchant_key, category) VALUES ('lidl', 'groceries')");
+  await run(db, "INSERT INTO tx_categories (tx_id, category) VALUES ('a', 'shopping')");
+  await run(db, "UPDATE tx_categories SET category = 'travel'");
+  await run(db, "DELETE FROM category_rules");
+  const after = await dataVersions(db);
+  assert.equal(after.data, before.data, "detection is reused");
+  assert.equal(after.categories, before.categories + 4);
+  assert.equal(await dataVersion(db), after.data);
+});
+
+test("migrating drops the old triggers that bumped the data version on category picks", async () => {
+  await run(
+    db,
+    "CREATE TRIGGER tx_categories_insert_version AFTER INSERT ON tx_categories BEGIN UPDATE meta SET value = value + 1 WHERE key = 'data_version'; END",
   );
-  const [a, b] = await Promise.all([get(), get()]);
-  assert.equal(a, "snapshot@1");
-  assert.equal(b, "snapshot@1");
-  assert.equal(await get(), "snapshot@1");
+  const again = await openDb(`file:${join(dir, "t.db").replaceAll("\\", "/")}`);
+  const before = await dataVersions(again);
+  await run(again, "INSERT INTO tx_categories (tx_id, category) VALUES ('c', 'travel')");
+  assert.deepEqual(await dataVersions(again), { data: before.data, categories: before.categories + 1 });
+  again.close();
+});
+
+test("memoLatest reuses the value until the version changes, sharing in-flight loads", async () => {
+  let loads = 0;
+  const get = memoLatest(async (v: string, suffix: string) => {
+    loads++;
+    await new Promise((r) => setTimeout(r, 5));
+    return `snapshot@${v}${suffix}`;
+  });
+  const [a, b] = await Promise.all([get("1", "!"), get("1", "!")]);
+  assert.equal(a, "snapshot@1!");
+  assert.equal(b, "snapshot@1!");
+  assert.equal(await get("1", "!"), "snapshot@1!");
   assert.equal(loads, 1, "concurrent and repeat calls share one load");
-  version = "2";
-  assert.equal(await get(), "snapshot@2");
+  assert.equal(await get("2", "!"), "snapshot@2!");
   assert.equal(loads, 2);
 });
 
-test("memoByVersion does not cache failures", async () => {
+test("memoLatest does not cache failures", async () => {
   let fail = true;
-  const get = memoByVersion(
-    async () => "1",
-    async () => {
-      if (fail) throw new Error("db down");
-      return "ok";
-    },
-  );
-  await assert.rejects(get(), /db down/);
+  const get = memoLatest(async () => {
+    if (fail) throw new Error("db down");
+    return "ok";
+  });
+  await assert.rejects(get("1"), /db down/);
   fail = false;
-  assert.equal(await get(), "ok");
+  assert.equal(await get("1"), "ok");
 });
 
 test("saveOverride changes only the fields it is given", async () => {

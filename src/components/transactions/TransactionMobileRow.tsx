@@ -1,14 +1,16 @@
 "use client";
 
-import { RepeatIcon } from "lucide-react";
+import { Loader2Icon, RepeatIcon } from "lucide-react";
 import { compactDate } from "@/components/data-table";
 import { MerchantIcon } from "@/components/MerchantIcon";
 import { CATEGORIES } from "@/lib/categories";
+import { useCategoryPending } from "@/lib/query/mutations";
 import type { TransactionItem } from "@/lib/types";
 import { merchantName, TransactionAmount } from "./columns";
 
 /** Phone row: logo, description and amount on top; "4 Oct · Groceries" and the subscription mark below. Change the category from the row's ⋯ menu. */
 export function TransactionMobileRow({ tx, today }: { tx: TransactionItem; today: string }) {
+  const savingCategory = useCategoryPending(tx);
   return (
     <span className="flex items-center gap-3">
       <MerchantIcon name={merchantName(tx)} website={tx.website} />
@@ -21,6 +23,12 @@ export function TransactionMobileRow({ tx, today }: { tx: TransactionItem; today
             {" · "}
             {CATEGORIES[tx.category].label}
           </span>
+          {savingCategory && (
+            <>
+              <Loader2Icon className="size-3.5 shrink-0 animate-spin" aria-hidden />
+              <span className="sr-only">Saving category</span>
+            </>
+          )}
           {tx.subscriptionKey && (
             <>
               <RepeatIcon className="size-3.5 shrink-0" aria-hidden />

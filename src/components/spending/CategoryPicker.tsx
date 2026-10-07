@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDownIcon, RotateCcwIcon } from "lucide-react";
+import { ChevronDownIcon, Loader2Icon, RotateCcwIcon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CATEGORIES, CATEGORY_IDS, type CategoryId, type CategoryKind } from "@/lib/categories";
-import { useSetCategory } from "@/lib/query/mutations";
+import { useCategoryPending, useSetCategory } from "@/lib/query/mutations";
 import type { TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CATEGORY_ICON } from "./CategoryIcon";
@@ -36,7 +36,8 @@ export function CategoryMenuItems({ tx }: { tx: TransactionItem }) {
   const set = useSetCategory();
   const [allFromMerchant, setAllFromMerchant] = useState(tx.categoryChosen !== "payment");
   const merchant = tx.merchantKey.replace(/-/g, " ");
-  const pick = (category: CategoryId | null, scope: "payment" | "merchant") => set.mutate({ txId: tx.id, scope, category });
+  const pick = (category: CategoryId | null, scope: "payment" | "merchant") =>
+    set.mutate({ txId: tx.id, merchantKey: tx.merchantKey, scope, category });
   return (
     <>
       <DropdownMenuCheckboxItem checked={allFromMerchant} onCheckedChange={setAllFromMerchant} closeOnClick={false}>
@@ -76,24 +77,30 @@ export function CategoryMenuItems({ tx }: { tx: TransactionItem }) {
   );
 }
 
-/** The category of a payment as a small button (the table's category column). */
+/**
+ * The category of a payment as a small button (the table's category column). The new category
+ * shows at once; while it saves the button spins and waits, the rest of the table stays usable.
+ */
 export function CategoryPicker({ tx }: { tx: TransactionItem }) {
   const Icon = CATEGORY_ICON[tx.category];
+  const saving = useCategoryPending(tx);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
+        disabled={saving}
         render={
           <Button
             variant="ghost"
             size="sm"
             className={cn("-ml-2 h-7 max-w-full gap-1.5 px-2 font-normal text-muted-foreground")}
-            aria-label={`Category: ${CATEGORIES[tx.category].label}. Change`}
+            aria-label={`Category: ${CATEGORIES[tx.category].label}. ${saving ? "Saving…" : "Change"}`}
+            aria-busy={saving}
           />
         }
       >
         <Icon className="size-3.5" />
         <span className="truncate">{CATEGORIES[tx.category].label}</span>
-        <ChevronDownIcon className="size-3 opacity-60" />
+        {saving ? <Loader2Icon className="size-3 animate-spin" aria-hidden /> : <ChevronDownIcon className="size-3 opacity-60" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-[70vh] w-64">
         <CategoryMenuItems tx={tx} />
