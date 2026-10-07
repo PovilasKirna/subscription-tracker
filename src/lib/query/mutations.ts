@@ -1,6 +1,6 @@
 "use client";
 
-import { type QueryClient, type QueryKey, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
+import { hashKey, type QueryClient, type QueryKey, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { ColorChoice } from "../color";
 import type { OverrideStatus } from "../server/db";
@@ -114,6 +114,13 @@ const OVERRIDE = ["override"] as const;
 const SET_CATEGORY = ["set-category"] as const;
 /** What the edits that settled while others were in flight still need refreshed (the last one does it). */
 const owedRefresh = new Set<unknown>();
+/**
+ * The overlapping edits since the last refresh, in the order they were applied, and what each
+ * cached query held before the first of them touched it. A failure rolls back to `base` and
+ * replays the rest: one edit's own snapshot can hold another's patch (failed or not), so restoring
+ * it alone could bring back a failed value or drop a saved one.
+ */
+const batch = { base: new Map<string, [QueryKey, unknown]>(), edits: [] as { replay: () => Promise<void>; failed: boolean }[] };
 
 /**
  * Shared by the per-item edits (subscription overrides, categories), which only ever block the
@@ -121,10 +128,10 @@ const owedRefresh = new Set<unknown>();
  * menu that started it can close), with the item's controls showing it as saving. When the patch
  * shows the whole edit (`shownAtOnce`) the views refresh in the background afterwards; otherwise the
  * item stays "saving" until the refresh brings the result. Edits can overlap and finish in any
- * order, so the refresh and any rollback wait for the last one: a refetch while another is in
- * flight would briefly show that one undone. A failed edit rolls back with a toast.
+ * order, so the refresh waits for the last one: a refetch while another is in flight would briefly
+ * show that one undone. A failed edit rolls back at once, with a toast (see `batch`).
  */
-function optimisticEdit<V>(
+export function optimisticEdit<V>(
   qc: QueryClient,
   opts: {
     patch: (vars: V, out: Snapshot) => Promise<void>;
@@ -139,10 +146,17 @@ function optimisticEdit<V>(
     onMutate: async (vars: V) => {
       const previous: Snapshot = [];
       await opts.patch(vars, previous);
-      return { previous };
+      for (const [key, data] of previous) if (!batch.base.has(hashKey(key))) batch.base.set(hashKey(key), [key, data]);
+      const edit = { replay: () => opts.patch(vars, []), failed: false };
+      batch.edits.push(edit);
+      return { edit };
     },
-    onError: (e: Error, _vars: V, ctx: { previous: Snapshot } | undefined) => {
-      if (ctx && !othersInFlight()) for (const [key, data] of ctx.previous) qc.setQueryData(key, data);
+    onError: async (e: Error, _vars: V, ctx: { edit: (typeof batch.edits)[number] } | undefined) => {
+      if (ctx) {
+        ctx.edit.failed = true;
+        for (const [key, data] of batch.base.values()) qc.setQueryData(key, data);
+        for (const edit of batch.edits) if (!edit.failed) await edit.replay();
+      }
       toast.error(opts.error, { description: e.message });
     },
     onSettled: (_data: unknown, error: Error | null, vars: V) => {
@@ -150,6 +164,8 @@ function optimisticEdit<V>(
       if (othersInFlight()) return;
       const refreshed = refresh(qc, new Set(owedRefresh));
       owedRefresh.clear();
+      batch.base.clear();
+      batch.edits.length = 0;
       // Returned, the mutation (and the item's spinner) waits for it.
       return error || opts.shownAtOnce(vars) ? undefined : refreshed;
     },
