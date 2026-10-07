@@ -13,6 +13,7 @@ import {
   UnlinkIcon,
   XIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { useQueryStates } from "nuqs";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -38,9 +39,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { type ConnectionTone, connectionStatus, historyGap, needsReconnect, sessionHealth, timeAgo } from "@/lib/bank";
-import { fullDate, shortDate } from "@/lib/format";
+import { fullDate, money, shortDate } from "@/lib/format";
 import { useInvalidateAll, useResetAll } from "@/lib/query/mutations";
-import { api, keys, statusQuery } from "@/lib/query/options";
+import { api, investmentsQuery, keys, statusQuery } from "@/lib/query/options";
 import { dataParams } from "@/lib/search-params";
 import type { BankAccount, BankSession, DataStatusPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -134,25 +135,45 @@ export function Connections() {
     if (bank) void setParams({ bank: null, reason: null });
   }, [bank, reason, setParams]);
 
-  if (!data.bankConfigured) return <SetupCard hours={data.syncIntervalHours} />;
+  if (!data.bankConfigured) {
+    return (
+      <div className="flex flex-col gap-4">
+        <SetupCard hours={data.syncIntervalHours} />
+        <Card>
+          <CardHeader>
+            <CardTitle>Investments</CardTitle>
+            <CardDescription>Your Trading 212 portfolio, read-only.</CardDescription>
+          </CardHeader>
+          <CardContent className="@container/tiles">
+            <div className="grid gap-3 @xl/tiles:grid-cols-2 @4xl/tiles:grid-cols-3">
+              <Trading212Tile />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const open = data.sessions.find((s) => s.sessionId === openId) ?? null;
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Bank connections</CardTitle>
+        <CardTitle>Connections</CardTitle>
         <CardDescription>
-          New transactions are pulled every {Math.max(6, data.syncIntervalHours)}h. Bank access lasts up to 180 days, then you reconnect in
-          one click.
+          Banks bring in new transactions every {Math.max(6, data.syncIntervalHours)}h; their access lasts up to 180 days, then you
+          reconnect in one click. Trading 212 is read-only and refreshes with each sync.
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <ul className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+      <CardContent className="@container/tiles">
+        <ul className="grid gap-3 @xl/tiles:grid-cols-2 @4xl/tiles:grid-cols-3">
           {data.sessions.map((s) => (
             <li key={s.sessionId}>
               <ConnectionTile session={s} onOpen={() => setOpenId(s.sessionId)} />
             </li>
           ))}
+          <li>
+            <Trading212Tile />
+          </li>
           <li>
             <button
               type="button"
@@ -197,6 +218,67 @@ function ConnectionTile({ session: s, onOpen }: { session: BankSession; onOpen: 
       </div>
       <ChevronRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground motion-safe:group-hover:translate-x-0.5" />
     </button>
+  );
+}
+
+/** Trading 212's status (it has no consent to renew, so the tile links to the Investments page). */
+function Trading212Tile() {
+  const { data, isPending } = useQuery(investmentsQuery());
+  if (isPending) return <Skeleton className="h-[104px] rounded-xl" />;
+  const h = data?.holding ?? null;
+  const configured = data?.configured ?? false;
+  const status: { tone: ConnectionTone | "off"; label: string } = !configured
+    ? { tone: "off", label: "Not set up" }
+    : h?.error
+      ? { tone: "warning", label: "Last fetch failed" }
+      : !h?.asOf
+        ? { tone: "off", label: "Not fetched yet" }
+        : h.stale
+          ? { tone: "warning", label: "Out of date" }
+          : { tone: "good", label: "Healthy" };
+  const positions = h?.broker?.positions?.length;
+  const deposits = data?.deposits;
+  return (
+    <Link
+      href="/investments"
+      aria-label={`Trading 212: ${status.label}. Open investments`}
+      className="group flex size-full items-start gap-3 rounded-xl border bg-card p-3.5 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring"
+    >
+      <MerchantIcon name="Trading 212" website="trading212.com" size="lg" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">Trading 212</div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-xs">
+          {status.tone === "off" ? (
+            <span aria-hidden className="inline-block size-2 rounded-full bg-muted-foreground/50" />
+          ) : (
+            <StatusDot tone={status.tone} />
+          )}
+          <span className="text-foreground">{status.label}</span>
+        </div>
+        <div className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+          {!configured ? (
+            <div>Add a read-only API key to track your portfolio</div>
+          ) : (
+            <>
+              {h?.error && <div className="line-clamp-2 text-foreground">{h.error}</div>}
+              <div suppressHydrationWarning>{h?.asOf ? `Synced ${timeAgo(h.asOf)}` : "Fetched on the next sync"}</div>
+              {h?.value != null && h.currency && (
+                <div>
+                  {money(h.value, h.currency)}
+                  {positions ? ` · ${plural(positions, "position")}` : ""}
+                </div>
+              )}
+              {deposits?.error ? (
+                <div className="line-clamp-2">{deposits.error}</div>
+              ) : (
+                deposits?.synced && !deposits.complete && <div>Deposit history still loading</div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+      <ChevronRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground motion-safe:group-hover:translate-x-0.5" />
+    </Link>
   );
 }
 

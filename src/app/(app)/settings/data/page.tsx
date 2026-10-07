@@ -37,13 +37,16 @@ export default function DataSettingsPage() {
         <Suspense fallback={<PanelSkeleton lines={2} />}>
           <Connections />
         </Suspense>
-        <div className="grid gap-4 xl:grid-cols-2">
-          <ImportCard />
+        {/* Import and backup are short; they stack beside the (taller) import log instead of each taking a row. */}
+        <div className="grid items-start gap-4 xl:grid-cols-2">
+          <div className="flex flex-col gap-4">
+            <ImportCard />
+            <Suspense fallback={<PanelSkeleton lines={2} />}>
+              <BackupCard />
+            </Suspense>
+          </div>
           <Suspense fallback={<TableSkeleton rows={4} />}>
             <ImportLog />
-          </Suspense>
-          <Suspense fallback={<PanelSkeleton lines={2} />}>
-            <BackupCard />
           </Suspense>
         </div>
       </div>
