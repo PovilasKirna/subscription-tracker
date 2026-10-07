@@ -7,7 +7,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   {
     href: "/settings/data",
     label: "Data & sync",
-    description: "Bank connections, statement imports and backups.",
+    description: "Bank and Trading 212 connections, statement imports and backups.",
     icon: DatabaseIcon,
   },
   {

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChartPieIcon, LayoutDashboardIcon, ListIcon, RepeatIcon, SettingsIcon, WalletIcon } from "lucide-react";
+import { ChartPieIcon, LayoutDashboardIcon, ListIcon, RepeatIcon, SettingsIcon, TrendingUpIcon, WalletIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -10,11 +10,13 @@ import { cn } from "@/lib/utils";
 import { HoardMark } from "./HoardMark";
 
 // `railHref` is where the desktop rail goes: Settings opens its first section there, while phones get the section list.
-// `short` labels the phone tab bar, where six tabs share the width.
+// `short` labels the phone tab bar, where six tabs share the width; `railOnly` links stay off it (phones reach
+// Investments from Net worth).
 const LINKS = [
   { href: "/", railHref: "/", label: "Overview", short: "Overview", icon: LayoutDashboardIcon },
   { href: "/spending", railHref: "/spending", label: "Spending", short: "Spending", icon: ChartPieIcon },
   { href: "/net-worth", railHref: "/net-worth", label: "Net worth", short: "Net worth", icon: WalletIcon },
+  { href: "/investments", railHref: "/investments", label: "Investments", short: "Invest", icon: TrendingUpIcon, railOnly: true },
   { href: "/subscriptions", railHref: "/subscriptions", label: "Subscriptions", short: "Subs", icon: RepeatIcon },
   { href: "/transactions", railHref: "/transactions", label: "Transactions", short: "Payments", icon: ListIcon },
   { href: "/settings", railHref: SETTINGS_SECTIONS[0].href, label: "Settings", short: "Settings", icon: SettingsIcon },
@@ -26,7 +28,6 @@ const isActive = (pathname: string, href: string) => (href === "/" ? pathname ==
 function pageTitle(pathname: string) {
   const section = SETTINGS_SECTIONS.find(({ href }) => pathname === href || pathname.startsWith(`${href}/`));
   if (section) return section.label;
-  if (pathname.startsWith("/investments")) return "Investments"; // reached from Net worth, not a tab of its own
   return LINKS.find(({ href }) => isActive(pathname, href))?.label;
 }
 
@@ -110,7 +111,7 @@ export function AppNav() {
         className="fixed inset-x-0 bottom-0 z-30 border-t bg-card pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] md:hidden"
       >
         <ul className="grid grid-cols-6">
-          {LINKS.map(({ href, label, short, icon: Icon }) => {
+          {LINKS.filter((l) => !("railOnly" in l)).map(({ href, label, short, icon: Icon }) => {
             const active = isActive(pathname, href);
             return (
               <li key={href} className="min-w-0">
