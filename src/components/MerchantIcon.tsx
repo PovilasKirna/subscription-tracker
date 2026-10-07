@@ -40,7 +40,7 @@ function needsBackdrop(img: HTMLImageElement): boolean {
   return opaque > 0 && transparent > 0.25 && lum / opaque < 0.35 && sat / opaque < 0.15;
 }
 
-// Per website, so a logo that's already been measured doesn't flash when a row re-mounts.
+// Per logo URL, so a logo that's already been measured doesn't flash when a row re-mounts.
 const backdropCache = new Map<string, boolean>();
 
 /**
@@ -50,6 +50,7 @@ const backdropCache = new Map<string, boolean>();
 export function MerchantIcon({
   name,
   website,
+  logo,
   size = "md",
   className,
   style,
@@ -57,24 +58,27 @@ export function MerchantIcon({
   name: string;
   /** Domain the logo comes from (`website` on subscriptions and transactions); null = initials. */
   website: string | null;
+  /** A logo URL to use instead of the website's favicon (e.g. /api/logo/ticker/… for an investment). */
+  logo?: string;
   size?: keyof typeof SIZES;
   className?: string;
   /** For placing the icon (the renewals calendar positions its logos absolutely). */
   style?: CSSProperties;
 }) {
+  const src = logo ?? (website !== null ? `/api/logo/${encodeURIComponent(website)}` : null);
   const [failed, setFailed] = useState<string | null>(null);
   // Per instance and only after load, so server and client render the same placeholder first.
-  const [measured, setMeasured] = useState<{ website: string; backdrop: boolean } | null>(null);
-  const showLogo = website !== null && failed !== website;
-  const backdrop = measured?.website === website ? measured.backdrop : undefined;
+  const [measured, setMeasured] = useState<{ src: string; backdrop: boolean } | null>(null);
+  const showLogo = src !== null && failed !== src;
+  const backdrop = measured?.src === src ? measured.backdrop : undefined;
   const measure = (img: HTMLImageElement) => {
-    if (!website || measured?.website === website) return;
-    let result = backdropCache.get(website);
+    if (!src || measured?.src === src) return;
+    let result = backdropCache.get(src);
     if (result === undefined) {
       result = needsBackdrop(img);
-      backdropCache.set(website, result);
+      backdropCache.set(src, result);
     }
-    setMeasured({ website, backdrop: result });
+    setMeasured({ src, backdrop: result });
   };
   return (
     <span
@@ -94,7 +98,7 @@ export function MerchantIcon({
       {showLogo ? (
         // biome-ignore lint/performance/noImgElement: a tiny same-origin icon; next/image's optimizer would request it without the session cookie.
         <img
-          src={`/api/logo/${encodeURIComponent(website)}`}
+          src={src}
           alt=""
           loading="lazy"
           decoding="async"
@@ -104,7 +108,7 @@ export function MerchantIcon({
             if (img?.complete && img.naturalWidth) measure(img);
           }}
           onLoad={(e) => measure(e.currentTarget)}
-          onError={() => setFailed(website)}
+          onError={() => setFailed(src)}
         />
       ) : (
         initials(name)
