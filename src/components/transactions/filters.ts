@@ -1,5 +1,7 @@
-import { ArrowDownLeftIcon, ArrowLeftRightIcon, ArrowUpRightIcon, DatabaseIcon, RepeatIcon, TagIcon } from "lucide-react";
+import { ArrowDownLeftIcon, ArrowLeftRightIcon, ArrowUpRightIcon, DatabaseIcon, RepeatIcon, ShapesIcon, TagIcon } from "lucide-react";
 import type { FilterDef } from "@/components/data-table";
+import { CATEGORY_ICON } from "@/components/spending/CategoryIcon";
+import { CATEGORIES, CATEGORY_IDS } from "@/lib/categories";
 import { FLOWS, SOURCES, SUBSCRIPTION_MEMBERSHIP, TX_TYPES } from "@/lib/search-params";
 import type { TransactionItem } from "@/lib/types";
 
@@ -38,6 +40,13 @@ export const TRANSACTION_FILTERS = [
       { value: SUBSCRIPTION_MEMBERSHIP[0], label: "Subscription charges" },
       { value: SUBSCRIPTION_MEMBERSHIP[1], label: "Everything else" },
     ],
+  },
+  {
+    key: "category",
+    label: "Category",
+    noun: "categories",
+    icon: ShapesIcon,
+    options: CATEGORY_IDS.map((value) => ({ value, label: CATEGORIES[value].label, icon: CATEGORY_ICON[value] })),
   },
   { key: "type", label: "Type", noun: "types", icon: TagIcon, options: TX_TYPES.map((value) => ({ value, label: TYPE_LABEL[value] })) },
   {

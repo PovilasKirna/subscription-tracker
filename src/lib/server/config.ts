@@ -62,6 +62,16 @@ export const config = {
     // Only overridden to point at the local mock (`npm run mock:bank`) during development.
     apiUrl: (env.ENABLE_BANKING_API_URL || "https://api.enablebanking.com").replace(/\/$/, ""),
   },
+  /**
+   * Trading 212 public API key pair (app → Settings → API). Read-only is enough: tick only the
+   * "Account data" and "Portfolio" permissions.
+   */
+  trading212: {
+    apiKey: env.TRADING212_API_KEY || "",
+    apiSecret: env.TRADING212_API_SECRET || "",
+    // Only overridden to point at the demo environment or the local mock (`npm run mock:t212`).
+    apiUrl: (env.TRADING212_API_URL || "https://live.trading212.com").replace(/\/$/, ""),
+  },
   syncIntervalHours: Number(env.SYNC_INTERVAL_HOURS ?? 12),
   /** Shared secret Vercel Cron sends as `Authorization: Bearer …`. */
   cronSecret: env.CRON_SECRET || "",
@@ -87,4 +97,8 @@ export const config = {
 export function bankConfigured(): boolean {
   const eb = config.enableBanking;
   return Boolean(eb.appId) && (Boolean(eb.privateKey) || existsSync(eb.keyPath));
+}
+
+export function trading212Configured(): boolean {
+  return Boolean(config.trading212.apiKey);
 }

@@ -195,8 +195,8 @@ export function BackupCard() {
             <AlertDialogHeader>
               <AlertDialogTitle>Delete all imported data?</AlertDialogTitle>
               <AlertDialogDescription>
-                This permanently removes {data.transactionCount.toLocaleString("en-GB")} transactions and your edits from this server. Bank
-                links are kept. Export a backup first if you might need it.
+                This permanently removes {data.transactionCount.toLocaleString("en-GB")} transactions, your edits and your balance history
+                from this server. Bank links are kept. Export a backup first if you might need it.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

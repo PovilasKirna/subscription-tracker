@@ -199,7 +199,12 @@ test("a bank rate limit backs off background syncs but not user-triggered ones",
 
   respond = () => ({ body: { transactions: [], continuation_key: null } });
   await syncAll({ psu: { ipAddress: "1.1.1.1" } });
-  assert.equal(calls.length, 1, "Sync now still goes through");
+  // Transactions, then the balance (for net worth).
+  assert.deepEqual(
+    calls.map((c) => c.url.pathname.split("/").at(-1)),
+    ["transactions", "balances"],
+    "Sync now still goes through",
+  );
   assert.equal((await session("s2")).next_retry_at, null);
 });
 

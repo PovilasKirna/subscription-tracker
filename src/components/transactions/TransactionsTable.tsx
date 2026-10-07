@@ -1,12 +1,14 @@
 "use client";
 
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { CalendarIcon, XIcon } from "lucide-react";
 import { useQueryStates } from "nuqs";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { DataTable, DataTablePagination, DataTableToolbar, useDataTable, usePageSize } from "@/components/data-table";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { localDate } from "@/lib/format";
+import { fullDate, localDate, monthYearLabel } from "@/lib/format";
 import { transactionsQuery } from "@/lib/query/options";
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES, TX_SORT_COLUMNS, transactionClientParams } from "@/lib/search-params";
 import { transactionColumns } from "./columns";
@@ -44,7 +46,7 @@ export function TransactionsTable() {
     getRowId: (row) => row.id,
     pageCount: data.pageCount,
     rowCount: data.total,
-    initialColumnVisibility: { source: false },
+    initialColumnVisibility: { source: false, type: false },
     sorting: [{ id: params.sort, desc: params.dir === "desc" }],
     onSortingChange: ([next]) =>
       void setParams({
@@ -59,9 +61,18 @@ export function TransactionsTable() {
     },
   });
 
-  const selection = { flow: params.flow, sub: params.sub, type: params.type, source: params.source };
+  const selection = { flow: params.flow, sub: params.sub, type: params.type, source: params.source, category: params.category };
   return (
     <div className="flex flex-col gap-3">
+      {(params.month || params.from || params.to) && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <CalendarIcon className="size-4" aria-hidden />
+          Showing {params.month ? monthYearLabel(params.month) : dateRangeLabel(params.from, params.to)} only
+          <Button variant="ghost" size="sm" onClick={() => void setParams({ month: null, from: null, to: null, page: null })}>
+            <XIcon /> Show all dates
+          </Button>
+        </div>
+      )}
       <DataTableToolbar
         table={table}
         search={{
@@ -76,7 +87,20 @@ export function TransactionsTable() {
           onChange: (key, values) =>
             void setParams({ [key]: values.length ? values : null, page: null } as Parameters<typeof setParams>[0]),
         }}
-        onReset={() => void setParams({ q: null, flow: null, sub: null, type: null, source: null, page: null })}
+        onReset={() =>
+          void setParams({
+            q: null,
+            flow: null,
+            sub: null,
+            type: null,
+            source: null,
+            category: null,
+            month: null,
+            from: null,
+            to: null,
+            page: null,
+          })
+        }
       />
       <DataTable
         table={table}
@@ -114,4 +138,10 @@ export function TransactionsTableSkeleton() {
       <Skeleton className="ml-auto h-7 w-80 max-w-full" />
     </div>
   );
+}
+
+/** "1 Sept 2026 – 7 Oct 2026", "from 1 Sept 2026", "until 7 Oct 2026". */
+function dateRangeLabel(from: string, to: string): string {
+  if (from && to) return from === to ? fullDate(from) : `${fullDate(from)} – ${fullDate(to)}`;
+  return from ? `from ${fullDate(from)}` : `until ${fullDate(to)}`;
 }

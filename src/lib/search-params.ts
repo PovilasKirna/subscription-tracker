@@ -8,6 +8,7 @@ import {
   parseAsString,
   parseAsStringLiteral,
 } from "nuqs/server";
+import { CATEGORY_IDS } from "./categories";
 
 // Type-safe URL state (nuqs). The same parsers are read on the server (to prefetch the
 // right query), by the API route (to parse the request) and on the client (useQueryStates),
@@ -92,6 +93,12 @@ export const transactionParams = {
   type: parseAsArrayOf(parseAsStringLiteral(TX_TYPES)).withDefault([]),
   source: parseAsArrayOf(parseAsStringLiteral(SOURCES)).withDefault([]),
   sub: parseAsArrayOf(parseAsStringLiteral(SUBSCRIPTION_MEMBERSHIP)).withDefault([]),
+  category: parseAsArrayOf(parseAsStringLiteral(CATEGORY_IDS)).withDefault([]),
+  /** One calendar month (YYYY-MM); "" = all time. */
+  month: parseAsString.withDefault(""),
+  /** A date range (YYYY-MM-DD, inclusive), e.g. a period on the Spending page; "" = open-ended. */
+  from: parseAsString.withDefault(""),
+  to: parseAsString.withDefault(""),
 };
 export type TransactionFilters = inferParserType<typeof transactionParams>;
 /** Builds the query string for /api/transactions from the same parsers. */
@@ -109,3 +116,15 @@ export const loadSubscriptionParams = createLoader(subscriptionParams);
 /** Table params as the client hooks read them: `perPage` is null when the URL doesn't set it. */
 export const subscriptionClientParams = { ...subscriptionParams, perPage: clientPerPageParam };
 export const transactionClientParams = { ...transactionParams, perPage: clientPerPageParam };
+
+// ---------- spending ----------
+export const SPENDING_RANGES = ["1w", "1m", "6m", "1y"] as const;
+export const SPENDING_VIEWS = ["line", "bar"] as const;
+export const spendingParams = {
+  range: parseAsStringLiteral(SPENDING_RANGES).withDefault("1m"),
+  /** A day inside the period shown (YYYY-MM-DD); "" = the current one. */
+  at: parseAsString.withDefault(""),
+  /** Chart style; the data is the same either way. */
+  view: parseAsStringLiteral(SPENDING_VIEWS).withDefault("line"),
+};
+export const loadSpendingParams = createLoader(spendingParams);
