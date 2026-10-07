@@ -162,7 +162,7 @@ Notes:
 
 | | Local | Dev (Vercel Preview) | Prod (Vercel Production) |
 |---|---|---|---|
-| Deploys from | `npm run dev` | any branch except `main` (e.g. `dev`) | `main` |
+| Deploys from | `npm run dev` | `dev` | `main` |
 | Database | `data/tracker.db` (sample data) | its own Turso database, seeded with sample data | your real Turso database |
 | Bank sync | mock (`npm run mock:bank`) | off | Enable Banking + daily cron |
 | Access | localhost | app password + Vercel deployment protection | app password |
@@ -171,7 +171,7 @@ Each environment has its own variables in Vercel (**Settings → Environment Var
 
 With `SEED_SAMPLE_DATA=true`, an **empty** database imports the fake sample statement the first time the app opens it. It never runs on a Vercel production deployment or on a database that already has transactions. To start the dev data over, empty the database in Settings → Data & sync and redeploy; the next cold start imports it again.
 
-Deploy dev from the CLI with `npx vercel deploy` (no `--prod`), or push a branch once the Git repository is connected.
+Deploy dev from the CLI with `npx vercel deploy` (no `--prod`), or push to `dev` once the Git repository is connected. Pushes to other branches are not built: the `ignoreCommand` in `vercel.json` skips them so feature branches don't fill the Hobby plan's 10 GB of deployment storage. Remove that line (or add a branch to its list) if you want preview URLs for every branch.
 
 ## Self-hosting
 
