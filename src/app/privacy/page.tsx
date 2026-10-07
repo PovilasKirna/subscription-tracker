@@ -68,8 +68,9 @@ export default function PrivacyPage() {
         <p>These providers process data on the app&apos;s behalf, under their own security and data protection terms.</p>
         <p>
           Service logos (for well-known services like Netflix and Spotify, or a website the owner enters) are fetched by the server from
-          Google&apos;s and DuckDuckGo&apos;s public favicon services, using only the service&apos;s website address. No transaction data or
-          anything identifying the owner is sent, and the browser never contacts these services directly.
+          Google&apos;s and DuckDuckGo&apos;s public favicon services, using only the service&apos;s website address. Logos of stocks and
+          funds are fetched the same way from Trading 212&apos;s public logo images, using only the instrument&apos;s ticker. No transaction
+          data, amounts or anything identifying the owner is sent, and the browser never contacts these services directly.
         </p>
       </Section>
 
