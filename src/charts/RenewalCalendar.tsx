@@ -103,12 +103,12 @@ function Calendar({
   const roving = useRovingFocus(marked.length, 0);
   // The tooltip sits beside the day's hit target, measured in the viewport when it opens.
   const targets = useRef(new Map<string, SVGRectElement>());
-  const [tooltip, setTooltip] = useState<{ cell: Cell; anchor: DOMRect } | null>(null);
+  const [tooltip, setTooltip] = useState<{ cell: Cell; anchor: SVGRectElement } | null>(null);
   const tooltipData = tooltip?.cell;
   const hideTooltip = useMemo(() => () => setTooltip(null), []);
   const show = (c: Cell) => {
     const el = targets.current.get(c.date);
-    if (el) setTooltip({ cell: c, anchor: el.getBoundingClientRect() });
+    if (el) setTooltip({ cell: c, anchor: el });
   };
 
   // A tap (or click) pins the tooltip until the next tap anywhere outside the marked days.

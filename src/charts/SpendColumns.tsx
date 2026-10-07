@@ -1,12 +1,13 @@
 "use client";
 
-import { barY, defineChart, text } from "@tanstack/charts";
+import { barY, defineChart, rect, text } from "@tanstack/charts";
 import { crosshair } from "@tanstack/charts/crosshair";
 import { Chart } from "@tanstack/charts/react/tooltip";
 import { scaleBand } from "@tanstack/charts/scales/band";
 import { scaleLinear } from "@tanstack/charts/scales/linear";
 import { useMemo } from "react";
 import { TooltipDivider, TooltipRow } from "./ChartTooltip";
+import { enterNearEnd, keyboardRing } from "./keyboardEntry";
 import { Legend } from "./Legend";
 import { isOther, MIN_TEXT, marks, seriesColor, tokens } from "./palette";
 import { axisLine, chartTheme, chartTooltip, focusRing, gridLine, tickLabels } from "./theme";
@@ -27,7 +28,7 @@ type Props<K extends string> = {
 };
 
 /** One stack segment: a month and one series' slice of its column, in spend (wide month rows, made long). */
-type Segment<K extends string> = { month: Month; key: K; y1: number; y2: number; top: boolean; row: MonthlySpend<K> };
+type Segment<K extends string> = { month: Month; key: K | null; y1: number; y2: number; top: boolean; row: MonthlySpend<K> };
 
 /** Locked top and bottom margins (room for the direct label and the month axis) keep the plot height exact. */
 const MARGIN = { top: 20, bottom: 28 } as const;
@@ -58,6 +59,7 @@ export function SpendColumns<K extends string>({
 
   const definition = useMemo(() => {
     const colorOf = new Map(series.map((s) => [s.key, s.color]));
+    const colorFor = (s: Segment<K>) => (s.key === null ? null : (colorOf.get(s.key) ?? null));
     const last = data.at(-1);
     // The y domain is niced here (not by the chart) so a pixel gap can be converted to spend below.
     const yMax = scaleLinear()
@@ -81,6 +83,7 @@ export function SpendColumns<K extends string>({
             return seg;
           });
         });
+        const columns: Segment<K>[] = data.map((row) => ({ month: row.month, key: null, y1: 0, y2: row.total, top: false, row }));
         return {
           marks: [
             // Hover / keyboard band behind the marks so it never washes them out.
@@ -90,9 +93,9 @@ export function SpendColumns<K extends string>({
               y1: "y1",
               y2: "y2",
               key: (s) => `${s.key}-${s.month}`,
-              fill: (s) => seriesColor(colorOf.get(s.key) ?? null),
+              fill: (s) => seriesColor(colorFor(s)),
               // "Other" alone gets a 1px graphite outline, which lifts its grey off the card.
-              stroke: (s) => (isOther(colorOf.get(s.key)) ? tokens.textSecondary : "none"),
+              stroke: (s) => (isOther(colorFor(s)) ? tokens.textSecondary : "none"),
               strokeWidth: 1,
               maxThickness: marks.maxBar,
               radius: (s) => (s.top ? [marks.radius, marks.radius, 0, 0] : 0),
@@ -106,6 +109,17 @@ export function SpendColumns<K extends string>({
               fontSize: MIN_TEXT,
               fontWeight: 600,
               fill: tokens.textPrimary,
+            }),
+            // One full-height column per month: a target even for an empty month, and the keyboard
+            // focus ring.
+            rect(columns, {
+              x: "month",
+              y1: () => 0,
+              y2: () => yMax,
+              fill: "transparent",
+              inset: -3,
+              radius: 6,
+              states: keyboardRing("x"),
             }),
           ],
           scales: {
@@ -152,6 +166,7 @@ export function SpendColumns<K extends string>({
         definition={definition}
         height={fill ? undefined : height}
         initialWidth={560}
+        onRender={enterNearEnd()}
         style={fill ? { flex: 1, minHeight: height } : undefined}
         ariaLabel="Monthly subscription spend, stacked by subscription"
         ariaDescription="Use the arrow keys to move between months."

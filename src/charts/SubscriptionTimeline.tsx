@@ -8,6 +8,7 @@ import {
   defineChart,
   dot,
   link,
+  rect,
   tickX,
 } from "@tanstack/charts";
 import { crosshair } from "@tanstack/charts/crosshair";
@@ -17,6 +18,7 @@ import { scaleOrdinal } from "@tanstack/charts/scales/ordinal";
 import { scaleUtc } from "d3-scale";
 import { type KeyboardEvent, useMemo, useRef } from "react";
 import { TooltipNote, TooltipRow } from "./ChartTooltip";
+import { keyboardRing } from "./keyboardEntry";
 import { fitLabel, isOther, marks, seriesColor, tokens } from "./palette";
 import { axisLine, chartTheme, chartTooltip, focusRing, gridLine, tickLabels } from "./theme";
 import { timelineRowLabel } from "./timelineLabel";
@@ -192,6 +194,19 @@ export function SubscriptionTimeline<T extends TimelineRow>({
             r: marks.markerR + 1,
             stroke: tokens.textSecondary,
             strokeWidth: 1,
+          }),
+          // One plot-wide rect per row: the keyboard focus ring. This chart drives keyboard focus
+          // itself, so it arrives as programmatic focus.
+          rect(spans, {
+            id: "row-rings",
+            x: () => toDate(today),
+            x1: () => toDate(first),
+            x2: () => toDate(today),
+            y: rowKey,
+            fill: "transparent",
+            inset: 1,
+            radius: 6,
+            states: keyboardRing("y", "programmatic"),
           }),
         ],
         color: {

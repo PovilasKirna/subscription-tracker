@@ -2,12 +2,14 @@
 
 import { areaY, defineChart, dot, lineY } from "@tanstack/charts";
 import { crosshair } from "@tanstack/charts/crosshair";
+import { whenFocused } from "@tanstack/charts/focus/mark";
 import { Chart } from "@tanstack/charts/react/tooltip";
 import { scaleLinear } from "@tanstack/charts/scales/linear";
 import { useMemo } from "react";
 import { TooltipDivider, TooltipRow } from "./ChartTooltip";
+import { enterNearEnd } from "./keyboardEntry";
 import { MIN_TEXT, marks, seriesColor, tokens } from "./palette";
-import { axisLine, chartTheme, chartTooltip, focusRing, gridLine, indexTicks, tickLabels } from "./theme";
+import { axisLine, chartTheme, chartTooltip, focusRing, gridLine, indexTicks, inkRing, tickLabels } from "./theme";
 import type { SpendingPacePoint } from "./types";
 
 /** Locked margins: the right one holds the end pills, and top / bottom keep the plot height exact for them. */
@@ -53,18 +55,19 @@ function standing(points: SpendingPacePoint[]): string {
  * tooltip gives the difference, so colour never carries the meaning alone.
  */
 export function SpendingPace({ data, label, previousLabel, formatValue, formatAxisValue, endLabels = [], height = 260 }: Props) {
-  // The y domain is niced here so the HTML end pills can be placed on the same scale.
-  const yMax = useMemo(
-    () =>
-      scaleLinear()
-        .domain([
-          0,
-          Math.max(1, ...data.flatMap((d) => [d.spent ?? 0, d.previous ?? 0, d.projected ?? 0]), ...endLabels.map((l) => l.value)),
-        ])
-        .nice(4)
-        .domain()[1],
-    [data, endLabels],
-  );
+  // The y domain is niced here so the HTML end pills can be placed on the same scale. Refunds before
+  // any purchases can take a running total below zero; keep those points in view.
+  const [yMin, yMax] = useMemo(() => {
+    const values = [...data.flatMap((d) => [d.spent ?? 0, d.previous ?? 0, d.projected ?? 0]), ...endLabels.map((l) => l.value)];
+    const [lo = 0, hi = 1] = scaleLinear()
+      .domain([Math.min(0, ...values), Math.max(1, ...values)])
+      .nice(4)
+      .domain();
+    return [lo, hi];
+  }, [data, endLabels]);
+  // Tab lands on today (the latest actual spend), counted back from the period's last point.
+  const today = data.findLastIndex((d) => d.spent !== null);
+  const afterToday = data.slice(today + 1).filter((d) => d.spent !== null || d.previous !== null || d.projected !== null).length;
 
   const definition = useMemo(() => {
     const rows: Row[] = data.map((d, i) => ({ ...d, i }));
@@ -74,8 +77,8 @@ export function SpendingPace({ data, label, previousLabel, formatValue, formatAx
     return defineChart({
       marks: [
         crosshair({ x: { stroke: tokens.axis, strokeOpacity: 1 }, y: false }),
-        // The area under the line fades out downwards.
-        areaY(spent, { x: "i", y: "spent", fill: "url(#fade)" }),
+        // The area between the line and zero fades out downwards.
+        areaY(spent, { x: "i", y1: 0, y2: "spent", fill: "url(#fade)" }),
         lineY(
           rows.filter((d) => d.previous !== null),
           { x: "i", y: "previous", stroke: PREVIOUS, strokeWidth: marks.line },
@@ -87,6 +90,14 @@ export function SpendingPace({ data, label, previousLabel, formatValue, formatAx
         lineY(spent, { x: "i", y: "spent", stroke: color, strokeWidth: marks.line }),
         // Today.
         dot(spent.slice(-1), { x: "i", y: "spent", r: marks.markerR, fill: color, stroke: tokens.surface, strokeWidth: marks.ring }),
+        // The ink focus ring on the focused point's leading line: spent, else projected, else previous.
+        whenFocused(
+          dot(
+            rows.filter((d) => d.spent !== null || d.projected !== null || d.previous !== null),
+            { x: "i", y: (d) => d.spent ?? d.projected ?? d.previous, ...inkRing },
+          ),
+          { match: "x" },
+        ),
       ],
       gradients: [
         {
@@ -111,7 +122,7 @@ export function SpendingPace({ data, label, previousLabel, formatValue, formatAx
           },
         },
         y: {
-          scale: scaleLinear().domain([0, yMax]),
+          scale: scaleLinear().domain([yMin, yMax]),
           grid: gridLine,
           axis: { line: false, ticks: { count: 4, size: 0, format: formatAxisValue }, tickLabels },
         },
@@ -137,13 +148,13 @@ export function SpendingPace({ data, label, previousLabel, formatValue, formatAx
         .filter(Boolean)
         .join(", ");
     }
-  }, [data, yMax, label, previousLabel, formatValue, formatAxisValue]);
+  }, [data, yMin, yMax, label, previousLabel, formatValue, formatAxisValue]);
 
   // Right-edge pills, nudged apart when they'd overlap; HTML over the chart's locked right margin.
   const plotH = Math.max(0, height - MARGIN.top - MARGIN.bottom);
   const pills: { value: number; muted?: boolean; y: number }[] = [];
   for (const l of [...endLabels].sort((a, b) => b.value - a.value)) {
-    const y = MARGIN.top + plotH * (1 - l.value / yMax);
+    const y = MARGIN.top + (plotH * (yMax - l.value)) / (yMax - yMin);
     const prev = pills.at(-1);
     pills.push({ ...l, y: prev && y - prev.y < 20 ? prev.y + 20 : y });
   }
@@ -154,6 +165,7 @@ export function SpendingPace({ data, label, previousLabel, formatValue, formatAx
         definition={definition}
         height={height}
         initialWidth={560}
+        onRender={enterNearEnd(afterToday)}
         ariaLabel={`${label} spending`}
         ariaDescription="Use the arrow keys to read each point."
         renderTooltipBody={({ points }) => {

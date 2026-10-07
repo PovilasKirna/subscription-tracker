@@ -1,7 +1,7 @@
 import type { ChartGuideLineStyle } from "@tanstack/charts";
 import { tooltip } from "@tanstack/charts/tooltip";
 import { portal } from "@tanstack/charts/tooltip/portal";
-import { MIN_TEXT, tokens } from "./palette";
+import { MIN_TEXT, marks, tokens } from "./palette";
 
 // Shared @tanstack/charts presentation: every chart pulls its theme, guide styles and tooltip
 // options from here, so the charts read as one system in both light and dark mode.
@@ -27,8 +27,18 @@ export function indexTicks(count: number): number[] {
   return Array.from({ length: count }, (_, i) => i).filter((i) => i === last || (i % every === 0 && last - i >= every / 2));
 }
 
-/** Keyboard focus is drawn by the marks themselves (bands, rings), so the default dot ring is off. */
+/**
+ * Band charts (columns, rows) draw their own keyboard ring around the focused band (`keyboardRing` in
+ * keyboardEntry.ts), so the library's dot ring is off for them.
+ */
 export const focusRing = false;
+
+/**
+ * Line charts: the focused day gets a 2px ink ring (DESIGN.md), hollow so a marker inside stays visible.
+ * Dot options for a `whenFocused(dot(...), { match: "x" })` on the chart's main line: the library's own
+ * ring would circle every series (and label) at that day.
+ */
+export const inkRing = { r: marks.markerR + 2, fill: "transparent", stroke: tokens.textPrimary, strokeWidth: 2 } as const;
 
 /**
  * The tooltip follows the pointer (keyboard focus falls back to the mark), escapes the card's

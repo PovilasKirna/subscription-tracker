@@ -11,30 +11,40 @@ import { isOther, type Paint, seriesColor } from "./palette";
 
 /**
  * The same tooltip surface for app-owned layouts that are not a chart definition (RenewalCalendar):
- * portalled to <body> so a card's `overflow: hidden` never clips it, placed beside `anchor` (a viewport
- * rect) and flipped to stay on screen.
+ * portalled to <body> so a card's `overflow: hidden` never clips it, placed beside the `anchor` element
+ * and flipped to stay on screen. It follows the anchor while the page scrolls or resizes, so a pinned
+ * tooltip stays with its day.
  */
-export function FloatingTooltip({ anchor, children }: { anchor: DOMRect; children: ReactNode }) {
+export function FloatingTooltip({ anchor, children }: { anchor: Element; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const offset = 14;
-    const { width, height } = el.getBoundingClientRect();
-    const x = anchor.left + anchor.width / 2;
-    const y = anchor.top + anchor.height / 2;
-    const left = x + offset + width <= window.innerWidth - 8 ? x + offset : Math.max(8, x - offset - width);
-    const top = y + offset + height <= window.innerHeight - 8 ? y + offset : Math.max(8, y - offset - height);
-    setPos({ left, top });
+    const place = () => {
+      const el = ref.current;
+      if (!el) return;
+      const offset = 14;
+      const a = anchor.getBoundingClientRect();
+      const { width, height } = el.getBoundingClientRect();
+      const x = a.left + a.width / 2;
+      const y = a.top + a.height / 2;
+      const left = x + offset + width <= window.innerWidth - 8 ? x + offset : Math.max(8, x - offset - width);
+      const top = y + offset + height <= window.innerHeight - 8 ? y + offset : Math.max(8, y - offset - height);
+      setPos((prev) => (prev && prev.left === left && prev.top === top ? prev : { left, top }));
+    };
+    place();
+    // Any scrolling ancestor, not just the window: capture catches them all.
+    window.addEventListener("scroll", place, { capture: true, passive: true });
+    window.addEventListener("resize", place);
+    const observer = new ResizeObserver(place);
+    observer.observe(anchor);
+    return () => {
+      window.removeEventListener("scroll", place, { capture: true });
+      window.removeEventListener("resize", place);
+      observer.disconnect();
+    };
   }, [anchor]);
   return createPortal(
-    <div
-      ref={ref}
-      aria-hidden
-      className="chart-tooltip chart-tooltip-floating"
-      style={pos ?? { left: anchor.left, top: anchor.top, visibility: "hidden" }}
-    >
+    <div ref={ref} aria-hidden className="chart-tooltip chart-tooltip-floating" style={pos ?? { left: 0, top: 0, visibility: "hidden" }}>
       {children}
     </div>,
     document.body,

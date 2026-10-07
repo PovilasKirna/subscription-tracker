@@ -2,13 +2,15 @@
 
 import { defineChart, dot, lineY, text } from "@tanstack/charts";
 import { crosshair } from "@tanstack/charts/crosshair";
+import { whenFocused } from "@tanstack/charts/focus/mark";
 import { Chart } from "@tanstack/charts/react/tooltip";
 import { scaleLinear } from "@tanstack/charts/scales/linear";
 import { scaleUtc } from "d3-scale";
 import { useMemo } from "react";
 import { TooltipDivider, TooltipRow } from "./ChartTooltip";
+import { enterNearEnd } from "./keyboardEntry";
 import { MIN_TEXT, marks, seriesColor, tokens } from "./palette";
-import { axisLine, chartTheme, chartTooltip, gridLine, tickLabels } from "./theme";
+import { axisLine, chartTheme, chartTooltip, focusRing, gridLine, inkRing, tickLabels } from "./theme";
 import type { NetWorthDay } from "./types";
 
 const LINE = seriesColor(1);
@@ -38,12 +40,16 @@ export function NetWorthLine({ data, formatValue, formatAxisValue, formatDate, f
     const hi = Math.max(...values);
     const pad = Math.max((hi - lo) * 0.15, Math.abs(hi) * 0.02, 1);
     const at = (d: NetWorthDay) => toTime(d.date);
+    const marker = { x: at, y: "total", r: marks.markerR, fill: LINE, stroke: tokens.surface, strokeWidth: marks.ring } as const;
     return defineChart({
       marks: [
         crosshair({ x: { stroke: tokens.axis, strokeOpacity: 1 }, y: false }),
         lineY(data, { x: at, y: "total", stroke: LINE, strokeWidth: marks.line }),
         // End dot + direct label: today's value.
-        dot(last, { x: at, y: "total", r: marks.markerR, fill: LINE, stroke: tokens.surface, strokeWidth: marks.ring }),
+        dot(last, marker),
+        // The focused day gets the same dot, inside the ink focus ring.
+        whenFocused(dot(data, marker), { match: "x" }),
+        whenFocused(dot(data, { x: at, y: "total", ...inkRing }), { match: "x" }),
         text(last, {
           x: at,
           y: "total",
@@ -73,8 +79,7 @@ export function NetWorthLine({ data, formatValue, formatAxisValue, formatDate, f
       },
       margin: { top: 24, right: 16 },
       theme: chartTheme,
-      // The focused day gets the same dot as the end of the line.
-      focusRing: { radius: marks.markerR, strokeWidth: marks.ring, fill: LINE, stroke: tokens.surface },
+      focusRing,
       // The crosshair finds the date: anywhere on the plot picks the nearest day; arrow keys step days.
       focus: "group-x",
       maxFocusDistance: Number.POSITIVE_INFINITY,
@@ -83,7 +88,7 @@ export function NetWorthLine({ data, formatValue, formatAxisValue, formatDate, f
         formatGroup: (points) => {
           const d = points[0]?.datum;
           if (!d) return "";
-          const parts = split ? `: bank accounts ${formatValue(d.bank)}, investments ${formatValue(d.broker)}` : "";
+          const parts = split ? `, bank accounts ${formatValue(d.bank)}, investments ${formatValue(d.broker)}` : "";
           return `${formatDateLong(d.date)}: ${formatValue(d.total)}${parts}`;
         },
       },
@@ -97,6 +102,7 @@ export function NetWorthLine({ data, formatValue, formatAxisValue, formatDate, f
       definition={definition}
       height={height}
       initialWidth={560}
+      onRender={enterNearEnd()}
       ariaLabel="Net worth over time"
       ariaDescription={
         first && latest

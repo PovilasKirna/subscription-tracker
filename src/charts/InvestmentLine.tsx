@@ -8,8 +8,9 @@ import { scaleLinear } from "@tanstack/charts/scales/linear";
 import { scaleUtc } from "d3-scale";
 import { useMemo } from "react";
 import { TooltipDivider, TooltipRow } from "./ChartTooltip";
+import { enterNearEnd } from "./keyboardEntry";
 import { marks, seriesColor, tokens } from "./palette";
-import { axisLine, chartTheme, chartTooltip, focusRing, gridLine, tickLabels } from "./theme";
+import { axisLine, chartTheme, chartTooltip, focusRing, gridLine, inkRing, tickLabels } from "./theme";
 import type { InvestmentDay } from "./types";
 
 const VALUE = seriesColor(1);
@@ -50,6 +51,14 @@ export function InvestmentLine({ data, formatValue, formatAxisValue, formatDate,
         dot(valueDays.slice(-1), valueDot),
         // The focused day's dot sits on the value line, whichever line the pointer is nearer.
         whenFocused(dot(valueDays, valueDot), { match: "x" }),
+        // The ink focus ring sits on the value line, or on net deposits on days before tracking began.
+        whenFocused(
+          dot(
+            data.filter((d) => d.value !== null || d.deposits !== null),
+            { x: at, y: (d) => d.value ?? d.deposits, ...inkRing },
+          ),
+          { match: "x" },
+        ),
       ],
       scales: {
         x: {
@@ -61,7 +70,8 @@ export function InvestmentLine({ data, formatValue, formatAxisValue, formatDate,
           },
         },
         y: {
-          scale: scaleLinear().domain([Math.max(0, lo - pad), hi + pad]),
+          // Negative net deposits (more withdrawn than paid in) stay in view.
+          scale: scaleLinear().domain([lo < 0 ? lo - pad : Math.max(0, lo - pad), hi + pad]),
           nice: true,
           grid: gridLine,
           axis: { line: false, ticks: { count: 4, size: 0, format: formatAxisValue }, tickLabels },
@@ -100,6 +110,7 @@ export function InvestmentLine({ data, formatValue, formatAxisValue, formatDate,
         definition={definition}
         height={height}
         initialWidth={560}
+        onRender={enterNearEnd()}
         ariaLabel="Account value and net deposits over time"
         ariaDescription="Use the arrow keys to read each day."
         renderTooltipBody={({ points }) => {

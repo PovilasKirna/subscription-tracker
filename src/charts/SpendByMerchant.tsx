@@ -1,12 +1,13 @@
 "use client";
 
-import { barX, type ChartPoint, defineChart, text } from "@tanstack/charts";
+import { barX, type ChartPoint, defineChart, rect, text } from "@tanstack/charts";
 import { crosshair } from "@tanstack/charts/crosshair";
 import { Chart } from "@tanstack/charts/react/tooltip";
 import { scaleBand } from "@tanstack/charts/scales/band";
 import { scaleLinear } from "@tanstack/charts/scales/linear";
 import { useId, useMemo } from "react";
 import { TooltipDivider, TooltipNote, TooltipRow } from "./ChartTooltip";
+import { keyboardRing } from "./keyboardEntry";
 import { Legend } from "./Legend";
 import { fitLabel, MIN_TEXT, marks, seriesColor, tokens } from "./palette";
 import { axisLine, chartTheme, chartTooltip, focusRing, gridLine, tickLabels } from "./theme";
@@ -77,6 +78,10 @@ export function SpendByMerchant<T>({ data, getKey, getLabel, getValue, getSubsid
 
   const definition = useMemo(() => {
     const labelOf = new Map(rows.map((r) => [r.key, r.label]));
+    const xMax = scaleLinear()
+      .domain([0, Math.max(1, ...rows.map((r) => r.value))])
+      .nice()
+      .domain()[1];
     const subsidised = rows.filter((r) => r.sub > 0);
     return defineChart(
       ({ width }) => ({
@@ -127,11 +132,20 @@ export function SpendByMerchant<T>({ data, getKey, getLabel, getValue, getSubsid
             fontSize: MIN_TEXT,
             fill: tokens.textSecondary,
           }),
+          // One plot-wide rect per merchant: the keyboard focus ring.
+          rect(rows, {
+            x1: () => 0,
+            x2: () => xMax,
+            y: "key",
+            fill: "transparent",
+            inset: 1,
+            radius: 6,
+            states: keyboardRing("y"),
+          }),
         ],
         scales: {
           x: {
-            scale: scaleLinear().domain([0, Math.max(1, ...rows.map((r) => r.value))]),
-            nice: true,
+            scale: scaleLinear().domain([0, xMax]),
             grid: gridLine,
             axis: { line: axisLine, ticks: { spacing: 80, size: 0, format: formatAxisValue }, tickLabels },
           },

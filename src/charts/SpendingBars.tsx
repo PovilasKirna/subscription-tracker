@@ -1,13 +1,13 @@
 "use client";
 
-import { barY, defineChart } from "@tanstack/charts";
-import { bandX } from "@tanstack/charts/band";
+import { barY, defineChart, rect } from "@tanstack/charts";
 import { crosshair } from "@tanstack/charts/crosshair";
 import { Chart } from "@tanstack/charts/react/tooltip";
 import { scaleBand } from "@tanstack/charts/scales/band";
 import { scaleLinear } from "@tanstack/charts/scales/linear";
 import { useMemo } from "react";
 import { TooltipDivider, TooltipRow } from "./ChartTooltip";
+import { enterNearEnd, keyboardRing } from "./keyboardEntry";
 import { marks, seriesColor, tokens } from "./palette";
 import { Difference, signed } from "./SpendingPace";
 import { axisLine, chartTheme, chartTooltip, focusRing, gridLine, indexTicks, tickLabels } from "./theme";
@@ -37,13 +37,21 @@ type Row = SpendingBarPoint & { i: number; value: number };
 export function SpendingBars({ data, label, previousLabel, formatValue, formatAxisValue, height = 260 }: Props) {
   const definition = useMemo(() => {
     const rows: Row[] = data.map((d, i) => ({ ...d, i, value: d.amount ?? d.projectedAmount ?? 0 }));
+    // Signed: a refund-heavy slot hangs below zero. The period before is only in the tooltip, so it
+    // doesn't stretch the axis.
+    const values = rows.map((r) => r.value);
+    const [yMin = 0, yMax = 1] = scaleLinear()
+      .domain([Math.min(0, ...values), Math.max(1, ...values)])
+      .nice(4)
+      .domain();
     return defineChart({
       marks: [
         crosshair({ x: { band: { radius: 6, inset: -4, fill: tokens.grid, fillOpacity: 0.45 } }, y: false }),
-        // Every slot is a target, even one with nothing spent: its tooltip still has the period before.
-        bandX(rows, { x: "i", fill: "transparent" }),
+        // Every slot is a target, even one with nothing spent (its tooltip still has the period
+        // before), and carries the keyboard focus ring.
+        rect(rows, { x: "i", y1: () => yMin, y2: () => yMax, fill: "transparent", inset: -3, radius: 6, states: keyboardRing("x") }),
         barY(
-          rows.filter((r) => r.value > 0),
+          rows.filter((r) => r.value !== 0),
           {
             x: "i",
             y: "value",
@@ -66,9 +74,7 @@ export function SpendingBars({ data, label, previousLabel, formatValue, formatAx
           },
         },
         y: {
-          // The period before is only in the tooltip, so it doesn't stretch the axis.
-          scale: scaleLinear().domain([0, Math.max(1, ...rows.map((r) => r.value))]),
-          nice: true,
+          scale: scaleLinear().domain([yMin, yMax]),
           grid: gridLine,
           axis: { line: false, ticks: { count: 4, size: 0, format: formatAxisValue }, tickLabels },
         },
@@ -102,6 +108,8 @@ export function SpendingBars({ data, label, previousLabel, formatValue, formatAx
       definition={definition}
       height={height}
       initialWidth={560}
+      // Tab lands on the latest slot with actual spending.
+      onRender={enterNearEnd(Math.max(0, data.length - 1 - data.findLastIndex((d) => d.amount !== null)))}
       ariaLabel={`${label} spending per period`}
       ariaDescription="Use the arrow keys to read each period."
       renderTooltipBody={({ points }) => {
