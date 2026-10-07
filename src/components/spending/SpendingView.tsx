@@ -181,7 +181,7 @@ function RangeSwitch({ className }: { className?: string }) {
  * with its arrows, its length, and the chart style. Rendered in the page header.
  */
 export function SpendingControls() {
-  const { data, params, setParams, go, isPending } = useSpending();
+  const { data, go, isPending } = useSpending();
   return (
     <div className={cn("flex flex-wrap items-center justify-end gap-2", isPending && "opacity-60")}>
       <div className="flex min-w-0 items-center">
