@@ -1,6 +1,7 @@
+import { money } from "../format";
 import type { BrokerDetail, Holding, HoldingGroup, HoldingKind, InvestmentsPayload, NetWorthPayload, NetWorthPoint } from "../types";
 import { bankConfigured, config, trading212Configured } from "./config";
-import { all, type Db, getDb, one } from "./db";
+import { all, type Db, getDb, logImport, one, run } from "./db";
 import { accountKey, BankApiError, type EbAccount, fetchBalance, type PsuContext } from "./enableBanking";
 import { convert, loadRates, type RateTable, refreshRates } from "./fx";
 import { getState, setState } from "./settings";
@@ -117,6 +118,7 @@ export function syncTrading212(): Promise<void> {
 async function doSyncTrading212(): Promise<void> {
   const db = await getDb();
   const info: HoldingInfo = { id: T212_HOLDING_ID, kind: "broker", institution: "Trading 212", name: "Portfolio", currency: null };
+  let summaryLine: string;
   try {
     const summary = await fetchSummary();
     // Positions need the "Portfolio" permission; without it the account total still works.
@@ -124,11 +126,34 @@ async function doSyncTrading212(): Promise<void> {
     const s = summarize(summary, positions);
     const detail: BrokerDetail = s.detail;
     await recordValue(db, { ...info, currency: s.currency }, s, detail);
+    const count = positions?.length;
+    summaryLine = `${money(s.amountMinor / 100, s.currency)}${count === undefined ? "" : ` · ${count} position${count === 1 ? "" : "s"}`}`;
   } catch (e) {
-    await recordError(db, info, (e as Error).message).catch(() => undefined);
+    const message = (e as Error).message;
+    await recordError(db, info, message).catch(() => undefined);
+    await logTrading212(db, 0, `Failed: ${message}`).catch(() => undefined);
     return;
   }
-  await syncCashFlows(db);
+  const added = await syncCashFlows(db);
+  await logTrading212(db, added, summaryLine).catch(() => undefined);
+}
+
+/**
+ * Notes a pull in the import log (Settings → Data & sync): `inserted` is the deposits and
+ * withdrawals it added, `message` the account value or the error. Back-to-back pulls on one day
+ * (Refresh clicks) update one row, so they don't push bank syncs out of the short list.
+ */
+async function logTrading212(db: Db, added: number, message: string, now = Date.now()): Promise<void> {
+  const last = await one<{ id: number; source: string; at: string }>(db, "SELECT id, source, at FROM import_log ORDER BY id DESC LIMIT 1");
+  if (last?.source === "t212" && last.at.slice(0, 10) === isoDay(now)) {
+    await run(db, "UPDATE import_log SET at = datetime('now'), inserted = inserted + ?, message = ? WHERE id = ?", [
+      added,
+      message,
+      last.id,
+    ]);
+  } else {
+    await logImport(db, "t212", { inserted: added, updated: 0, skipped: 0 }, message);
+  }
 }
 
 /**
@@ -146,19 +171,20 @@ const MAX_PAGES = 10;
  * 1. from the top until reaching movements already read (`latestSeen`), or the end;
  * 2. while the history isn't complete, onwards from where the previous run stopped (`cursor`).
  * The very first run's step 1 is the start of the backfill. Never throws: without the "History"
- * permission the Investments page just has no deposits line.
+ * permission the Investments page just has no deposits line. Returns how many movements were new.
  */
-async function syncCashFlows(db: Db): Promise<void> {
+async function syncCashFlows(db: Db): Promise<number> {
   const state = await getState<CashFlowState>(db, CASH_FLOW_STATE);
   const seenBefore = state?.latestSeen ?? null;
   let complete = state?.complete ?? false;
   let cursor = state?.cursor ?? null;
   let latestSeen = seenBefore;
+  let added = 0;
   const save = (error: string | null) =>
     setState(db, CASH_FLOW_STATE, { complete, cursor, latestSeen, error, at: new Date().toISOString() });
   const read = async (path: string | null) => {
     const r = await fetchCashFlowPage(path);
-    await insertCashFlows(db, r.items);
+    added += await insertCashFlows(db, r.items);
     for (const f of r.items) if (!latestSeen || f.dateTime > latestSeen) latestSeen = f.dateTime;
     return r;
   };
@@ -192,16 +218,20 @@ async function syncCashFlows(db: Db): Promise<void> {
         : (e as Error).message;
     await save(message).catch(() => undefined);
   }
+  return added;
 }
 
-/** Stores a page's deposits, withdrawals and transfers (interest and fees are returns, not deposits). */
-async function insertCashFlows(db: Db, items: Awaited<ReturnType<typeof fetchCashFlowPage>>["items"]): Promise<void> {
+/**
+ * Stores a page's deposits, withdrawals and transfers (interest and fees are returns, not deposits).
+ * Returns how many were new.
+ */
+async function insertCashFlows(db: Db, items: Awaited<ReturnType<typeof fetchCashFlowPage>>["items"]): Promise<number> {
   const flows = items.flatMap((f) => {
     const amount = depositAmount(f);
     return amount === null ? [] : [{ ...f, amount }];
   });
-  if (!flows.length) return;
-  await db.batch(
+  if (!flows.length) return 0;
+  const results = await db.batch(
     flows.map((f) => ({
       sql: `INSERT INTO broker_cash_flows (holding, reference, date, type, amount_minor, currency) VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(holding, reference) DO NOTHING`,
@@ -209,6 +239,7 @@ async function insertCashFlows(db: Db, items: Awaited<ReturnType<typeof fetchCas
     })),
     "write",
   );
+  return results.reduce((n, r) => n + r.rowsAffected, 0);
 }
 
 // ---------- reading ----------

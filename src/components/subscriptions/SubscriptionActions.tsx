@@ -1,6 +1,15 @@
 "use client";
 
-import { BadgeCheckIcon, CircleSlashIcon, EyeOffIcon, MoreHorizontalIcon, PanelRightOpenIcon, RotateCcwIcon, TagIcon } from "lucide-react";
+import {
+  BadgeCheckIcon,
+  CircleSlashIcon,
+  EyeOffIcon,
+  Loader2Icon,
+  MoreHorizontalIcon,
+  PanelRightOpenIcon,
+  RotateCcwIcon,
+  TagIcon,
+} from "lucide-react";
 import type { ComponentProps } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -17,7 +26,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useOverride, useResetOverride } from "@/lib/query/mutations";
+import { useOverride, useOverridePending, useResetOverride } from "@/lib/query/mutations";
 import { CATEGORIES, type SubscriptionRow } from "./shared";
 
 type Props = {
@@ -27,21 +36,33 @@ type Props = {
   trigger?: ComponentProps<typeof Button>;
 };
 
-/** Every action on a subscription, shared by table rows and the detail drawer. */
+/**
+ * Every action on a subscription, shared by table rows and the detail drawer. While a change
+ * saves, its trigger spins and waits; other rows stay usable.
+ */
 export function SubscriptionActions({ sub, onOpen, trigger }: Props) {
   const override = useOverride();
   const reset = useResetOverride();
+  const saving = useOverridePending(sub.key);
   const set = (patch: Parameters<typeof override.mutate>[0], message: string) =>
     override.mutate(patch, { onSuccess: () => toast.success(message) });
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
+        disabled={saving}
         render={
-          <Button variant="ghost" size="icon-sm" className="data-popup-open:bg-muted" aria-label={`Actions for ${sub.name}`} {...trigger} />
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="data-popup-open:bg-muted"
+            aria-label={`Actions for ${sub.name}${saving ? " (saving)" : ""}`}
+            aria-busy={saving}
+            {...trigger}
+          />
         }
       >
-        {trigger?.children ?? <MoreHorizontalIcon />}
+        {saving ? <Loader2Icon className="animate-spin" aria-hidden /> : (trigger?.children ?? <MoreHorizontalIcon />)}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         {sub.rowStatus === "ignored" ? (

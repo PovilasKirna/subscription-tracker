@@ -8,14 +8,14 @@ import { ChartCard, NetWorthLine } from "@/charts";
 import { MerchantIcon } from "@/components/MerchantIcon";
 import { ChartCardSkeleton } from "@/components/overview/skeletons";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { CategoryIcon } from "@/components/spending/CategoryIcon";
+import { CategoryIconOnly } from "@/components/spending/CategoryIcon";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { timeAgo } from "@/lib/bank";
-import { CATEGORIES } from "@/lib/categories";
 import { fullDate, money, shortDate } from "@/lib/format";
 import { holdingQuery } from "@/lib/query/options";
+import { useCategories } from "@/lib/query/useCategories";
 import type { HoldingDetailPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Delta, type Range, RangeToggle, sliceRange } from "./shared";
@@ -118,6 +118,7 @@ function BalanceCard({ data }: { data: HoldingDetailPayload }) {
 }
 
 function PaymentsCard({ data }: { data: HoldingDetailPayload }) {
+  const categories = useCategories();
   return (
     <Card>
       <CardHeader>
@@ -137,8 +138,8 @@ function PaymentsCard({ data }: { data: HoldingDetailPayload }) {
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium">{t.description}</div>
                   <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
-                    <CategoryIcon id={t.category} size="sm" className="size-4 bg-transparent [&_svg]:size-3" />
-                    {CATEGORIES[t.category].label} · {fullDate(t.date)}
+                    <CategoryIconOnly id={t.category} className="size-3 shrink-0" />
+                    {categories.of(t.category).label} · {fullDate(t.date)}
                   </div>
                 </div>
                 <span className={cn("ml-auto text-sm font-medium tabular-nums", t.amount > 0 && "text-[var(--delta-good)]")}>

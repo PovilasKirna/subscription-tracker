@@ -10,11 +10,11 @@ import { SETTINGS_SECTIONS } from "./sections";
 const focusRing =
   "outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring";
 
-/** Section list beside the content from `md` up. Phones use `SettingsIndex` on /settings and a back link instead. */
+/** Section list beside the content from `lg` up (below that, the app sidebar plus this rail would squeeze the content). Phones use `SettingsIndex` on /settings and a back link instead. */
 export function SettingsNav() {
   const pathname = usePathname();
   return (
-    <nav aria-label="Settings sections" className="hidden md:block">
+    <nav aria-label="Settings sections" className="hidden lg:block">
       <ul className="sticky top-17 flex flex-col gap-1">
         {SETTINGS_SECTIONS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
@@ -84,7 +84,7 @@ export function SectionHeader({ href }: { href: string }) {
       <Link
         href="/settings"
         className={cn(
-          "-ml-1.5 mb-2 inline-flex min-h-11 items-center gap-0.5 rounded-lg pr-2 pl-0.5 text-sm text-muted-foreground transition-colors hover:text-foreground md:hidden",
+          "-ml-1.5 mb-2 inline-flex min-h-11 items-center gap-0.5 rounded-lg pr-2 pl-0.5 text-sm text-muted-foreground transition-colors hover:text-foreground lg:hidden",
           focusRing,
         )}
       >

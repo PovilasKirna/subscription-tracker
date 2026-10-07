@@ -1,12 +1,33 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { hashKey, type QueryClient, type QueryKey, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { CategoryId } from "../categories";
+import type { CategoryIconName, CategoryId, CategoryKind } from "../categories";
 import type { ColorChoice } from "../color";
 import type { OverrideStatus } from "../server/db";
 import type { SettingsPatch } from "../settings";
-import type { Cadence, NotificationsPayload, ReimbursementMode, Settings } from "../types";
+import type {
+  AssignOptionsPayload,
+  Cadence,
+  NotificationsPayload,
+  ReimbursementMode,
+  Settings,
+  SubscriptionDetailPayload,
+  SubscriptionsPayload,
+  SubscriptionsTablePayload,
+  TransactionItem,
+  TransactionsPayload,
+} from "../types";
+import {
+  type CategoryEdit,
+  categorizeAssignOptions,
+  categorizeDetail,
+  categorizeTransactions,
+  overrideDetail,
+  overrideShownAtOnce,
+  overrideSubscriptions,
+  overrideTable,
+} from "./optimistic";
 import { api, keys } from "./options";
 
 export type OverrideInput = {
@@ -24,10 +45,37 @@ export type OverrideInput = {
   group?: string | null;
 };
 
-/** Every server-side derived view depends on transactions + overrides, so refresh them all. */
+/** After a bank sync, import or deletion: everything may have changed, the data status included. */
 export function useInvalidateAll() {
   const qc = useQueryClient();
   return () => qc.invalidateQueries();
+}
+
+/**
+ * Queries computed from the transactions and the user's edits (the server's detection snapshot).
+ * An edit refreshes only these: the data status, settings, devices and investments don't change.
+ */
+const DERIVED: ReadonlySet<unknown> = new Set([
+  keys.subscriptions[0],
+  "subscriptions-table",
+  "history",
+  "transactions",
+  "subscription-detail",
+  "assign-options",
+  keys.reimbursementSources[0],
+  keys.notifications[0], // resolves "new subscription" and reimbursement reminders
+  "spending",
+  keys.netWorth[0], // an account's page lists its payments
+]);
+/** Where a payment's category shows. Subscriptions and their history don't use it. */
+const CATEGORIZED: ReadonlySet<unknown> = new Set(["transactions", "subscription-detail", "assign-options", "spending", keys.netWorth[0]]);
+
+const refresh = (qc: QueryClient, kinds: ReadonlySet<unknown>) => qc.invalidateQueries({ predicate: (q) => kinds.has(q.queryKey[0]) });
+
+/** Refreshes the derived views after an edit (see DERIVED). */
+export function useInvalidateDerived() {
+  const qc = useQueryClient();
+  return () => refresh(qc, DERIVED);
 }
 
 /**
@@ -44,28 +92,136 @@ export function useResetAll() {
     ]);
 }
 
+type Snapshot = [QueryKey, unknown][];
+
+/**
+ * Applies an edit to every cached query under `queryKey` that has data, noting what it replaced
+ * in `out` (for a rollback). Refetches already under way are cancelled first: they started before
+ * the edit and would land on top of it. Queries still loading for the first time are left alone,
+ * so a view waiting on one in Suspense isn't disturbed.
+ */
+async function patchCached<T>(qc: QueryClient, queryKey: QueryKey, patch: (data: T) => T, out: Snapshot) {
+  await qc.cancelQueries({ queryKey, predicate: (q) => q.state.data !== undefined });
+  for (const [key, data] of qc.getQueriesData<T>({ queryKey })) {
+    if (data === undefined) continue;
+    const next = patch(data);
+    if (next === data) continue;
+    out.push([key, data]);
+    qc.setQueryData(key, next);
+  }
+}
+
+const OVERRIDE = ["override"] as const;
+const SET_CATEGORY = ["set-category"] as const;
+/** What the edits that settled while others were in flight still need refreshed (the last one does it). */
+const owedRefresh = new Set<unknown>();
+/**
+ * The overlapping edits since the last refresh, in the order they were applied, and what each
+ * cached query held before the first of them touched it. A failure rolls back to `base` and
+ * replays the rest: one edit's own snapshot can hold another's patch (failed or not), so restoring
+ * it alone could bring back a failed value or drop a saved one.
+ */
+const batch = { base: new Map<string, [QueryKey, unknown]>(), edits: [] as { replay: () => Promise<void>; failed: boolean }[] };
+
+/**
+ * Shared by the per-item edits (subscription overrides, categories), which only ever block the
+ * item being edited: the cache is patched before the request and the request runs on its own (the
+ * menu that started it can close), with the item's controls showing it as saving. When the patch
+ * shows the whole edit (`shownAtOnce`) the views refresh in the background afterwards; otherwise the
+ * item stays "saving" until the refresh brings the result. Edits can overlap and finish in any
+ * order, so the refresh waits for the last one: a refetch while another is in flight would briefly
+ * show that one undone. A failed edit rolls back at once, with a toast (see `batch`).
+ */
+export function optimisticEdit<V>(
+  qc: QueryClient,
+  opts: {
+    patch: (vars: V, out: Snapshot) => Promise<void>;
+    shownAtOnce: (vars: V) => boolean;
+    refreshes: ReadonlySet<unknown>;
+    error: string;
+  },
+) {
+  // Still counts the settling mutation itself (callbacks run before it leaves "pending").
+  const othersInFlight = () => qc.isMutating({ mutationKey: OVERRIDE }) + qc.isMutating({ mutationKey: SET_CATEGORY }) > 1;
+  return {
+    onMutate: async (vars: V) => {
+      const previous: Snapshot = [];
+      await opts.patch(vars, previous);
+      for (const [key, data] of previous) if (!batch.base.has(hashKey(key))) batch.base.set(hashKey(key), [key, data]);
+      const edit = { replay: () => opts.patch(vars, []), failed: false };
+      batch.edits.push(edit);
+      return { edit };
+    },
+    onError: async (e: Error, _vars: V, ctx: { edit: (typeof batch.edits)[number] } | undefined) => {
+      if (ctx) {
+        ctx.edit.failed = true;
+        for (const [key, data] of batch.base.values()) qc.setQueryData(key, data);
+        for (const edit of batch.edits) if (!edit.failed) await edit.replay();
+      }
+      toast.error(opts.error, { description: e.message });
+    },
+    onSettled: (_data: unknown, error: Error | null, vars: V) => {
+      for (const kind of opts.refreshes) owedRefresh.add(kind);
+      if (othersInFlight()) return;
+      const refreshed = refresh(qc, new Set(owedRefresh));
+      owedRefresh.clear();
+      batch.base.clear();
+      batch.edits.length = 0;
+      // Returned, the mutation (and the item's spinner) waits for it.
+      return error || opts.shownAtOnce(vars) ? undefined : refreshed;
+    },
+  };
+}
+
+/**
+ * Change how a subscription is shown or tracked. A new name, category, logo or group shows at once
+ * (see optimistic.ts); anything else keeps the subscription "saving" until detection has rerun.
+ */
 export function useOverride() {
-  const invalidate = useInvalidateAll();
+  const qc = useQueryClient();
   return useMutation({
+    mutationKey: [...OVERRIDE, "set"],
     mutationFn: ({ key, ...body }: OverrideInput) =>
       api(`/api/overrides/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(body) }),
-    onSuccess: invalidate,
-    onError: (e) => toast.error(e.message),
+    ...optimisticEdit(qc, {
+      patch: async (edit: OverrideInput, out) => {
+        await Promise.all([
+          patchCached<SubscriptionsPayload>(qc, keys.subscriptions, (d) => overrideSubscriptions(d, edit), out),
+          patchCached<SubscriptionsTablePayload>(qc, ["subscriptions-table"], (d) => overrideTable(d, edit), out),
+          patchCached<SubscriptionDetailPayload>(qc, keys.subscriptionDetail(edit.key), (d) => overrideDetail(d, edit), out),
+        ]);
+      },
+      shownAtOnce: overrideShownAtOnce,
+      refreshes: DERIVED,
+      error: "Couldn't save the change",
+    }),
   });
 }
 
+/** Drop a subscription's overrides (restores an ignored one). Nothing to show before detection reruns. */
 export function useResetOverride() {
-  const invalidate = useInvalidateAll();
+  const qc = useQueryClient();
   return useMutation({
+    mutationKey: [...OVERRIDE, "reset"],
     mutationFn: (key: string) => api(`/api/overrides/${encodeURIComponent(key)}`, { method: "DELETE" }),
-    onSuccess: invalidate,
-    onError: (e) => toast.error(e.message),
+    ...optimisticEdit<string>(qc, { patch: async () => {}, shownAtOnce: () => false, refreshes: DERIVED, error: "Couldn't restore it" }),
   });
+}
+
+/** Whether an edit of this subscription is still saving (its controls show a spinner meanwhile). */
+export function useOverridePending(key: string): boolean {
+  return useMutationState({
+    filters: { mutationKey: OVERRIDE, status: "pending" },
+    select: (m) => {
+      const vars = m.state.variables as OverrideInput | string | undefined;
+      return typeof vars === "string" ? vars : vars?.key;
+    },
+  }).includes(key);
 }
 
 /** Put payments into a subscription (`subKey` null starts a new one). Resolves to its key. */
 export function useAssign() {
-  const invalidate = useInvalidateAll();
+  const invalidate = useInvalidateDerived();
   return useMutation({
     mutationFn: (input: { subKey: string | null; txIds: string[] }) =>
       api<{ key: string }>("/api/assignments", { method: "PUT", body: JSON.stringify(input) }),
@@ -76,7 +232,7 @@ export function useAssign() {
 
 /** Split a subscription into one per price it's billed at. Resolves to the new keys. */
 export function useSplit() {
-  const invalidate = useInvalidateAll();
+  const invalidate = useInvalidateDerived();
   return useMutation({
     mutationFn: (key: string) => api<{ keys: string[] }>("/api/subscriptions/split", { method: "POST", body: JSON.stringify({ key }) }),
     onSuccess: invalidate,
@@ -86,7 +242,7 @@ export function useSplit() {
 
 /** Remove one charge from its subscription (or put it back). Detection recalculates server-side. */
 export function useExclusion() {
-  const invalidate = useInvalidateAll();
+  const invalidate = useInvalidateDerived();
   return useMutation({
     mutationFn: ({ txId, exclude }: { txId: string; exclude: boolean }) =>
       api(`/api/exclusions/${encodeURIComponent(txId)}`, { method: exclude ? "PUT" : "DELETE" }),
@@ -97,7 +253,7 @@ export function useExclusion() {
 
 /** Record what came back for one charge (0 = not reimbursed), or forget it with `amount` null. */
 export function useReimbursement() {
-  const invalidate = useInvalidateAll();
+  const invalidate = useInvalidateDerived();
   return useMutation({
     mutationFn: ({ txId, amount }: { txId: string; amount: number | null }) =>
       api(
@@ -128,7 +284,7 @@ export type PeriodInput = {
 
 /** Start a reimbursement period (set up, change or stop) from a chosen date. */
 export function useReimbursementPeriod() {
-  const invalidate = useInvalidateAll();
+  const invalidate = useInvalidateDerived();
   return useMutation({
     mutationFn: (input: PeriodInput) => api("/api/reimbursements/periods", { method: "PUT", body: JSON.stringify(input) }),
     onSuccess: invalidate,
@@ -137,7 +293,7 @@ export function useReimbursementPeriod() {
 }
 
 export function useDeleteReimbursementPeriod() {
-  const invalidate = useInvalidateAll();
+  const invalidate = useInvalidateDerived();
   return useMutation({
     mutationFn: (id: number) => api(`/api/reimbursements/periods/${id}`, { method: "DELETE" }),
     onSuccess: invalidate,
@@ -147,7 +303,7 @@ export function useDeleteReimbursementPeriod() {
 
 /** Add a source (no `id`) or edit one. Resolves to its `{ id }`. */
 export function useSaveSource() {
-  const invalidate = useInvalidateAll();
+  const invalidate = useInvalidateDerived();
   return useMutation({
     mutationFn: ({ id, ...body }: SourceInput & { id?: number }) =>
       id === undefined
@@ -159,7 +315,7 @@ export function useSaveSource() {
 }
 
 export function useDeleteSource() {
-  const invalidate = useInvalidateAll();
+  const invalidate = useInvalidateDerived();
   return useMutation({
     mutationFn: (id: number) => api(`/api/reimbursements/sources/${id}`, { method: "DELETE" }),
     onSuccess: invalidate,
@@ -247,13 +403,78 @@ export function useRefreshNetWorth() {
   });
 }
 
-export type CategoryInput = { txId: string; scope: "payment" | "merchant"; category: CategoryId | null };
+/** The payment, its merchant (scope "merchant" covers all of its payments) and the category; null = automatic. */
+export type CategoryInput = CategoryEdit;
 
-/** Sets (or resets, with null) a payment's category, for it alone or for its whole merchant. */
+/**
+ * Sets (or resets, with null) a payment's category, for it alone or for its whole merchant. Shows at
+ * once in the tables and the subscription drawer; spending totals follow with the background refresh.
+ */
 export function useSetCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: SET_CATEGORY,
+    mutationFn: ({ txId, scope, category }: CategoryInput) =>
+      api("/api/categories", { method: "PUT", body: JSON.stringify({ txId, scope, category }) }),
+    ...optimisticEdit(qc, {
+      patch: async (edit: CategoryInput, out) => {
+        await Promise.all([
+          patchCached<TransactionsPayload>(qc, ["transactions"], (d) => categorizeTransactions(d, edit), out),
+          patchCached<SubscriptionDetailPayload>(qc, ["subscription-detail"], (d) => categorizeDetail(d, edit), out),
+          patchCached<AssignOptionsPayload>(qc, ["assign-options"], (d) => categorizeAssignOptions(d, edit), out),
+        ]);
+      },
+      // Back to automatic: detection decides the category, so the payment stays "saving" until then.
+      shownAtOnce: (edit) => edit.category !== null,
+      refreshes: CATEGORIZED,
+      error: "Couldn't change the category",
+    }),
+  });
+}
+
+/** Whether a category change covering this payment is still saving (who it covers: see categorizeItem). */
+export function useCategoryPending(tx: Pick<TransactionItem, "id" | "merchantKey" | "categoryChosen">): boolean {
+  return useMutationState({
+    filters: { mutationKey: SET_CATEGORY, status: "pending" },
+    select: (m) => m.state.variables as CategoryInput | undefined,
+  }).some(
+    (e) =>
+      e !== undefined &&
+      (e.txId === tx.id || (e.scope === "merchant" && e.merchantKey === tx.merchantKey && tx.categoryChosen !== "payment")),
+  );
+}
+
+/** A category's settings: a palette slot for colour (0 = none); `kind` only for custom ones, `hidden` only for built-ins. */
+export type CategorySettingsInput = {
+  /** Omitted to add a new custom category. */
+  id?: CategoryId;
+  name?: string;
+  kind?: CategoryKind;
+  icon?: CategoryIconName;
+  color?: number;
+  hidden?: boolean;
+};
+
+/**
+ * Adds a custom category (no `id`) or changes one. Every view can show categories and their totals,
+ * so everything refreshes; errors are left to the caller (the dialog shows them by its fields).
+ */
+export function useSaveCategory() {
   const invalidate = useInvalidateAll();
   return useMutation({
-    mutationFn: (body: CategoryInput) => api("/api/categories", { method: "PUT", body: JSON.stringify(body) }),
+    mutationFn: ({ id, ...body }: CategorySettingsInput) =>
+      id
+        ? api(`/api/categories/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) })
+        : api("/api/categories", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Deletes a custom category; its payments go back to automatic categorisation. */
+export function useDeleteCategory() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (id: CategoryId) => api(`/api/categories/${encodeURIComponent(id)}`, { method: "DELETE" }),
     onSuccess: invalidate,
     onError: (e) => toast.error(e.message),
   });

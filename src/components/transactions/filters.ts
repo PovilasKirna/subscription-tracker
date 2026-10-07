@@ -1,7 +1,7 @@
 import { ArrowDownLeftIcon, ArrowLeftRightIcon, ArrowUpRightIcon, DatabaseIcon, RepeatIcon, ShapesIcon, TagIcon } from "lucide-react";
 import type { FilterDef } from "@/components/data-table";
-import { CATEGORY_ICON } from "@/components/spending/CategoryIcon";
-import { CATEGORIES, CATEGORY_IDS } from "@/lib/categories";
+import { CATEGORY_ICONS } from "@/components/spending/CategoryIcon";
+import type { CategoryLookup } from "@/lib/categories";
 import { FLOWS, SOURCES, SUBSCRIPTION_MEMBERSHIP, TX_TYPES } from "@/lib/search-params";
 import type { TransactionItem } from "@/lib/types";
 
@@ -20,42 +20,42 @@ export const TYPE_LABEL: Record<(typeof TX_TYPES)[number], string> = {
 };
 export const SOURCE_LABEL: Record<(typeof SOURCES)[number], string> = { csv: "CSV import", bank: "Bank sync" };
 
-export const TRANSACTION_FILTERS = [
-  {
-    key: "flow",
-    label: "Amount",
-    noun: "directions",
-    icon: ArrowLeftRightIcon,
-    options: [
-      { value: FLOWS[0], label: "Money in (+)", icon: ArrowDownLeftIcon },
-      { value: FLOWS[1], label: "Money out (−)", icon: ArrowUpRightIcon },
-    ],
-  },
-  {
-    key: "sub",
-    label: "Subscription",
-    noun: "options",
-    icon: RepeatIcon,
-    options: [
-      { value: SUBSCRIPTION_MEMBERSHIP[0], label: "Subscription charges" },
-      { value: SUBSCRIPTION_MEMBERSHIP[1], label: "Everything else" },
-    ],
-  },
-  {
-    key: "category",
-    label: "Category",
-    noun: "categories",
-    icon: ShapesIcon,
-    options: CATEGORY_IDS.map((value) => ({ value, label: CATEGORIES[value].label, icon: CATEGORY_ICON[value] })),
-  },
-  { key: "type", label: "Type", noun: "types", icon: TagIcon, options: TX_TYPES.map((value) => ({ value, label: TYPE_LABEL[value] })) },
-  {
-    key: "source",
-    label: "Source",
-    noun: "sources",
-    icon: DatabaseIcon,
-    options: SOURCES.map((value) => ({ value, label: SOURCE_LABEL[value] })),
-  },
-] as const satisfies readonly FilterDef<TransactionItem>[];
-
-export type TransactionFilterKey = (typeof TRANSACTION_FILTERS)[number]["key"];
+/** The filters, with the user's categories (hidden ones hold no payments, so aren't offered). */
+export const transactionFilters = (categories: CategoryLookup) =>
+  [
+    {
+      key: "flow",
+      label: "Amount",
+      noun: "directions",
+      icon: ArrowLeftRightIcon,
+      options: [
+        { value: FLOWS[0], label: "Money in (+)", icon: ArrowDownLeftIcon },
+        { value: FLOWS[1], label: "Money out (−)", icon: ArrowUpRightIcon },
+      ],
+    },
+    {
+      key: "sub",
+      label: "Subscription",
+      noun: "options",
+      icon: RepeatIcon,
+      options: [
+        { value: SUBSCRIPTION_MEMBERSHIP[0], label: "Subscription charges" },
+        { value: SUBSCRIPTION_MEMBERSHIP[1], label: "Everything else" },
+      ],
+    },
+    {
+      key: "category",
+      label: "Category",
+      noun: "categories",
+      icon: ShapesIcon,
+      options: categories.list.filter((c) => !c.hidden).map((c) => ({ value: c.id, label: c.label, icon: CATEGORY_ICONS[c.icon] })),
+    },
+    { key: "type", label: "Type", noun: "types", icon: TagIcon, options: TX_TYPES.map((value) => ({ value, label: TYPE_LABEL[value] })) },
+    {
+      key: "source",
+      label: "Source",
+      noun: "sources",
+      icon: DatabaseIcon,
+      options: SOURCES.map((value) => ({ value, label: SOURCE_LABEL[value] })),
+    },
+  ] as const satisfies readonly FilterDef<TransactionItem>[];

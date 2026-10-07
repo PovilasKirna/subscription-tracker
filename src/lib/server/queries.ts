@@ -1,10 +1,12 @@
 import "server-only";
 import { cache } from "react";
-import type { CategoryId } from "../categories";
+import { type CategoryId, type CategoryLookup, categoryLookup } from "../categories";
 import { type OverviewRange, rangeMonths, type SubscriptionFilters, type TransactionFilters } from "../search-params";
 import type {
   AssignOptionsPayload,
   BankAccount,
+  CategoriesPayload,
+  CategoryUsagePayload,
   ChargeReimbursement,
   DataStatusPayload,
   HistoryPayload,
@@ -21,16 +23,17 @@ import type {
   TransactionsPayload,
 } from "../types";
 import { reconcileBankAccounts, visibleTransactions } from "./bankAccounts";
-import { type CategoryRules, categorizeAll, categoryFields } from "./categorize";
+import { type CategoryRules, categorizeAll, categoryFields, usableRules } from "./categorize";
 import { bankConfigured, config } from "./config";
 import {
   all,
   allAssignments,
+  allCategories,
   allCategoryRules,
   allExclusions,
   allOverrides,
   allReimbursementData,
-  dataVersion,
+  dataVersions,
   getDb,
   type ReimbursementData,
   type TxRow,
@@ -48,7 +51,7 @@ import {
 import { merchantName } from "./merchant";
 import { buildNetWorth, holdingHistory, loadHoldings } from "./netWorth";
 import { applyReimbursements, chargeTotalMinor, summarizeSources } from "./reimburse";
-import { memoByVersion } from "./snapshot";
+import { memoLatest } from "./snapshot";
 import { buildSpending } from "./spending";
 import { querySubscriptions } from "./subscriptionTable";
 import { isSyncing, syncCutoff } from "./sync";
@@ -59,47 +62,65 @@ import { queryTransactions } from "./transactionTable";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+type Detected = {
+  txs: TxRow[];
+  det: Detection;
+  excluded: Set<string>;
+  assigned: Map<string, string>;
+  reimbursement: ReimbursementData;
+  /** Payment id → reimbursement of the charge it stands for (see applyReimbursements). */
+  reimbursedTx: Map<string, ChargeReimbursement>;
+};
+type Categorized = {
+  /** Payment id → spending category (see categorize.ts). */
+  categoryOf: Map<string, CategoryId>;
+  /** The user's category choices that apply (see usableRules). */
+  categoryRules: CategoryRules;
+  /** Every choice, including ones for hidden categories (for counting). */
+  allRules: CategoryRules;
+  categories: CategoryLookup;
+};
+
+/** Transactions and subscription detection, for one data version and day ("<version>|<day>"). */
+const loadDetected = memoLatest(async (version): Promise<Detected> => {
+  const day = version.slice(version.indexOf("|") + 1);
+  const db = await getDb();
+  const [txs, overrides, excluded, assigned, reimbursement] = await Promise.all([
+    visibleTransactions(db),
+    allOverrides(db),
+    allExclusions(db),
+    allAssignments(db),
+    allReimbursementData(db),
+  ]);
+  const det = detectSubscriptions(txs, overrides, day, config.baseCurrency, excluded, assigned);
+  const reimbursedTx = applyReimbursements(det, txs, reimbursement, day);
+  return { txs, excluded, assigned, det, reimbursement, reimbursedTx };
+});
+
+/** Spending categories on top of `detected`, for its version plus the categories' version. */
+const loadCategorized = memoLatest(async (_version, detected: Promise<Detected>): Promise<Categorized> => {
+  const db = await getDb();
+  const [{ txs, det }, allRules, categoryList] = await Promise.all([detected, allCategoryRules(db), allCategories(db)]);
+  const categories = categoryLookup(categoryList);
+  const categoryRules = usableRules(allRules, categories);
+  return { categoryOf: categorizeAll(txs, det.txToSub, categoryRules, categories), categoryRules, allRules, categories };
+});
+
 /**
  * Every visible transaction (accounts switched off are filtered out here, once, so every view
- * agrees) plus the detection result. Loading all transactions is the expensive part
- * (a full table read from Turso), so the snapshot is reused until the data version (bumped by DB
- * triggers on any write) or the day changes. A cache hit costs one tiny query, and React's
- * per-request cache dedupes even that when one render calls several queries. Read-only.
+ * agrees) plus the detection result and spending categories. Loading all transactions is the
+ * expensive part (a full table read from Turso), so it's reused until the data version (bumped by
+ * DB triggers on any write) or the day changes; picking a category only redoes the categorisation
+ * (its own version). A cache hit costs one tiny query, and React's per-request cache dedupes even
+ * that when one render calls several queries. Read-only.
  */
-export const detection = cache(
-  memoByVersion(
-    async () => `${await dataVersion(await getDb())}|${today()}`,
-    async (
-      version,
-    ): Promise<{
-      txs: TxRow[];
-      det: Detection;
-      excluded: Set<string>;
-      assigned: Map<string, string>;
-      reimbursement: ReimbursementData;
-      /** Payment id → reimbursement of the charge it stands for (see applyReimbursements). */
-      reimbursedTx: Map<string, ChargeReimbursement>;
-      /** Payment id → spending category (see categorize.ts). */
-      categoryOf: Map<string, CategoryId>;
-      categoryRules: CategoryRules;
-    }> => {
-      const day = version.slice(version.indexOf("|") + 1);
-      const db = await getDb();
-      const [txs, overrides, excluded, assigned, reimbursement, categoryRules] = await Promise.all([
-        visibleTransactions(db),
-        allOverrides(db),
-        allExclusions(db),
-        allAssignments(db),
-        allReimbursementData(db),
-        allCategoryRules(db),
-      ]);
-      const det = detectSubscriptions(txs, overrides, day, config.baseCurrency, excluded, assigned);
-      const reimbursedTx = applyReimbursements(det, txs, reimbursement, day);
-      const categoryOf = categorizeAll(txs, det.txToSub, categoryRules);
-      return { txs, excluded, assigned, det, reimbursement, reimbursedTx, categoryOf, categoryRules };
-    },
-  ),
-);
+export const detection = cache(async (): Promise<Detected & Categorized> => {
+  const v = await dataVersions(await getDb());
+  const day = today();
+  const detected = loadDetected(`${v.data}|${day}`);
+  const [d, c] = await Promise.all([detected, loadCategorized(`${v.data}|${v.categories}|${day}`, detected)]);
+  return { ...d, ...c };
+});
 
 type WebsiteOf = ReturnType<typeof websiteResolver>;
 /** What turning a stored row into a TransactionItem needs from the detection snapshot. */
@@ -281,6 +302,25 @@ export async function getReimbursementSources(): Promise<ReimbursementSourcesPay
   return { sources: summarizeSources([...reimbursement.sources.values()], reimbursement, det) };
 }
 
+/** Every spending category, hidden built-ins included. Read directly (no snapshot): it's one small table. */
+export async function getCategories(): Promise<CategoriesPayload> {
+  return { categories: await allCategories(await getDb()) };
+}
+
+/** Payments, merchant rules and single-payment choices per category (Settings → Categories). */
+export async function getCategoryUsage(): Promise<CategoryUsagePayload> {
+  const { categoryOf, allRules } = await detection();
+  const usage: CategoryUsagePayload["usage"] = {};
+  const of = (id: CategoryId) => {
+    usage[id] ??= { payments: 0, merchants: 0, picked: 0 };
+    return usage[id];
+  };
+  for (const id of categoryOf.values()) of(id).payments++;
+  for (const id of allRules.byMerchant.values()) of(id).merchants++;
+  for (const id of allRules.byTx.values()) of(id).picked++;
+  return { usage };
+}
+
 /** Filtered, sorted, paginated page for the transactions data table (see transactionTable.ts). */
 export async function getTransactions(filters: TransactionFilters): Promise<TransactionsPayload> {
   const { txs, det, categoryOf, categoryRules } = await detection();
@@ -289,12 +329,32 @@ export async function getTransactions(filters: TransactionFilters): Promise<Tran
 
 export async function getDataStatus(): Promise<DataStatusPayload> {
   const db = await getDb();
-  // One pass over the table gives both the totals and the per-account counts: this runs on every
-  // status poll (every 1.5s while syncing), and a remote database bills per row read.
-  const groups = await all<{ source: string; account: string | null; n: number; first: string; last: string }>(
-    db,
-    "SELECT source, account, COUNT(*) AS n, MIN(date) AS first, MAX(date) AS last FROM transactions GROUP BY source, account",
-  );
+  // The reads are independent, so they go out together: each is a round trip to a remote database.
+  const [groups, sessions, accounts, imports, syncing] = await Promise.all([
+    // One pass over the table gives both the totals and the per-account counts: this runs on every
+    // status poll (every 1.5s while syncing), and a remote database bills per row read.
+    all<{ source: string; account: string | null; n: number; first: string; last: string }>(
+      db,
+      "SELECT source, account, COUNT(*) AS n, MIN(date) AS first, MAX(date) AS last FROM transactions GROUP BY source, account",
+    ),
+    all<{
+      session_id: string;
+      aspsp_name: string;
+      aspsp_country: string;
+      valid_until: string | null;
+      last_sync_at: string | null;
+      last_error: string | null;
+      status: string | null;
+      next_retry_at: string | null;
+      sync_started_at: string | null;
+    }>(db, "SELECT * FROM bank_sessions ORDER BY created_at DESC"),
+    reconcileBankAccounts(db),
+    all<DataStatusPayload["imports"][number]>(
+      db,
+      "SELECT id, at, source, inserted, updated, skipped, message FROM import_log ORDER BY id DESC LIMIT 10",
+    ),
+    isSyncing(),
+  ]);
   const stats = groups.reduce<{ n: number; first: string | null; last: string | null }>(
     (acc, g) => ({
       n: acc.n + Number(g.n),
@@ -304,18 +364,6 @@ export async function getDataStatus(): Promise<DataStatusPayload> {
     { n: 0, first: null, last: null },
   );
   const txCount = new Map(groups.filter((g) => g.source === "bank" && g.account !== null).map((g) => [g.account, Number(g.n)]));
-  const sessions = await all<{
-    session_id: string;
-    aspsp_name: string;
-    aspsp_country: string;
-    valid_until: string | null;
-    last_sync_at: string | null;
-    last_error: string | null;
-    status: string | null;
-    next_retry_at: string | null;
-    sync_started_at: string | null;
-  }>(db, "SELECT * FROM bank_sessions ORDER BY created_at DESC");
-  const accounts = await reconcileBankAccounts(db);
   const toAccount = (a: (typeof accounts)[number]): BankAccount => ({
     key: a.account_key,
     name: a.name,
@@ -325,17 +373,13 @@ export async function getDataStatus(): Promise<DataStatusPayload> {
     syncedThrough: a.synced_through,
     transactionCount: txCount.get(a.account_key) ?? 0,
   });
-  const imports = await all<DataStatusPayload["imports"][number]>(
-    db,
-    "SELECT id, at, source, inserted, updated, skipped, message FROM import_log ORDER BY id DESC LIMIT 10",
-  );
   return {
     transactionCount: Number(stats.n),
     firstDate: stats.first,
     lastDate: stats.last,
     bankConfigured: bankConfigured(),
     syncIntervalHours: config.syncIntervalHours,
-    syncing: await isSyncing(),
+    syncing,
     hiddenTransactionCount: accounts.filter((a) => !a.included).reduce((n, a) => n + (txCount.get(a.account_key) ?? 0), 0),
     sessions: sessions.map((s) => {
       const own = accounts
@@ -362,11 +406,12 @@ export async function getDataStatus(): Promise<DataStatusPayload> {
 
 /** The Spending page for one period (`at`: a day inside it; "" = the current one). */
 export async function getSpending(range: SpendingRange, at: string): Promise<SpendingPayload> {
-  const { txs, det, categoryOf } = await detection();
+  const { txs, det, categoryOf, categories } = await detection();
   return buildSpending({
     txs,
     txToSub: det.txToSub,
     categoryOf,
+    categories,
     subscriptions: det.subscriptions,
     base: config.baseCurrency,
     range,

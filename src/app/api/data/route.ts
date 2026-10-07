@@ -3,7 +3,7 @@ import { getDb } from "@/lib/server/db";
 import { guard } from "@/lib/server/session";
 
 // Wipes imported transactions, edits (category choices included), balance history, exchange rates and
-// the import log. Bank links and reimbursement sources are kept.
+// the import log. Bank links, reimbursement sources and spending categories are kept.
 export async function DELETE() {
   const denied = await guard();
   if (denied) return denied;
