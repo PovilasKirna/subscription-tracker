@@ -79,6 +79,16 @@ export function previousCutoff(range: SpendingRange, date: string): string {
   return range === "1w" ? addDays(date, -7) : sameDayMonthsBefore(date, range === "1m" ? 1 : range === "6m" ? 6 : 12);
 }
 
+/**
+ * Whether `a` carries a subscription's latest charge over `b`: a later day, or on the same day the
+ * larger payment (then the lower id, so equal rows still resolve the same way every time).
+ */
+function isLaterCharge(a: TxRow, b: TxRow): boolean {
+  if (a.date !== b.date) return a.date > b.date;
+  if (a.amount_minor !== b.amount_minor) return a.amount_minor < b.amount_minor;
+  return a.id < b.id;
+}
+
 export function buildSpending(input: {
   txs: readonly TxRow[];
   /** Payment id → subscription it belongs to (subscriptions are projected on their own, not as usual spending). */
@@ -139,14 +149,22 @@ export function buildSpending(input: {
   // - Months still to come (6M, 1Y): your usual month (the same months' average, everything included).
   const projecting = isCurrent && today < period.end;
   // A subscription is projected as spending while its latest charge counts as one: a recurring
-  // transfer filed under Savings (or between your own accounts) is money kept, not spent.
-  const latestCharge = new Map<string, { date: string; kind: CategoryKind }>();
+  // transfer filed under Savings (or between your own accounts) is money kept, not spent. A charge
+  // can be several same-day rows (a transfer and its fee); the largest payment carries it, as in
+  // reimburse.ts, so row order can't decide.
+  const latestCharge = new Map<string, TxRow>();
   for (const tx of input.txs) {
     const key = input.txToSub?.get(tx.id);
-    if (!key || (latestCharge.get(key)?.date ?? "") > tx.date) continue;
-    latestCharge.set(key, { date: tx.date, kind: categories.of(input.categoryOf.get(tx.id) ?? "general").kind });
+    if (!key) continue;
+    const cur = latestCharge.get(key);
+    if (cur && !isLaterCharge(tx, cur)) continue;
+    latestCharge.set(key, tx);
   }
-  const spentOn = (s: Subscription) => (latestCharge.get(s.key)?.kind ?? "spend") === "spend";
+  const kindOf = (tx: TxRow): CategoryKind => categories.of(input.categoryOf.get(tx.id) ?? "general").kind;
+  const spentOn = (s: Subscription) => {
+    const carrier = latestCharge.get(s.key);
+    return !carrier || kindOf(carrier) === "spend";
+  };
   const expected = new Map<string, number>();
   let upcomingSubscriptions = 0;
   let monthRemainder = 0; // the rest of the current month, for month-by-month periods
