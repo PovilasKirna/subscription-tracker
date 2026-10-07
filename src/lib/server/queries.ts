@@ -302,10 +302,13 @@ export async function getReimbursementSources(): Promise<ReimbursementSourcesPay
   return { sources: summarizeSources([...reimbursement.sources.values()], reimbursement, det) };
 }
 
-/** Every spending category, hidden built-ins included. Read directly (no snapshot): it's one small table. */
-export async function getCategories(): Promise<CategoriesPayload> {
+/**
+ * Every spending category, hidden built-ins included. Read directly (no snapshot): it's one small
+ * table. Once per request: the app layout and a page can both need it.
+ */
+export const getCategories = cache(async (): Promise<CategoriesPayload> => {
   return { categories: await allCategories(await getDb()) };
-}
+});
 
 /** Payments, merchant rules and single-payment choices per category (Settings → Categories). */
 export async function getCategoryUsage(): Promise<CategoryUsagePayload> {

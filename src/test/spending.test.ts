@@ -155,6 +155,23 @@ test("a recurring transfer filed under Savings isn't projected as spending", () 
   assert.equal(s.points[11].projectedAmount, 10);
 });
 
+test("a savings transfer with a same-day fee stays unprojected whichever row comes last", () => {
+  for (const feeFirst of [true, false]) {
+    const fund = tx("2026-09-25", -300, "To Emergency Fund", { type: "TRANSFER" });
+    const fee = tx("2026-09-25", -1, "Transfer fee", { type: "FEE" });
+    const txs = feeFirst ? [fee, fund] : [fund, fee];
+    const txToSub = new Map([
+      [fund.id, "to-emergency-fund|EUR"],
+      [fee.id, "to-emergency-fund|EUR"],
+    ]);
+    const categoryOf = categorizeAll(txs, txToSub, { byTx: new Map(), byMerchant: new Map([[fund.merchant_key, "savings"]]) });
+    assert.equal(categoryOf.get(fee.id), "fees", "the fee is spending on its own");
+    const subscriptions = [sub({ key: "to-emergency-fund|EUR", name: "Emergency fund", amount: 301, nextCharge: "2026-10-25" })];
+    const s = buildSpending({ txs, txToSub, categoryOf, subscriptions, base: "EUR", range: "1m", at: "", today: "2026-10-10" });
+    assert.equal(s.upcomingSubscriptions, 0, `the transfer carries the charge (fee ${feeFirst ? "first" : "last"})`);
+  }
+});
+
 test("the current month compares with the same day last month and projects to month end", () => {
   const txs = [
     // Three finished months of 310 a month of day-to-day spending (10/day in 31-day months).

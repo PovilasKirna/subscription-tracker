@@ -26,8 +26,15 @@ export function TransactionsTable() {
   const [isPending, startTransition] = useTransition();
   const [urlParams, setParams] = useQueryStates(transactionClientParams, { startTransition, history: "replace" });
   const { perPage, toParam } = usePageSize(urlParams.perPage);
-  const params = useMemo(() => ({ ...urlParams, perPage }), [urlParams, perPage]);
+  const categories = useCategories();
+  // A saved URL can name a category since hidden or deleted; it holds no payments, so filtering
+  // by it would show nothing behind a blank chip. Such ids are left out, and the URL is tidied.
+  const category = useMemo(() => urlParams.category.filter(categories.selectable), [urlParams.category, categories]);
+  const params = useMemo(() => ({ ...urlParams, perPage, category }), [urlParams, perPage, category]);
   const { data } = useSuspenseQuery(transactionsQuery(params));
+  useEffect(() => {
+    if (category.length !== urlParams.category.length) void setParams({ category: category.length ? category : null });
+  }, [category, urlParams.category, setParams]);
 
   // Warm the next page in the background so paging forward is instant.
   const queryClient = useQueryClient();
@@ -37,7 +44,6 @@ export function TransactionsTable() {
 
   const showMerchant = useCallback((merchantKey: string) => void setParams({ q: merchantKey, page: null }), [setParams]);
   const columns = useMemo(() => transactionColumns(showMerchant), [showMerchant]);
-  const categories = useCategories();
   const filterDefs = useMemo(() => transactionFilters(categories), [categories]);
   // Only decides whether phone rows show the year; a mismatch at New Year would just re-render.
   const [today] = useState(() => localDate(new Date().toISOString()));

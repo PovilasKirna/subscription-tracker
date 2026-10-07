@@ -69,7 +69,8 @@ export const keys = {
   investments: ["investments"] as const,
   spending: (range: string, at: string) => ["spending", range, at] as const,
   categories: ["categories"] as const,
-  categoryUsage: ["categories", "usage"] as const,
+  /** Its own top-level key: it follows the payments (see DERIVED in mutations.ts), the definitions don't. */
+  categoryUsage: ["category-usage"] as const,
 };
 
 export const subscriptionsQuery = () =>
