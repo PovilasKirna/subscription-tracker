@@ -1,6 +1,8 @@
 import { type Client, createClient, type InStatement, type InValue } from "@libsql/client";
+import { type CategoryId, isCategoryId } from "../categories";
 import type { ColorChoice, HexColor } from "../color";
 import type { Cadence, ReimbursementMode } from "../types";
+import type { CategoryRules } from "./categorize";
 import { config } from "./config";
 
 // libSQL (open-source SQLite fork): a local file for dev/Docker (`file:./data/tracker.db`),
@@ -19,6 +21,8 @@ export type TxRow = {
   merchant_key: string;
   type: string | null;
   state: string | null;
+  /** Card network merchant category code (bank sync only), used to categorise spending. */
+  mcc?: string | null;
 };
 
 export type OverrideStatus = "confirmed" | "ignored" | "cancelled";
@@ -205,7 +209,76 @@ const SCHEMA = `
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     last_success_at TEXT
   );
-${["transactions", "overrides", "tx_exclusions", "tx_assignments", "reimbursement_sources", "reimbursement_periods", "reimbursements"]
+
+  -- Spending categories the user picked (src/lib/categories.ts): for every payment to/from a
+  -- merchant, or for one payment (which wins). Everything else is categorised automatically.
+  CREATE TABLE IF NOT EXISTS category_rules (
+    merchant_key  TEXT PRIMARY KEY,
+    category      TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS tx_categories (
+    tx_id       TEXT PRIMARY KEY,
+    category    TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- Net worth: everything that holds money — bank accounts (balances fetched during sync) and
+  -- brokerage accounts (Trading 212). id is "bank:<account key>" or "t212:<account id>".
+  CREATE TABLE IF NOT EXISTS holdings (
+    id            TEXT PRIMARY KEY,
+    kind          TEXT NOT NULL,  -- bank | broker
+    institution   TEXT NOT NULL,  -- e.g. "Revolut", "Trading 212"
+    name          TEXT NOT NULL,
+    currency      TEXT,
+    detail_json   TEXT,           -- latest broker breakdown: cash, invested, profit/loss, positions
+    last_sync_at  TEXT,           -- last successful value fetch
+    last_error    TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- What each holding was worth, one row per holding per UTC day (the day's latest value). History
+  -- only grows from the day tracking started; days in between carry the last value forward.
+  CREATE TABLE IF NOT EXISTS holding_values (
+    holding       TEXT NOT NULL,
+    date          TEXT NOT NULL,  -- YYYY-MM-DD (UTC)
+    amount_minor  INTEGER NOT NULL,
+    currency      TEXT NOT NULL,
+    captured_at   TEXT NOT NULL,
+    PRIMARY KEY (holding, date)
+  );
+
+  -- Money paid into / taken out of a brokerage account (Trading 212 deposits, withdrawals and
+  -- transfers), for the "net deposits" line and the return on the Investments page.
+  CREATE TABLE IF NOT EXISTS broker_cash_flows (
+    holding       TEXT NOT NULL,
+    reference     TEXT NOT NULL,
+    date          TEXT NOT NULL,  -- YYYY-MM-DD (UTC)
+    type          TEXT NOT NULL,  -- DEPOSIT | WITHDRAW | TRANSFER
+    amount_minor  INTEGER NOT NULL, -- signed: + in, − out
+    currency      TEXT NOT NULL,
+    PRIMARY KEY (holding, reference)
+  );
+
+  -- ECB reference rates (via frankfurter.dev): units of currency per 1 EUR on a business day.
+  -- Only fetched when a holding isn't in the base currency.
+  CREATE TABLE IF NOT EXISTS fx_rates (
+    date      TEXT NOT NULL,
+    currency  TEXT NOT NULL,
+    per_eur   REAL NOT NULL,
+    PRIMARY KEY (date, currency)
+  );
+${[
+  "transactions",
+  "overrides",
+  "tx_exclusions",
+  "tx_assignments",
+  "reimbursement_sources",
+  "reimbursement_periods",
+  "reimbursements",
+  "category_rules",
+  "tx_categories",
+]
   .flatMap((table) =>
     ["INSERT", "UPDATE", "DELETE"].map(
       (op) => `
@@ -233,6 +306,8 @@ const COLUMNS: Record<string, Record<string, string>> = {
     sync_started_at: "TEXT", // set while a sync runs (visible across server instances)
   },
   pending_auth: { required_psu_headers: "TEXT" },
+  transactions: { mcc: "TEXT" }, // card merchant category code (bank sync)
+  holdings: { subtype: "TEXT" }, // bank account type from the bank (CACC current, SVGS savings, …)
   overrides: {
     color_slot: "INTEGER", // user-picked preset colour (0 = none); null = automatic
     color_hex: "TEXT", // user-picked custom colour
@@ -263,8 +338,10 @@ export async function openDb(url = config.databaseUrl, authToken = config.databa
 // Bump SCHEMA_VERSION when SCHEMA/COLUMNS change so a cached client gets migrated too.
 // 14: PR3 (notifications) uses 13 and this branch used 12 for push_subscriptions; a client migrated
 // at either must still pick up the other side's tables.
-// 15: overrides.group_name.
-const SCHEMA_VERSION = 15;
+// 15: overrides.group_name. 18: net worth (holdings, holding_values, fx_rates, broker_cash_flows),
+// spending categories (category_rules, tx_categories, transactions.mcc); 16–17 were used by its
+// branch before it met 15, so it skips past all three.
+const SCHEMA_VERSION = 18;
 const g = globalThis as unknown as { __trackerDb?: Promise<Client>; __trackerDbVersion?: number };
 export function getDb(): Promise<Client> {
   if (!g.__trackerDb || g.__trackerDbVersion !== SCHEMA_VERSION) {
@@ -369,12 +446,13 @@ export async function insertTransactions(db: Db, rows: TxRow[]): Promise<InsertS
       continue;
     }
     writes.push({
-      sql: `INSERT INTO transactions (id, source, account, date, amount_minor, currency, description, merchant_key, type, state)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      sql: `INSERT INTO transactions (id, source, account, date, amount_minor, currency, description, merchant_key, type, state, mcc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
               date = excluded.date, amount_minor = excluded.amount_minor, description = excluded.description,
-              merchant_key = excluded.merchant_key, type = excluded.type, state = excluded.state`,
-      args: [r.id, r.source, r.account, r.date, r.amount_minor, r.currency, r.description, r.merchant_key, r.type, r.state],
+              merchant_key = excluded.merchant_key, type = excluded.type, state = excluded.state,
+              mcc = COALESCE(excluded.mcc, mcc)`,
+      args: [r.id, r.source, r.account, r.date, r.amount_minor, r.currency, r.description, r.merchant_key, r.type, r.state, r.mcc ?? null],
     });
     existingIds.add(r.id);
     if (already) stats.updated++;
@@ -404,7 +482,7 @@ export async function dataVersion(db: Db): Promise<number> {
 export async function allTransactions(db: Db): Promise<TxRow[]> {
   return all<TxRow>(
     db,
-    "SELECT id, source, account, date, amount_minor, currency, description, merchant_key, type, state FROM transactions ORDER BY date",
+    "SELECT id, source, account, date, amount_minor, currency, description, merchant_key, type, state, mcc FROM transactions ORDER BY date",
   );
 }
 
@@ -506,4 +584,16 @@ export async function sourceNameTaken(db: Db, name: string, exceptId?: number): 
   return Boolean(
     await one(db, "SELECT 1 AS x FROM reimbursement_sources WHERE lower(name) = lower(?) AND id IS NOT ?", [name, exceptId ?? null]),
   );
+}
+
+/** The user's category choices: per payment and per merchant (unknown ids from older versions are dropped). */
+export async function allCategoryRules(db: Db): Promise<CategoryRules> {
+  const [tx, merchants] = await Promise.all([
+    all<{ tx_id: string; category: string }>(db, "SELECT tx_id, category FROM tx_categories"),
+    all<{ merchant_key: string; category: string }>(db, "SELECT merchant_key, category FROM category_rules"),
+  ]);
+  return {
+    byTx: new Map(tx.filter((r) => isCategoryId(r.category)).map((r) => [r.tx_id, r.category as CategoryId])),
+    byMerchant: new Map(merchants.filter((r) => isCategoryId(r.category)).map((r) => [r.merchant_key, r.category as CategoryId])),
+  };
 }

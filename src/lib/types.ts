@@ -1,5 +1,6 @@
 // Shapes shared between route handlers, server prefetching and client components.
 
+import type { CategoryId } from "./categories";
 import type { SeriesColor } from "./color";
 import type { NotificationType } from "./settings";
 
@@ -187,6 +188,9 @@ export type TransactionItem = {
   type: string | null;
   source: "csv" | "bank";
   subscriptionKey: string | null;
+  category: CategoryId;
+  /** The user picked the category (for this payment or its merchant), so it isn't automatic. */
+  categoryChosen: "payment" | "merchant" | null;
   /**
    * Set on the one payment that stands for its subscription charge (a charge day can have a fee
    * line too). Absent on other payments.
@@ -215,6 +219,7 @@ export type TransactionsPayload = {
     type: Record<string, number>;
     source: Record<string, number>;
     sub: Record<string, number>;
+    category: Record<string, number>;
   };
 };
 
@@ -398,3 +403,162 @@ export type SchedulerStatusPayload = {
 
 /** Who ran a tick: the HTTP endpoint (cron-job.org, Vercel Cron) or the self-hosted timer. */
 export type TickSource = "http" | "timer";
+
+/** Something that holds money: a bank account (balance from sync) or a brokerage account. */
+export type HoldingKind = "bank" | "broker";
+/** How the Net worth page groups holdings: everyday accounts, savings, investments. */
+export type HoldingGroup = "cash" | "savings" | "investments";
+
+export type BrokerPosition = {
+  ticker: string;
+  name: string;
+  value: number;
+  /** What the position cost (null in data stored before this was recorded). */
+  cost?: number | null;
+  profitLoss: number | null;
+};
+
+/** Breakdown of a brokerage account, in its own currency. */
+export type BrokerDetail = {
+  cash: number;
+  invested: number;
+  /** What the current investments cost. */
+  cost: number | null;
+  /** Unrealised profit/loss of the current investments. */
+  profitLoss: number | null;
+  /** All-time realised profit/loss from sales. */
+  realizedProfitLoss?: number | null;
+  /** Largest first; null when the API key can't read the portfolio. */
+  positions: BrokerPosition[] | null;
+};
+
+export type Holding = {
+  id: string;
+  kind: HoldingKind;
+  group: HoldingGroup;
+  /** e.g. "Revolut", "Trading 212". */
+  institution: string;
+  name: string;
+  /** Latest value in the holding's own currency; null until it was first fetched. */
+  value: number | null;
+  currency: string | null;
+  /** `value` in the base currency; null when no exchange rate is known yet. */
+  baseValue: number | null;
+  /** When the latest value was fetched (ISO). */
+  asOf: string | null;
+  /** The latest value is more than a few days old. */
+  stale: boolean;
+  /** Why the last fetch failed (the previous value, if any, still counts). */
+  error: string | null;
+  broker: BrokerDetail | null;
+};
+
+/** Net worth at the end of one day, in the base currency. */
+export type NetWorthPoint = { date: string; bank: number; broker: number; total: number };
+
+export type NetWorthPayload = {
+  baseCurrency: string;
+  today: string;
+  total: number;
+  byKind: Record<HoldingKind, number>;
+  byGroup: Record<HoldingGroup, number>;
+  /** One point per day from the first recorded value to today (gaps carry the last value forward). */
+  history: NetWorthPoint[];
+  holdings: Holding[];
+  /** Currencies without an exchange rate yet; those holdings are left out of the totals. */
+  unconverted: string[];
+  sources: { bankConfigured: boolean; bankConnected: boolean; trading212Configured: boolean };
+};
+
+/** One category's total for a month (major units, base currency). */
+export type SpendingCategory = {
+  id: CategoryId;
+  amount: number;
+  /** Payments in the category (refunds included). */
+  count: number;
+  /** Share of the month's total (spending or income), 0-1. */
+  share: number;
+  /** The same category's total in the month before. */
+  previous: number;
+};
+
+/** The periods the Spending page can show; swiping moves by one of them. */
+export type SpendingRange = "1w" | "1m" | "6m" | "1y";
+
+/**
+ * One point of the period (a day for a week or month, a month for 6M/1Y): running totals (`spent`,
+ * `previous`, `projected`) for the line chart and the point's own amounts for the bar chart. Null
+ * where there's nothing to draw (a day still to come, a shorter previous period).
+ */
+export type SpendingPoint = {
+  /** YYYY-MM-DD (days) or YYYY-MM (months). */
+  key: string;
+  spent: number | null;
+  previous: number | null;
+  projected: number | null;
+  amount: number | null;
+  previousAmount: number | null;
+  /** What's expected on a day still to come (usual spending + subscriptions due). */
+  projectedAmount: number | null;
+};
+
+export type SpendingPayload = {
+  baseCurrency: string;
+  today: string;
+  range: SpendingRange;
+  /** The period shown; `cutoff` is the last day counted (today, for the current period). */
+  period: { start: string; end: string; unit: "day" | "month"; cutoff: string };
+  previousPeriod: { start: string; end: string };
+  isCurrent: boolean;
+  /** There's data before this period. */
+  canGoBack: boolean;
+  spent: number;
+  /** Spent in the previous period up to the same point (current period), or in the whole of it. */
+  previousComparable: number;
+  previousTotal: number;
+  /**
+   * Where the current period is heading by its end: spent + usual spending on the days (or months)
+   * left + subscriptions due. Null for past periods.
+   */
+  projected: number | null;
+  /** Of `projected`: subscription charges still due within the days projected one by one. */
+  upcomingSubscriptions: number;
+  points: SpendingPoint[];
+  income: { total: number; previous: number; categories: SpendingCategory[] };
+  /** Income minus spending. */
+  cashflow: number;
+  /** Spending categories with activity, largest first (refunds net against spending, so may be negative). */
+  categories: SpendingCategory[];
+  /** Currencies whose transactions are left out (only the base currency is summed). */
+  otherCurrencies: string[];
+};
+
+/** One account on its own page: its value over time and (for bank accounts) its latest payments. */
+export type HoldingDetailPayload = {
+  baseCurrency: string;
+  today: string;
+  holding: Holding;
+  /** Daily value in the holding's own currency, from the first recorded value. */
+  history: { date: string; value: number }[];
+  /** Latest payments of a bank account (bank sync only; newest first). */
+  transactions: TransactionItem[];
+};
+
+export type InvestmentsPayload = {
+  baseCurrency: string;
+  today: string;
+  /** A Trading 212 key is set. */
+  configured: boolean;
+  holding: Holding | null;
+  /**
+   * Day by day in the account's currency: its value (null before tracking started) and the money
+   * paid in so far (null without deposit history).
+   */
+  history: { date: string; value: number | null; deposits: number | null }[];
+  /** Deposits minus withdrawals, all time; null without deposit history. */
+  netDeposits: number | null;
+  /** Value minus net deposits, and that as a share of net deposits. */
+  returnAmount: number | null;
+  returnRate: number | null;
+  deposits: { synced: boolean; complete: boolean; error: string | null };
+};

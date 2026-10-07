@@ -13,14 +13,20 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
+import { CATEGORY_ICON } from "@/components/spending/CategoryIcon";
+import { CategoryMenuItems } from "@/components/spending/CategoryPicker";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CATEGORIES } from "@/lib/categories";
 import { useExclusion, useOverride } from "@/lib/query/mutations";
 import type { TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -58,6 +64,17 @@ export function TransactionRowActions({
           <MoreHorizontalIcon />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-60">
+          {/* The category, here too: on phones the table's category column isn't shown. */}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <CategoryIconFor tx={tx} />
+              <span className="truncate">Category: {CATEGORIES[tx.category].label}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-[70vh] w-64 overflow-y-auto">
+              <CategoryMenuItems tx={tx} />
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSeparator />
           {tx.subscriptionKey ? (
             <>
               <DropdownMenuItem render={<Link href={`/subscriptions?sub=${encodeURIComponent(tx.subscriptionKey)}`} />}>
@@ -113,4 +130,9 @@ export function TransactionRowActions({
       {assigning && <AddToSubscriptionDialog tx={tx} onOpenChange={setAssigning} />}
     </>
   );
+}
+
+function CategoryIconFor({ tx }: { tx: TransactionItem }) {
+  const Icon = CATEGORY_ICON[tx.category];
+  return <Icon />;
 }

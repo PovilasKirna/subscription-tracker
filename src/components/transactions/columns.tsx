@@ -4,6 +4,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { RepeatIcon } from "lucide-react";
 import { DataTableColumnHeader } from "@/components/data-table";
 import { MerchantIcon } from "@/components/MerchantIcon";
+import { CategoryPicker } from "@/components/spending/CategoryPicker";
 import { Badge } from "@/components/ui/badge";
 import { fullDate, money } from "@/lib/format";
 import type { TX_TYPES } from "@/lib/search-params";
@@ -56,6 +57,14 @@ export function transactionColumns(onShowMerchant: (merchantKey: string) => void
           )}
         </div>
       ),
+    },
+    {
+      id: "category",
+      accessorKey: "category",
+      enableSorting: false,
+      meta: { label: "Category", className: "w-48" },
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
+      cell: ({ row }) => <CategoryPicker tx={row.original} />,
     },
     {
       id: "type",

@@ -6,19 +6,21 @@ A small, self-hosted web app that reads your **Revolut** transactions, finds you
 - **Two ways to get data in:**
   1. **CSV import**: export a statement from the Revolut app and drop it in. Fully offline.
   2. **Automatic sync (optional)**: [Enable Banking](https://enablebanking.com) is a licensed Open Banking provider that is free for linking your *own* accounts. The app pulls new transactions every 12 hours.
+- **Spending**: every transaction gets a category (automatically from the merchant, the card's merchant code and the payment type, or as you pick it for one payment or a whole merchant). The Spending page shows the month so far against last month, a month-end projection, income, net cashflow and spending by category.
+- **Net worth (optional)**: bank balances (fetched during sync) and your **Trading 212** account add up to a net worth figure, recorded daily so you can see it change over time, grouped into cash, savings and investments, with a page per account and an Investments page (value vs net deposits, return, positions).
 - **Detection** groups charges by normalized merchant, then fits weekly, monthly, quarterly, semiannual or yearly cadences. It scores how stable the amounts are and splits merchants that bill several plans (like Apple). It also flags price changes, plus subscriptions that are overdue or have stopped. You can confirm, rename, recategorize, mark as cancelled, or ignore anything it finds.
 
 ## Stack
 
-Next.js 16 (App Router, server-rendered, streamed with Suspense) · TanStack Query (server prefetch + `useSuspenseQuery`) · nuqs (type-safe URL state) · shadcn/ui on Base UI + Tailwind v4 · visx charts · libSQL (`@libsql/client`: a local SQLite file, or Turso) · Biome · Husky.
+Next.js 16 (App Router, server-rendered, streamed with Suspense) · TanStack Query (server prefetch + `useSuspenseQuery`) · nuqs (type-safe URL state) · shadcn/ui on Base UI + Tailwind v4 · TanStack Charts · libSQL (`@libsql/client`: a local SQLite file, or Turso) · Biome · Husky.
 
 ```
 src/
   app/            routes: (app)/ pages, api/ route handlers, login
-  charts/         every chart (visx). Pages import from "@/charts" only
+  charts/         every chart (TanStack Charts). Pages import from "@/charts" only
   components/     page sections, skeletons, shell, shadcn ui/
   emails/         email templates (React Email); preview with `npm run email:dev`
-  lib/server/     db, detection, Revolut CSV parser, Enable Banking client, auth, mail/, push/
+  lib/server/     db, detection, Revolut CSV parser, Enable Banking + Trading 212 clients, net worth, auth, mail/, push/
   lib/query/      query options shared by server prefetch + client
   lib/search-params.ts   nuqs parsers shared by server + client
 ```
@@ -62,6 +64,29 @@ ENABLE_BANKING_APP_ID=mock-app
 ENABLE_BANKING_API_URL=http://localhost:4010
 ENABLE_BANKING_KEY_PATH=./data/mock-enablebanking.pem
 ```
+
+## Net worth (optional)
+
+The **Net worth** page adds up what you have, in `BASE_CURRENCY`:
+
+- **Bank accounts**: each linked account's balance is fetched right after its transactions. Scheduled syncs fetch it at most once a day, to keep the bank's ~4 background requests for transactions; **Sync now** and **Refresh** always fetch it. The booked balance is preferred over the available one, which can include an overdraft. Accounts switched off in **Settings → Data & sync** aren't counted.
+- **Trading 212**: create an API key in the Trading 212 app (**Settings → API**) with only the **Account data**, **Portfolio** and **History** permissions, then set `TRADING212_API_KEY` and `TRADING212_API_SECRET`. The account value (cash plus the current value of your shares), profit/loss and positions are fetched on every scheduler tick and on **Refresh**. Without the Portfolio permission the total still works, just without positions; without History there's no net-deposits line or return. Deposit history is read 10 pages per run (the API allows 20 requests a minute), so a long history fills in over a few runs.
+- **History** is one value per account per day, so the chart fills in from the day you start. Days without a fetch carry the last value forward.
+- **Other currencies** are converted with the ECB reference rates from [frankfurter.dev](https://frankfurter.dev) (free, no key), fetched at most once a day and only when an account isn't in the base currency.
+
+To try it without real accounts, run `npm run mock:bank` (it serves balances too) and `npm run mock:t212`, then add to `.env.local`:
+
+```
+TRADING212_API_KEY=mock
+TRADING212_API_SECRET=mock
+TRADING212_API_URL=http://localhost:4020
+```
+
+## Spending and categories
+
+Categories come from, in order: your choice for that payment, your rule for its merchant (the default when you pick one in **Transactions**), money between your own accounts (savings vaults, pockets, exchanges, top-ups from your own card — neither spending nor income), the payment type (ATM, fees, refunds, money in), detected subscriptions, well-known merchant names, the card's merchant category code (bank sync only), then transfers to people. Money that arrives from the same payer in 3+ months is treated as salary. Refunds reduce spending. Only `BASE_CURRENCY` is summed.
+
+The month-end projection is what you've spent, plus, for each day left, what you usually spend on that day of the month (the average of the last three months, excluding subscriptions), plus each subscription still due on its renewal day. So rent already paid this month isn't counted again, and the projected line rises where your spending usually does instead of running straight.
 
 ## Notifications: push and email (optional)
 
@@ -184,7 +209,7 @@ A Husky **pre-commit** hook runs Biome on the staged files (auto-fixes and re-st
 
 ### Charts
 
-All charts live in `src/charts/` and are built with visx primitives. They follow these rules:
+All charts live in `src/charts/` and are built with [TanStack Charts](https://tanstack.com/charts) (`@tanstack/charts`); shared theme, guide and tooltip settings are in `src/charts/theme.ts`. The renewal calendar is a layout rather than a data chart, so it stays app-owned SVG with the same tokens and tooltip surface. They follow these rules:
 
 - **Colors:** colors come from CSS variables (`--series-1…8`, `--surface-1`, `--grid`, `--axis`, text tokens), with light and dark values. The palette passes the dataviz validator in both modes. A subscription's color slot is fixed by first-seen date, so filtering never repaints the remaining series.
 - **Marks:** bars are at most 24px wide, the top segment of each stack has a 4px rounded end, and stacked segments are separated by a 2px surface gap.

@@ -18,6 +18,15 @@ export async function GET() {
     reimbursements: await all(db, "SELECT * FROM reimbursements"),
     // Which bank accounts are switched off (their transactions are kept but hidden).
     bankAccounts: await all(db, "SELECT * FROM bank_accounts"),
+    // Spending categories you picked, per payment and per merchant.
+    categoryRules: await all(db, "SELECT * FROM category_rules"),
+    transactionCategories: await all(db, "SELECT * FROM tx_categories"),
+    // Net worth: bank and brokerage accounts (with their latest breakdown), daily values, deposits,
+    // and the exchange rates the history was converted with.
+    holdings: await all(db, "SELECT * FROM holdings"),
+    holdingValues: await all(db, "SELECT * FROM holding_values ORDER BY date"),
+    brokerCashFlows: await all(db, "SELECT * FROM broker_cash_flows ORDER BY date"),
+    fxRates: await all(db, "SELECT * FROM fx_rates ORDER BY date, currency"),
   };
   return new NextResponse(JSON.stringify(body, null, 2), {
     headers: {

@@ -9,8 +9,8 @@
 // It implements the endpoints the app uses, verifies the RS256 JWT with the public half of the
 // key, shows a fake "Revolut" consent page, replays samples/revolut-sample.csv as bank
 // transactions (bank-style merchant names, ISO 20022 codes, pagination) on a main account plus a
-// small "Savings" account (to try the per-account Included switch), and enforces the 4-per-day
-// limit on background (no PSU headers) fetches.
+// small "Savings" account (to try the per-account Included switch), serves balances for the Net
+// worth page, and enforces the 4-per-day limit on background (no PSU headers) fetches.
 import { createHash, createPublicKey, createVerify, generateKeyPairSync, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -263,6 +263,26 @@ createServer(async (req, res) => {
     const page = all.slice(offset, offset + 100);
     const next = offset + 100 < all.length ? String(offset + 100) : null;
     return send(res, 200, { transactions: page, continuation_key: next });
+  }
+  const balMatch = path.match(/^\/accounts\/([^/]+)\/balances$/);
+  if (req.method === "GET" && balMatch) {
+    const uid = decodeURIComponent(balMatch[1]);
+    if (![...sessions.keys()].some((id) => ACCOUNTS.some((a) => uid === `${a.prefix}-${id.slice(0, 8)}`)))
+      return fail(res, 401, "EXPIRED_SESSION", "Session expired or revoked");
+    // A little movement between calls, so refreshing visibly changes the number.
+    const base = uid.startsWith("sav-") ? 4200 : 1834.56;
+    const amount = (base + Math.round(Math.random() * 4000) / 100).toFixed(2);
+    return send(res, 200, {
+      balances: [
+        { name: "Available", balance_amount: { amount: (Number(amount) + 500).toFixed(2), currency: "EUR" }, balance_type: "ITAV" },
+        {
+          name: "Booked",
+          balance_amount: { amount, currency: "EUR" },
+          balance_type: "ITBD",
+          reference_date: new Date().toISOString().slice(0, 10),
+        },
+      ],
+    });
   }
   fail(res, 404, "NOT_FOUND", `${req.method} ${path}`);
 }).listen(PORT, () => console.log(`Mock Enable Banking on http://localhost:${PORT} (app id: ${APP_ID}, key: ${KEY_PATH})`));

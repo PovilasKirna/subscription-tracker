@@ -2,6 +2,7 @@ import { type FetchWindow, fetchWindow, reconcileBankAccounts } from "./bankAcco
 import { bankConfigured, config } from "./config";
 import { all, getDb, type InsertStats, insertTransactions, logImport, one, run, type TxRow } from "./db";
 import { accountKey, BankApiError, type EbAccount, fetchTransactions, getSessionStatus, type PsuContext } from "./enableBanking";
+import { captureBankBalance } from "./netWorth";
 
 type SessionRow = {
   session_id: string;
@@ -119,6 +120,7 @@ async function doSync(opts: SyncOptions): Promise<SyncResult> {
           const st = await insertTransactions(db, await fetchAccount(account, window, s, opts));
           // Only this column changes, so the detection snapshot isn't invalidated by progress alone.
           await run(db, "UPDATE bank_accounts SET synced_through = ? WHERE account_key = ?", [startedAt, key]);
+          await captureBankBalance(db, account, s, { psu: opts.psu }); // for net worth; never throws
           result.inserted += st.inserted;
           result.updated += st.updated;
           result.skipped += st.skipped;

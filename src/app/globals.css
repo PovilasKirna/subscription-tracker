@@ -180,20 +180,49 @@
   }
 }
 
-.visx-tooltip-panel {
-  position: absolute;
-  pointer-events: none;
-  z-index: 50;
+/* @tanstack/charts: chart text uses the app font with tabular figures; the native tooltip surface
+ * reads these variables. They sit on the tooltip class itself (not the chart) because the portal's
+ * fallback can move the tooltip under <body>, out of reach of chart-scoped variables. */
+.ts-chart-host {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+/* Keyboard focus on a chart (one tab stop) draws a 2px ink ring; the focused mark is shown by the
+ * chart's own highlight band. Mouse focus draws nothing. */
+.ts-chart-host svg.ts-chart:focus,
+.chart-focus:focus {
+  outline: none;
+}
+.ts-chart-host svg.ts-chart:focus-visible,
+.chart-focus:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+.chart-tooltip {
+  --ts-chart-tooltip-background: var(--popover);
+  --ts-chart-tooltip-color: var(--text-primary);
+  --ts-chart-tooltip-border: 1px solid var(--border);
+  --ts-chart-tooltip-border-radius: 10px;
+  --ts-chart-tooltip-shadow: 0 8px 28px rgb(0 0 0 / 0.14);
+  --ts-chart-tooltip-max-width: 280px;
+  --ts-chart-tooltip-padding: 10px 12px;
+  --ts-chart-tooltip-font: 12.5px / 1.45 var(--font-sans);
   min-width: 180px;
-  max-width: 280px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--popover);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  box-shadow: 0 8px 28px rgb(0 0 0 / 0.14);
-  font-size: 12.5px;
-  line-height: 1.45;
+  pointer-events: none;
+}
+/* The same surface for app-owned layouts (FloatingTooltip in src/charts/ChartTooltip.tsx). */
+.chart-tooltip-floating {
+  position: fixed;
+  z-index: 50;
+  max-width: var(--ts-chart-tooltip-max-width);
+  padding: var(--ts-chart-tooltip-padding);
+  border: var(--ts-chart-tooltip-border);
+  border-radius: var(--ts-chart-tooltip-border-radius);
+  background: var(--ts-chart-tooltip-background);
+  color: var(--ts-chart-tooltip-color);
+  box-shadow: var(--ts-chart-tooltip-shadow);
+  font: var(--ts-chart-tooltip-font);
 }
 
 /* ------------------------------------------------------------------------

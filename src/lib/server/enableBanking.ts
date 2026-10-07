@@ -230,6 +230,7 @@ export function mapTransaction(account: string, t: EbTransaction): TxRow | null 
     merchant_key: merchantKey(description),
     type: transactionType(t),
     state: "COMPLETED",
+    mcc: t.merchant_category_code || null,
   };
 }
 
@@ -260,4 +261,51 @@ export async function fetchTransactions(account: EbAccount, opts: FetchOptions):
     continuation = r.continuation_key;
   }
   return out;
+}
+
+export type EbBalance = {
+  name?: string | null;
+  balance_amount: { amount: string; currency: string };
+  /** ISO 20022 balance type: ITBD interim booked, CLBD closing booked, ITAV interim available, … */
+  balance_type?: string | null;
+  last_change_date_time?: string | null;
+  reference_date?: string | null;
+};
+
+/**
+ * Most "money you have right now" first: booked balances (no credit limit or card holds mixed in),
+ * intraday before end-of-day, then expected and available ones.
+ */
+const BALANCE_PREFERENCE = ["ITBD", "CLBD", "XPCD", "ITAV", "CLAV", "VALU", "OPBD", "OPAV", "PRCD", "INFO", "OTHR", "FWAV"];
+
+/** The balance that best answers "how much is in this account now", in minor units. Pure. */
+export function pickBalance(
+  balances: EbBalance[],
+  accountCurrency?: string | null,
+): { amountMinor: number; currency: string; type: string | null } | null {
+  const usable = balances.filter((b) => b.balance_amount && Number.isFinite(Number(b.balance_amount.amount)));
+  // A multi-currency account may list one balance per currency; its own currency wins.
+  const own = accountCurrency ? usable.filter((b) => b.balance_amount.currency.toUpperCase() === accountCurrency.toUpperCase()) : [];
+  const pool = own.length ? own : usable;
+  const rank = (b: EbBalance) => {
+    const i = BALANCE_PREFERENCE.indexOf((b.balance_type ?? "").toUpperCase());
+    return i === -1 ? BALANCE_PREFERENCE.length : i;
+  };
+  const best = [...pool].sort((a, b) => rank(a) - rank(b))[0];
+  if (!best) return null;
+  return {
+    amountMinor: Math.round(Number(best.balance_amount.amount) * 100),
+    currency: best.balance_amount.currency.toUpperCase(),
+    type: best.balance_type ?? null,
+  };
+}
+
+export async function fetchBalance(
+  account: EbAccount,
+  opts: { psu?: PsuContext; requiredPsuHeaders?: readonly string[] } = {},
+): Promise<ReturnType<typeof pickBalance>> {
+  const r = await call<{ balances: EbBalance[] }>(`/accounts/${encodeURIComponent(account.uid)}/balances`, {
+    headers: psuHeaders(opts.psu, opts.requiredPsuHeaders),
+  });
+  return pickBalance(r.balances ?? [], account.currency);
 }
