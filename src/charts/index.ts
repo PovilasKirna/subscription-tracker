@@ -1,4 +1,4 @@
-// The only entry point pages use for charts — nothing outside src/charts imports @visx/*.
+// The only entry point pages use for charts — nothing outside src/charts imports @tanstack/charts.
 export { ChargeHistory } from "./ChargeHistory";
 export { ChargeSparkline } from "./ChargeSparkline";
 export { ChartCard } from "./ChartCard";

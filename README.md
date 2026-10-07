@@ -12,12 +12,12 @@ A small, self-hosted web app that reads your **Revolut** transactions, finds you
 
 ## Stack
 
-Next.js 16 (App Router, server-rendered, streamed with Suspense) · TanStack Query (server prefetch + `useSuspenseQuery`) · nuqs (type-safe URL state) · shadcn/ui on Base UI + Tailwind v4 · visx charts · libSQL (`@libsql/client`: a local SQLite file, or Turso) · Biome · Husky.
+Next.js 16 (App Router, server-rendered, streamed with Suspense) · TanStack Query (server prefetch + `useSuspenseQuery`) · nuqs (type-safe URL state) · shadcn/ui on Base UI + Tailwind v4 · TanStack Charts · libSQL (`@libsql/client`: a local SQLite file, or Turso) · Biome · Husky.
 
 ```
 src/
   app/            routes: (app)/ pages, api/ route handlers, login
-  charts/         every chart (visx). Pages import from "@/charts" only
+  charts/         every chart (TanStack Charts). Pages import from "@/charts" only
   components/     page sections, skeletons, shell, shadcn ui/
   emails/         email templates (React Email); preview with `npm run email:dev`
   lib/server/     db, detection, Revolut CSV parser, Enable Banking + Trading 212 clients, net worth, auth, mail/, push/
@@ -209,7 +209,7 @@ A Husky **pre-commit** hook runs Biome on the staged files (auto-fixes and re-st
 
 ### Charts
 
-All charts live in `src/charts/` and are built with visx primitives. They follow these rules:
+All charts live in `src/charts/` and are built with [TanStack Charts](https://tanstack.com/charts) (`@tanstack/charts`); shared theme, guide and tooltip settings are in `src/charts/theme.ts`. The renewal calendar is a layout rather than a data chart, so it stays app-owned SVG with the same tokens and tooltip surface. They follow these rules:
 
 - **Colors:** colors come from CSS variables (`--series-1…8`, `--surface-1`, `--grid`, `--axis`, text tokens), with light and dark values. The palette passes the dataviz validator in both modes. A subscription's color slot is fixed by first-seen date, so filtering never repaints the remaining series.
 - **Marks:** bars are at most 24px wide, the top segment of each stack has a 4px rounded end, and stacked segments are separated by a 2px surface gap.

@@ -1,19 +1,26 @@
 "use client";
 
-import { AxisBottom } from "@visx/axis";
-import { localPoint } from "@visx/event";
-import { GridColumns } from "@visx/grid";
-import { Group } from "@visx/group";
-import { ParentSize } from "@visx/responsive";
-import { scaleBand, scaleUtc } from "@visx/scale";
-import { Bar, Circle, Line } from "@visx/shape";
-import { type KeyboardEvent, type MouseEvent, useMemo, useState } from "react";
-import { ChartTooltip, TooltipRow, useChartTooltip, useRovingFocus } from "./ChartTooltip";
-import { axisLabel, fitLabel, focusRing, isOther, MIN_TEXT, marks, otherOutline, seriesColor, tokens } from "./palette";
+import {
+  type ChartFocusStrategy,
+  type ChartInteractionController,
+  type ChartPoint,
+  type ChartScene,
+  defineChart,
+  dot,
+  link,
+  tickX,
+} from "@tanstack/charts";
+import { crosshair } from "@tanstack/charts/crosshair";
+import { Chart } from "@tanstack/charts/react/tooltip";
+import { scaleBand } from "@tanstack/charts/scales/band";
+import { scaleOrdinal } from "@tanstack/charts/scales/ordinal";
+import { scaleUtc } from "d3-scale";
+import { type KeyboardEvent, useMemo, useRef } from "react";
+import { TooltipNote, TooltipRow } from "./ChartTooltip";
+import { fitLabel, isOther, marks, seriesColor, tokens } from "./palette";
+import { axisLine, chartTheme, chartTooltip, focusRing, gridLine, tickLabels } from "./theme";
 import { timelineRowLabel } from "./timelineLabel";
-import type { Accessor, TimelineCharge, TimelineRow, Today } from "./types";
-
-const FLUID = { display: "block", width: "100%", height: "auto" } as const;
+import type { TimelineCharge, TimelineRow, Today } from "./types";
 
 type Props<T extends TimelineRow> = {
   data: readonly T[];
@@ -30,34 +37,48 @@ type Props<T extends TimelineRow> = {
    */
   from?: string;
   /**
-   * Optional: called with a row's key on click, Enter or Space. When set, rows are exposed as
-   * buttons; without it they are read-only images with an accessible name.
+   * Optional: called with a row's key on click, Enter or Space. When set, the rows say so in the
+   * chart's description; without it the chart is read-only.
    */
   onSelect?: (key: string) => void;
 };
 
+/** Every mark's datum: the row plus the charge it stands for (the span stands for the latest one). */
 type Hover<T extends TimelineRow> = { row: T; charge: TimelineCharge; change?: T["priceChanges"][number] };
+type Point = ChartPoint<Hover<TimelineRow>, Date, string>;
 
 const ROW = 30;
-const margin = { top: 6, right: 30, bottom: 28 }; // right: room for the last tick label
+const TOP = 6;
+const AXIS = 28;
 const toDate = (d: string) => new Date(`${d}T00:00:00Z`);
-const getKey: Accessor<TimelineRow, string> = (r) => r.key;
-const getChargeDate: Accessor<TimelineCharge, Date> = (c) => toDate(c.date);
+/** Faded rows dim their marks only; the label keeps text contrast. */
+const fade = (paint: string) => `color-mix(in oklab, ${paint} 45%, transparent)`;
 
-/** One row per subscription: a span from first to last charge, a tick per charge, a ringed marker per price change. */
-export function SubscriptionTimeline<T extends TimelineRow>(props: Props<T>) {
-  const { data, from } = props;
-  const rows = useMemo(() => (from ? data.filter((r) => r.lastCharge >= from) : data), [data, from]);
-  if (!rows.length) return <p className="py-6 text-center text-sm text-muted-foreground">No charges in this period.</p>;
-  const height = margin.top + margin.bottom + rows.length * ROW;
-  return (
-    <ParentSize initialSize={{ width: 560 }} style={{ height }} debounceTime={40}>
-      {({ width }) => (width > 0 ? <Timeline {...props} data={rows} width={width} height={height} /> : null)}
-    </ParentSize>
-  );
+/**
+ * Pointer: the row under the pointer, then its charge nearest in time. Only charge ticks are
+ * focus targets (the span and price-change marks share their row's datum but are paint only).
+ */
+function rowThenCharge(): ChartFocusStrategy<Hover<TimelineRow>, Date, string> {
+  const charges = (points: readonly Point[]) => points.filter((p) => p.markId === "charges");
+  return {
+    resolve: (points, { x, y }) => {
+      let best: Point | undefined;
+      for (const p of charges(points)) {
+        if (!best) best = p;
+        else {
+          const dy = Math.abs(p.y - y) - Math.abs(best.y - y);
+          if (dy < -0.5 || (Math.abs(dy) <= 0.5 && Math.abs(p.x - x) < Math.abs(best.x - x))) best = p;
+        }
+      }
+      return best ? [best] : [];
+    },
+    group: (_points, { point }) => [point],
+    navigation: charges,
+  };
 }
 
-function Timeline<T extends TimelineRow>({
+/** One row per subscription: a span from first to last charge, a tick per charge, a ringed marker per price change. */
+export function SubscriptionTimeline<T extends TimelineRow>({
   data,
   today,
   formatMoney,
@@ -66,281 +87,260 @@ function Timeline<T extends TimelineRow>({
   tickWidth = 90,
   from,
   onSelect,
-  width,
-  height,
-}: Props<T> & { width: number; height: number }) {
-  const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip, containerRef, TooltipInPortal } =
-    useChartTooltip<Hover<T>>();
-  const labelWidth = width < 520 ? 104 : 150;
-  const maxChars = width < 520 ? 13 : 20;
-  const xMax = Math.max(0, width - labelWidth - margin.right);
-  const yMax = Math.max(0, height - margin.top - margin.bottom);
+}: Props<T>) {
+  const rows = useMemo(() => (from ? data.filter((r) => r.lastCharge >= from) : data), [data, from]);
 
-  const xScale = useMemo(() => {
-    const first = from ?? data.reduce((min, r) => (r.firstCharge < min ? r.firstCharge : min), today);
-    return scaleUtc<number>({ domain: [toDate(first), toDate(today)], range: [0, xMax] });
-  }, [data, today, from, xMax]);
-  // The marks inside the window; tooltips and Left / Right stepping only visit these.
-  const shown = useMemo(() => {
-    const m = new Map<string, { charges: TimelineCharge[]; changes: T["priceChanges"] }>();
-    for (const r of data) {
-      m.set(r.key, {
-        charges: from ? r.charges.filter((c) => c.date >= from) : r.charges,
-        changes: from ? r.priceChanges.filter((pc) => pc.date >= from) : r.priceChanges,
-      });
-    }
-    return m;
-  }, [data, from]);
-  const chargesOf = (row: T) => shown.get(row.key)?.charges ?? row.charges;
-  // A span that began before the window starts at the axis.
-  const spanStart = (row: T) => toDate(from && row.firstCharge < from ? from : row.firstCharge);
-  const yScale = useMemo(() => scaleBand<string>({ domain: data.map(getKey), range: [0, yMax], padding: 0 }), [data, yMax]);
-  const numTicks = Math.max(2, Math.floor(xMax / tickWidth));
   // Keyboard: the chart is one tab stop. Up / Down move between rows (Ctrl+Home / Ctrl+End to the
-  // first / last), Left / Right (and Home / End) step through the focused row's charges.
-  const roving = useRovingFocus(data.length, 0);
-  const focusedKey = roving.focused !== null ? (data[roving.focused]?.key ?? null) : null;
-  // The live region only speaks for charge steps; landing on a row already reads the row's name.
-  const [stepping, setStepping] = useState(false);
-  const rowY = (row: T) => (yScale(row.key) ?? 0) + yScale.bandwidth() / 2;
+  // first / last), Left / Right (and Home / End) step through the focused row's charges. The chart's
+  // own keyboard handling is off; these keys drive its focus through the interaction controller.
+  const host = useRef<{
+    interaction: ChartInteractionController<Hover<TimelineRow>, Date, string>;
+    scene: ChartScene<Hover<TimelineRow>, Date, string>;
+  }>(null);
+  const cursor = useRef<{ row: number; charge: number } | null>(null);
+  // What the tooltip's status region says: the whole row on landing, the charge while stepping.
+  const announce = useRef<"row" | "charge">("row");
 
-  const showCharge = (row: T, index: number) => {
-    const charges = chargesOf(row);
-    const charge = charges[Math.min(Math.max(index, 0), charges.length - 1)];
-    if (!charge) return;
-    showTooltip({
-      tooltipData: { row, charge, change: row.priceChanges.find((pc) => pc.date === charge.date) },
-      tooltipLeft: labelWidth + xScale(getChargeDate(charge)),
-      tooltipTop: margin.top + rowY(row),
+  const definition = useMemo(() => {
+    // The marks inside the window; tooltips and Left / Right stepping only visit these.
+    const shown = rows.map((row) => ({
+      row,
+      charges: from ? row.charges.filter((c) => c.date >= from) : row.charges,
+      changes: from ? row.priceChanges.filter((pc) => pc.date >= from) : row.priceChanges,
+    }));
+    const hover = (row: TimelineRow, charge: TimelineCharge): Hover<TimelineRow> => ({
+      row,
+      charge,
+      change: row.priceChanges.find((pc) => pc.date === charge.date),
     });
-  };
-
-  const onKeyDown = (row: T, i: number, e: KeyboardEvent<SVGRectElement>) => {
-    if (e.key === "Escape") {
-      hideTooltip();
-      return;
-    }
-    if (onSelect && (e.key === "Enter" || e.key === " ")) {
-      e.preventDefault();
-      onSelect(row.key);
-      return;
-    }
-    if ((e.ctrlKey || e.metaKey) && (e.key === "Home" || e.key === "End")) {
-      e.preventDefault();
-      roving.focusIndex(e.key === "Home" ? 0 : data.length - 1);
-      return;
-    }
-    const charges = chargesOf(row);
-    const current = tooltipData?.row.key === row.key ? charges.indexOf(tooltipData.charge) : charges.length - 1;
-    const next =
-      e.key === "ArrowLeft"
-        ? current - 1
-        : e.key === "ArrowRight"
-          ? current + 1
-          : e.key === "Home"
-            ? 0
-            : e.key === "End"
-              ? charges.length - 1
-              : null;
-    if (next !== null) {
-      e.preventDefault();
-      setStepping(true);
-      showCharge(row, next);
-      return;
-    }
-    roving.onKeyDown(i, e, { prev: ["ArrowUp"], next: ["ArrowDown"] });
-  };
-
-  /** Everything the tooltip and marks show, as one sentence for screen readers. */
-  const rowLabel = (row: T) => timelineRowLabel(row, { money: formatMoney, date: formatDate }, from);
-
-  const onMove = (row: T, e: MouseEvent<SVGRectElement>) => {
-    const p = localPoint(e);
-    if (!p) return;
-    const x = xScale.invert(p.x - labelWidth).getTime();
-    const charges = chargesOf(row);
-    let charge = charges[0];
-    if (!charge) return;
-    for (const c of charges) if (Math.abs(getChargeDate(c).getTime() - x) < Math.abs(getChargeDate(charge).getTime() - x)) charge = c;
-    showTooltip({
-      tooltipData: { row, charge, change: row.priceChanges.find((pc) => pc.date === charge.date) },
-      tooltipLeft: p.x,
-      tooltipTop: p.y,
+    const ticks = shown.flatMap((s) => s.charges.map((c) => hover(s.row, c)));
+    const spans = shown.flatMap((s) => {
+      const latest = s.charges.at(-1);
+      return latest ? [hover(s.row, latest)] : [];
     });
+    const changes: Hover<TimelineRow>[] = shown.flatMap((s) =>
+      s.changes.flatMap((pc) => {
+        const charge = s.charges.find((c) => c.date === pc.date);
+        return charge ? [{ row: s.row, charge, change: pc }] : [];
+      }),
+    );
+    const others = (list: Hover<TimelineRow>[]) => list.filter((h) => isOther(h.row.color));
+    const faded = (row: TimelineRow) => row.status === "inactive" || row.status === "cancelled";
+    const paintOf = (row: TimelineRow) => (faded(row) ? fade(seriesColor(row.color)) : seriesColor(row.color));
+    const paint = (h: Hover<TimelineRow>) => paintOf(h.row);
+    // A span that began before the window starts at the axis.
+    const spanStart = (h: Hover<TimelineRow>) => toDate(from && h.row.firstCharge < from ? from : h.row.firstCharge);
+    const nameOf = new Map(rows.map((r) => [r.key, r.name]));
+    const fadedKeys = new Set(rows.filter(faded).map((r) => r.key));
+    const first = from ?? rows.reduce((min, r) => (r.firstCharge < min ? r.firstCharge : min), today);
+    const spanEnd = (h: Hover<TimelineRow>) => toDate(h.row.lastCharge);
+    const rowKey = (h: Hover<TimelineRow>) => h.row.key;
+    const at = (h: Hover<TimelineRow>) => toDate(h.charge.date);
+
+    return defineChart(
+      ({ width }) => ({
+        marks: [
+          // Hover / keyboard row band, behind the marks.
+          crosshair({ x: false, y: { band: { radius: 6, fill: tokens.grid, fillOpacity: 0.45 } } }),
+          // "Other" grey alone gets a 1px graphite edge: a wider graphite line underneath.
+          link(others(spans), {
+            id: "other-span",
+            x1: spanStart,
+            x2: spanEnd,
+            y1: rowKey,
+            y2: rowKey,
+            stroke: tokens.textSecondary,
+            strokeWidth: marks.line + 2,
+          }),
+          tickX(others(ticks), {
+            id: "other-ticks",
+            x: at,
+            y: rowKey,
+            length: 10,
+            stroke: tokens.textSecondary,
+            strokeWidth: marks.line + 2,
+          }),
+          link(spans, {
+            id: "spans",
+            x1: spanStart,
+            x2: spanEnd,
+            y1: rowKey,
+            y2: rowKey,
+            stroke: paint,
+            strokeWidth: marks.line,
+          }),
+          tickX(ticks, {
+            id: "charges",
+            x: at,
+            y: rowKey,
+            key: (h) => `${h.row.key}-${h.charge.date}`,
+            length: 10,
+            stroke: paint,
+            strokeWidth: marks.line,
+          }),
+          // Dots take their row's paint through the colour scale below; "Other" dots get the
+          // graphite outline instead of the surface ring.
+          dot(
+            changes.filter((h) => !isOther(h.row.color)),
+            { id: "price-changes", x: at, y: rowKey, color: rowKey, r: marks.markerR + 1, stroke: tokens.surface, strokeWidth: marks.ring },
+          ),
+          dot(others(changes), {
+            id: "other-price-changes",
+            x: at,
+            y: rowKey,
+            color: rowKey,
+            r: marks.markerR + 1,
+            stroke: tokens.textSecondary,
+            strokeWidth: 1,
+          }),
+        ],
+        color: {
+          scale: scaleOrdinal(
+            rows.map((r) => r.key),
+            rows.map((r) => paintOf(r)),
+          ),
+        },
+        scales: {
+          x: {
+            scale: scaleUtc().domain([toDate(first), toDate(today)]),
+            grid: gridLine,
+            axis: { line: axisLine, ticks: { spacing: tickWidth, size: 0, format: formatTick }, tickLabels },
+          },
+          y: {
+            // Rows keep the data order (not the order marks first mention them in).
+            scale: scaleBand<string>()
+              .domain(rows.map((r) => r.key))
+              .padding(0),
+            axis: {
+              line: false,
+              ticks: { size: 0, padding: 12, format: (key: string) => fitLabel(nameOf.get(key) ?? key, width < 520 ? 13 : 20) },
+              tickLabels: { ...tickLabels, thin: false, opacity: ({ value }: { value: string }) => (fadedKeys.has(value) ? 0.7 : 1) },
+            },
+          },
+        },
+        margin: { top: TOP, right: 30 }, // right: room for the last tick label
+      }),
+      {
+        theme: chartTheme,
+        focusRing,
+        focus: rowThenCharge(),
+        maxFocusDistance: Number.POSITIVE_INFINITY,
+        keyboard: false,
+        tooltip: {
+          ...chartTooltip,
+          // What the polite status region announces: everything the row shows on landing, then the
+          // charge each Left / Right step lands on.
+          format: ({ datum: h }: { datum: Hover<TimelineRow> }) =>
+            announce.current === "row"
+              ? timelineRowLabel(h.row, { money: formatMoney, date: formatDate }, from)
+              : `${formatDate(h.charge.date)}: ${formatMoney(h.charge.amount, h.row.currency)}${
+                  h.change
+                    ? `, price change ${formatMoney(h.change.from, h.row.currency)} to ${formatMoney(h.change.to, h.row.currency)}`
+                    : ""
+                }`,
+        },
+      },
+    );
+  }, [rows, today, from, tickWidth, formatTick, formatMoney, formatDate]);
+
+  const chargesOf = (row: T) => (from ? row.charges.filter((c) => c.date >= from) : row.charges);
+  const focusCharge = (rowIndex: number, chargeIndex: number) => {
+    const row = rows[Math.min(Math.max(rowIndex, 0), rows.length - 1)];
+    const charges = row ? chargesOf(row) : [];
+    const charge = charges[Math.min(Math.max(chargeIndex, 0), charges.length - 1)];
+    if (!row || !charge || !host.current) return;
+    cursor.current = { row: rows.indexOf(row), charge: charges.indexOf(charge) };
+    const point = host.current.scene.points.find(
+      (p) => p.markId === "charges" && p.datum.row.key === row.key && p.datum.charge.date === charge.date,
+    );
+    host.current.interaction.setControlledFocus(point ?? null, { source: "programmatic" });
   };
+  const clearFocus = () => {
+    cursor.current = null;
+    host.current?.interaction.setControlledFocus(null);
+  };
+  const landOnRow = (i: number) => {
+    announce.current = "row";
+    const row = rows[Math.min(Math.max(i, 0), rows.length - 1)];
+    if (row) focusCharge(rows.indexOf(row), chargesOf(row).length - 1);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const at = cursor.current ?? { row: 0, charge: 0 };
+    const row = rows[at.row];
+    if (e.key === "Escape") return clearFocus();
+    if (onSelect && row && (e.key === "Enter" || e.key === " ")) {
+      e.preventDefault();
+      return onSelect(row.key);
+    }
+    let handled = true;
+    if ((e.ctrlKey || e.metaKey) && (e.key === "Home" || e.key === "End")) landOnRow(e.key === "Home" ? 0 : rows.length - 1);
+    else if (e.key === "ArrowUp") landOnRow(at.row - 1);
+    else if (e.key === "ArrowDown") landOnRow(at.row + 1);
+    else if (row && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+      announce.current = "charge";
+      const last = chargesOf(row).length - 1;
+      focusCharge(at.row, e.key === "ArrowLeft" ? at.charge - 1 : e.key === "ArrowRight" ? at.charge + 1 : e.key === "Home" ? 0 : last);
+    } else handled = false;
+    if (handled) e.preventDefault();
+  };
+
+  if (!rows.length) return <p className="py-6 text-center text-sm text-muted-foreground">No charges in this period.</p>;
 
   return (
-    <div className="relative" ref={containerRef}>
-      {/* biome-ignore lint/a11y/useSemanticElements: an <svg> cannot be a <fieldset>; group names a chart of focusable marks */}
-      <svg
-        width={width}
-        height={height}
-        viewBox={`0 0 ${width} ${height}`}
-        style={FLUID}
-        role="group"
-        aria-label="Subscription timeline. Up and down arrows move between subscriptions; left and right arrows step through charges."
-      >
-        <Group left={labelWidth} top={margin.top}>
-          <g aria-hidden>
-            <GridColumns scale={xScale} height={yMax} numTicks={numTicks} stroke={tokens.grid} strokeWidth={1} />
-          </g>
-          {data.map((row, i) => {
-            const y = rowY(row);
-            const color = seriesColor(row.color);
-            const other = isOther(row.color);
-            const faded = row.status === "inactive" || row.status === "cancelled";
-            const hovered = tooltipOpen && tooltipData?.row.key === row.key;
-            return (
-              <Group key={row.key}>
-                {/* Faded rows dim their marks only; the label keeps text contrast (Ash, not opacity). */}
-                <text
-                  aria-hidden
-                  x={-12}
-                  y={y}
-                  dy="0.32em"
-                  textAnchor="end"
-                  fontSize={MIN_TEXT}
-                  fill={hovered ? tokens.textPrimary : faded ? tokens.textMuted : tokens.textSecondary}
-                  fontWeight={hovered ? 600 : 400}
-                >
-                  {fitLabel(row.name, maxChars)}
-                </text>
-                <Group aria-hidden opacity={faded && !hovered ? 0.45 : 1}>
-                  {/* "Other" grey alone gets a 1px graphite edge: a wider graphite line underneath. */}
-                  {other && (
-                    <>
-                      <Line
-                        from={{ x: xScale(spanStart(row)), y }}
-                        to={{ x: xScale(toDate(row.lastCharge)), y }}
-                        stroke={tokens.textSecondary}
-                        strokeWidth={marks.line + 2}
-                        strokeLinecap="round"
-                      />
-                      {chargesOf(row).map((c) => {
-                        const x = xScale(getChargeDate(c));
-                        return (
-                          <Line
-                            key={c.date}
-                            from={{ x, y: y - 5 }}
-                            to={{ x, y: y + 5 }}
-                            stroke={tokens.textSecondary}
-                            strokeWidth={marks.line + 2}
-                            strokeLinecap="round"
-                          />
-                        );
-                      })}
-                    </>
-                  )}
-                  <Line
-                    from={{ x: xScale(spanStart(row)), y }}
-                    to={{ x: xScale(toDate(row.lastCharge)), y }}
-                    stroke={color}
-                    strokeWidth={marks.line}
-                    strokeLinecap="round"
-                  />
-                  {chargesOf(row).map((c) => {
-                    const x = xScale(getChargeDate(c));
-                    return (
-                      <Line
-                        key={c.date}
-                        from={{ x, y: y - 5 }}
-                        to={{ x, y: y + 5 }}
-                        stroke={color}
-                        strokeWidth={marks.line}
-                        strokeLinecap="round"
-                      />
-                    );
-                  })}
-                  {(shown.get(row.key)?.changes ?? row.priceChanges).map((pc) => (
-                    <Circle
-                      key={pc.date}
-                      cx={xScale(toDate(pc.date))}
-                      cy={y}
-                      r={marks.markerR + 1}
-                      fill={color}
-                      {...(other ? otherOutline(row.color) : { stroke: tokens.surface, strokeWidth: marks.ring })}
-                    />
-                  ))}
-                </Group>
-                {/* Row-wide hit target. One roving tab stop for the whole chart. */}
-                <Bar
-                  innerRef={roving.ref(i)}
-                  x={-labelWidth}
-                  y={y - ROW / 2}
-                  width={xMax + labelWidth}
-                  height={ROW}
-                  fill="transparent"
-                  tabIndex={roving.tabIndex(i)}
-                  role={onSelect ? "button" : "img"}
-                  aria-label={rowLabel(row)}
-                  onMouseMove={(e) => onMove(row, e)}
-                  onMouseLeave={hideTooltip}
-                  onClick={onSelect ? () => onSelect(row.key) : undefined}
-                  onFocus={(e) => {
-                    roving.onFocus(i, e);
-                    setStepping(false);
-                    showCharge(row, chargesOf(row).length - 1);
-                  }}
-                  onBlur={(e) => roving.onBlur(e) && hideTooltip()}
-                  onKeyDown={(e) => onKeyDown(row, i, e)}
-                  style={{ outline: "none", cursor: onSelect ? "pointer" : undefined }}
+    // biome-ignore lint/a11y/useSemanticElements: a <fieldset> would add a form group; this names one keyboard-driven chart
+    <div
+      role="group"
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: the chart is one tab stop; its arrow keys move between rows and charges
+      tabIndex={0}
+      aria-label={`Subscription timeline. Up and down arrows move between subscriptions; left and right arrows step through charges.${
+        onSelect ? " Enter opens the subscription." : ""
+      }`}
+      className="chart-focus rounded-md"
+      onKeyDown={onKeyDown}
+      onFocus={(e) => {
+        if (e.target === e.currentTarget && !cursor.current) landOnRow(0);
+      }}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) clearFocus();
+      }}
+    >
+      <Chart
+        definition={definition}
+        height={TOP + AXIS + rows.length * ROW}
+        initialWidth={560}
+        ariaLabel="Subscription timeline"
+        style={onSelect ? { cursor: "pointer" } : undefined}
+        onRender={({ interaction, scene }) => {
+          host.current = { interaction, scene };
+        }}
+        onFocusChange={() => {
+          // Pointer hover: the tooltip should read the charge under the pointer.
+          if (!cursor.current) announce.current = "charge";
+        }}
+        onSelect={(point) => {
+          if (point && onSelect) onSelect(point.datum.row.key);
+        }}
+        renderTooltipBody={({ points }) => {
+          const h = points[0]?.datum;
+          if (!h) return null;
+          return (
+            <>
+              <TooltipRow color={h.row.color} label={h.row.name} value="" strong />
+              <TooltipRow label={formatDate(h.charge.date)} value={formatMoney(h.charge.amount, h.row.currency)} />
+              {h.change && (
+                <TooltipRow
+                  label="Price change"
+                  value={`${formatMoney(h.change.from, h.row.currency)} → ${formatMoney(h.change.to, h.row.currency)}`}
                 />
-                {/* Keyboard focus ring, outside the faded group so it keeps full contrast. */}
-                {roving.ringVisible && roving.focused === i && (
-                  <Bar
-                    aria-hidden
-                    x={-labelWidth + 1}
-                    y={y - ROW / 2 + 1}
-                    width={xMax + labelWidth + margin.right - 2}
-                    height={ROW - 2}
-                    rx={6}
-                    {...focusRing}
-                  />
-                )}
-              </Group>
-            );
-          })}
-          <g aria-hidden>
-            <AxisBottom
-              top={yMax}
-              scale={xScale}
-              numTicks={numTicks}
-              stroke={tokens.axis}
-              hideTicks
-              tickFormat={(d) => formatTick(d as Date)}
-              tickLabelProps={() => ({ ...axisLabel, textAnchor: "middle", dy: 4 })}
-            />
-          </g>
-        </Group>
-      </svg>
-      {/* Announces the charge Left / Right / Home / End land on. */}
-      <div className="sr-only" aria-live="polite">
-        {stepping && focusedKey && tooltipData?.row.key === focusedKey
-          ? `${formatDate(tooltipData.charge.date)}: ${formatMoney(tooltipData.charge.amount, tooltipData.row.currency)}${
-              tooltipData.change
-                ? `, price change ${formatMoney(tooltipData.change.from, tooltipData.row.currency)} to ${formatMoney(tooltipData.change.to, tooltipData.row.currency)}`
-                : ""
-            }`
-          : ""}
-      </div>
-      {tooltipOpen && tooltipData && (
-        <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
-          <TooltipRow color={tooltipData.row.color} label={tooltipData.row.name} value="" strong />
-          <TooltipRow
-            label={formatDate(tooltipData.charge.date)}
-            value={formatMoney(tooltipData.charge.amount, tooltipData.row.currency)}
-          />
-          {tooltipData.change && (
-            <TooltipRow
-              label="Price change"
-              value={`${formatMoney(tooltipData.change.from, tooltipData.row.currency)} → ${formatMoney(tooltipData.change.to, tooltipData.row.currency)}`}
-            />
-          )}
-          <div className="mt-1 text-xs text-[var(--text-muted)]">
-            {tooltipData.row.charges.length} charges · since {formatDate(tooltipData.row.firstCharge)}
-          </div>
-        </ChartTooltip>
-      )}
+              )}
+              <TooltipNote>
+                {h.row.charges.length} charges · since {formatDate(h.row.firstCharge)}
+              </TooltipNote>
+            </>
+          );
+        }}
+      />
     </div>
   );
 }

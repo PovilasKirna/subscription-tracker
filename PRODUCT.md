@@ -36,7 +36,7 @@ Self-hosted and private: bank data stays in the owner's own database, with no te
 
 ## Capabilities and Constraints
 
-- Stack: Next.js 16 App Router (server-rendered, Suspense streaming), TanStack Query, nuqs URL state, **shadcn/ui on Base UI + Tailwind v4 (keep this component stack)**, visx charts, libSQL/Turso, Biome.
+- Stack: Next.js 16 App Router (server-rendered, Suspense streaming), TanStack Query, nuqs URL state, **shadcn/ui on Base UI + Tailwind v4 (keep this component stack)**, TanStack Charts, libSQL/Turso, Biome.
 - Charts follow rules in README "Charts": CSS-variable series palette validated in light and dark mode, fixed color slot per subscription by first-seen date (the owner can also pick a preset or custom color), bar marks of 24px max width, and a hover/focus tooltip in a portal. Chart table views were deliberately removed (2026-10-05); chart data must instead stay reachable by keyboard and screen reader.
 - Subscriptions can show the service's logo (`MerchantIcon`, per-subscription website).
 - Light and dark themes (next-themes).

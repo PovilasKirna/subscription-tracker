@@ -200,7 +200,7 @@ A quiet paper-and-ink neutral system with a single blue signal, a gold logo, and
 The system is flat. Cards, the nav rail, and tables sit on the page separated by tone (Surface on Paper) and a 1px hairline ring (ink at 10%). There are no resting shadows. The only shadow is on floating layers that must lift above content.
 
 ### Shadow Vocabulary
-- **Float** (`box-shadow: 0 8px 28px rgb(0 0 0 / 0.14)`): chart tooltips (`.visx-tooltip-panel`) and other floating panels.
+- **Float** (`box-shadow: 0 8px 28px rgb(0 0 0 / 0.14)`): chart tooltips (`.chart-tooltip`) and other floating panels.
 
 ### Named Rules
 **The Hairline-Not-Shadow Rule.** Grouping comes from tone and a 10% hairline. A shadow means "floating above the page" and nothing else.

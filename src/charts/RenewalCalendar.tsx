@@ -1,16 +1,18 @@
 "use client";
 
-import { Group } from "@visx/group";
-import { useParentSize } from "@visx/responsive";
-import { scaleBand } from "@visx/scale";
-import { Bar } from "@visx/shape";
-import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MerchantIcon } from "@/components/MerchantIcon";
 import { cn } from "@/lib/utils";
-import { ChartTooltip, TooltipRow, useChartTooltip, useRovingFocus } from "./ChartTooltip";
+import { FloatingTooltip, TooltipRow } from "./ChartTooltip";
 import { focusRing, MIN_TEXT, tokens } from "./palette";
 import { dayBaseline, dayLogoLayout, gridSize, HEADER, logoBottom, logoX } from "./renewalLayout";
 import type { Accessor, ExpectedCharge, Today } from "./types";
+import { useElementWidth } from "./useElementWidth";
+import { useRovingFocus } from "./useRovingFocus";
+
+// A calendar is a layout, not a data chart: it stays app-owned SVG (with HTML logos laid over it)
+// rather than a @tanstack/charts definition, and shares the charts' tokens, tooltip surface and
+// keyboard model.
 
 const FLUID = { display: "block", width: "100%", height: "auto" } as const;
 
@@ -72,9 +74,9 @@ export function RenewalCalendar(props: Props) {
   const cells = useMemo(() => buildCells(props.charges, props.today, props.month), [props.charges, props.today, props.month]);
   const rows = (cells.at(-1)?.row ?? 0) + 1;
   // The height follows the measured width (the cells keep their aspect), so only the width is watched.
-  const { parentRef, width } = useParentSize({ initialSize: { width: 345 }, debounceTime: 40, ignoreDimensions: "height" });
+  const { ref, width } = useElementWidth<HTMLDivElement>(345);
   return (
-    <div ref={parentRef} style={{ height: gridSize(width, rows).height }}>
+    <div ref={ref} style={{ height: gridSize(width, rows).height }}>
       {width > 0 ? <Calendar {...props} cells={cells} rows={rows} width={width} /> : null}
     </div>
   );
@@ -89,30 +91,25 @@ function Calendar({
   formatDate,
   width,
 }: Props & { cells: Cell[]; rows: number; width: number }) {
-  const { tooltipOpen, tooltipData, tooltipLeft, tooltipTop, showTooltip, hideTooltip, containerRef, TooltipInPortal } =
-    useChartTooltip<Cell>();
   const { gap, cellW, cellH, height } = gridSize(width, rows);
-  const xScale = useMemo(
-    () => scaleBand<number>({ domain: [0, 1, 2, 3, 4, 5, 6], range: [0, width], paddingInner: gap / (cellW + gap) }),
-    [width, cellW, gap],
-  );
-  const yScale = useMemo(
-    () =>
-      scaleBand<number>({
-        domain: Array.from({ length: rows }, (_, i) => i),
-        range: [HEADER, height],
-        paddingInner: gap / (cellH + gap),
-      }),
-    [rows, height, cellH, gap],
-  );
+  // Left / top edge of a column / week row: the cells and gaps exactly fill the width.
+  const xOf = (col: number) => col * (cellW + gap);
+  const yOf = (row: number) => HEADER + row * (cellH + gap);
   const showAmounts = cellW >= 70;
   const exact = formatAmount ?? formatMoney;
 
   // The marks: days still to come in this month that have a charge, in date order. One roving tab stop.
   const marked = useMemo(() => cells.filter((c) => c.inWindow && c.charges.length > 0), [cells]);
   const roving = useRovingFocus(marked.length, 0);
-  const show = (c: Cell) =>
-    showTooltip({ tooltipData: c, tooltipLeft: (xScale(c.col) ?? 0) + cellW / 2, tooltipTop: (yScale(c.row) ?? 0) + cellH / 2 });
+  // The tooltip sits beside the day's hit target, measured in the viewport when it opens.
+  const targets = useRef(new Map<string, SVGRectElement>());
+  const [tooltip, setTooltip] = useState<{ cell: Cell; anchor: DOMRect } | null>(null);
+  const tooltipData = tooltip?.cell;
+  const hideTooltip = useMemo(() => () => setTooltip(null), []);
+  const show = (c: Cell) => {
+    const el = targets.current.get(c.date);
+    if (el) setTooltip({ cell: c, anchor: el.getBoundingClientRect() });
+  };
 
   // A tap (or click) pins the tooltip until the next tap anywhere outside the marked days.
   const [pinned, setPinned] = useState<string | null>(null);
@@ -160,7 +157,7 @@ function Calendar({
   };
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative">
       {/* biome-ignore lint/a11y/useSemanticElements: an <svg> cannot be a <fieldset>; group names a chart of focusable marks */}
       <svg
         width={width}
@@ -176,25 +173,23 @@ function Calendar({
       >
         <g aria-hidden>
           {WEEKDAYS.map((d, i) => (
-            <text key={d} x={(xScale(i) ?? 0) + 8} y={14} fontSize={MIN_TEXT} fill={tokens.textMuted}>
+            <text key={d} x={xOf(i) + 8} y={14} fontSize={MIN_TEXT} fill={tokens.textMuted}>
               {cellW < 44 ? d[0] : d}
             </text>
           ))}
         </g>
         {cells.map((c) => {
-          const x = xScale(c.col) ?? 0;
-          const y = yScale(c.row) ?? 0;
           const isToday = c.date === today;
           const total = c.charges.reduce((s, ch) => s + ch.amount, 0);
-          const active = tooltipOpen && tooltipData?.date === c.date;
+          const active = tooltipData?.date === c.date;
           const i = marked.indexOf(c);
           const logos = dayLogoLayout(cellW, c.charges.length);
           // Days outside the window fade their cell and logos; the day number stays at 3:1+ (Ash, not opacity).
           const fade = c.inWindow ? 1 : 0.35;
           return (
-            <Group key={c.date} left={x} top={y}>
+            <g key={c.date} transform={`translate(${xOf(c.col)},${yOf(c.row)})`}>
               <g aria-hidden>
-                <Bar
+                <rect
                   width={cellW}
                   height={cellH}
                   rx={8}
@@ -241,8 +236,13 @@ function Calendar({
               </g>
               {/* Hit target: the whole cell. */}
               {i !== -1 && (
-                <Bar
-                  innerRef={roving.ref(i)}
+                // biome-ignore lint/a11y/noInteractiveElementToNoninteractiveRole: a roving-focus mark; role img lets a screen reader read the day's name as focus lands
+                <rect
+                  ref={(el) => {
+                    roving.ref(i)(el);
+                    if (el) targets.current.set(c.date, el);
+                    else targets.current.delete(c.date);
+                  }}
                   data-renewal-day=""
                   width={cellW}
                   height={cellH}
@@ -275,9 +275,9 @@ function Calendar({
               )}
               {/* Keyboard focus ring: SVG marks get no native outline. */}
               {i !== -1 && roving.ringVisible && roving.focused === i && (
-                <Bar aria-hidden x={1} y={1} width={Math.max(0, cellW - 2)} height={cellH - 2} rx={7} {...focusRing} />
+                <rect aria-hidden x={1} y={1} width={Math.max(0, cellW - 2)} height={cellH - 2} rx={7} {...focusRing} />
               )}
-            </Group>
+            </g>
           );
         })}
       </svg>
@@ -286,7 +286,7 @@ function Calendar({
         {cells.map((c) => {
           if (!c.charges.length) return null;
           const logos = dayLogoLayout(cellW, c.charges.length);
-          const top = (yScale(c.row) ?? 0) + cellH - logoBottom(cellW) - logos.size;
+          const top = yOf(c.row) + cellH - logoBottom(cellW) - logos.size;
           return c.charges
             .slice(0, logos.shown)
             .map((ch, k) => (
@@ -296,13 +296,13 @@ function Calendar({
                 website={ch.website}
                 size="sm"
                 className={cn("absolute", LOGO_CLASS[logos.size], !c.inWindow && "opacity-35")}
-                style={{ left: (xScale(c.col) ?? 0) + logoX(logos.size, k), top }}
+                style={{ left: xOf(c.col) + logoX(logos.size, k), top }}
               />
             ));
         })}
       </div>
-      {tooltipOpen && tooltipData && (
-        <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
+      {tooltip && tooltipData && (
+        <FloatingTooltip anchor={tooltip.anchor}>
           <div className="mb-1 font-medium">{formatDate(tooltipData.date)}</div>
           {tooltipData.charges.map((ch) => (
             <TooltipRow
@@ -312,7 +312,7 @@ function Calendar({
               value={exact(ch.amount, ch.currency)}
             />
           ))}
-        </ChartTooltip>
+        </FloatingTooltip>
       )}
     </div>
   );

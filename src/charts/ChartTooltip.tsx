@@ -1,40 +1,43 @@
 "use client";
 
-import { type TooltipInPortalProps, useTooltip, useTooltipInPortal } from "@visx/tooltip";
-import { type FC, type FocusEvent, type KeyboardEvent, type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { isOther, type Paint, seriesColor } from "./palette";
 
-/**
- * useTooltip<T> plus a portal: ParentSize clips its children (overflow: hidden), so tooltips
- * render into document.body and are positioned from the container's bounds.
- */
-export function useChartTooltip<T>() {
-  const tooltip = useTooltip<T>();
-  const { containerRef, TooltipInPortal } = useTooltipInPortal({ detectBounds: true, scroll: true });
-  return { ...tooltip, containerRef, TooltipInPortal };
-}
+// Tooltip bodies are React content mounted into @tanstack/charts' native tooltip surface (see
+// `chartTooltip` in theme.ts and the `renderTooltipBody` prop); the surface itself is styled by
+// `.chart-tooltip` in globals.css.
 
-export function ChartTooltip({
-  Portal,
-  left,
-  top,
-  children,
-}: {
-  Portal: FC<TooltipInPortalProps>;
-  left?: number;
-  top?: number;
-  children: ReactNode;
-}) {
-  // visx's Portal appends its node during render and removes it on unmount. React StrictMode (dev)
-  // fakes one unmount/remount after mounting, which leaves the first tooltip in a detached node until
-  // something re-renders (hover does, keyboard focus does not). One re-render after mount recreates it.
-  const [, refresh] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => refresh(), []);
-  return (
-    <Portal left={left} top={top} offsetLeft={14} offsetTop={14} unstyled applyPositionStyle className="visx-tooltip-panel">
+/**
+ * The same tooltip surface for app-owned layouts that are not a chart definition (RenewalCalendar):
+ * portalled to <body> so a card's `overflow: hidden` never clips it, placed beside `anchor` (a viewport
+ * rect) and flipped to stay on screen.
+ */
+export function FloatingTooltip({ anchor, children }: { anchor: DOMRect; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const offset = 14;
+    const { width, height } = el.getBoundingClientRect();
+    const x = anchor.left + anchor.width / 2;
+    const y = anchor.top + anchor.height / 2;
+    const left = x + offset + width <= window.innerWidth - 8 ? x + offset : Math.max(8, x - offset - width);
+    const top = y + offset + height <= window.innerHeight - 8 ? y + offset : Math.max(8, y - offset - height);
+    setPos({ left, top });
+  }, [anchor]);
+  return createPortal(
+    <div
+      ref={ref}
+      aria-hidden
+      className="chart-tooltip chart-tooltip-floating"
+      style={pos ?? { left: anchor.left, top: anchor.top, visibility: "hidden" }}
+    >
       {children}
-    </Portal>
+    </div>,
+    document.body,
   );
 }
 
@@ -68,73 +71,12 @@ export function TooltipRow({
   );
 }
 
-/** Which arrow keys step backwards / forwards through a chart's marks. */
-export type NavKeys = { prev: readonly string[]; next: readonly string[] };
-export const ANY_ARROW: NavKeys = { prev: ["ArrowLeft", "ArrowUp"], next: ["ArrowRight", "ArrowDown"] };
+/** The hairline between a tooltip's heading row and its breakdown. */
+export function TooltipDivider() {
+  return <div className="my-1.5 h-px bg-[var(--grid)]" />;
+}
 
-/**
- * Roving focus: the chart is one tab stop, the arrow keys (plus Home / End) move DOM focus between
- * its marks, so a screen reader reads each mark's name as it lands. `initial` is the mark Tab enters
- * on until the user picks another. `focused` / `ringVisible` drive the drawn focus ring, which only
- * shows for keyboard focus (`:focus-visible`), never for a mouse click.
- */
-export function useRovingFocus(count: number, initial = 0) {
-  const [active, setActive] = useState<number | null>(null);
-  const [focused, setFocused] = useState<number | null>(null);
-  const [ringVisible, setRingVisible] = useState(false);
-  const els = useRef<(SVGElement | null)[]>([]);
-  const clamp = (i: number) => Math.min(Math.max(i, 0), count - 1);
-  const current = count > 0 ? clamp(active ?? initial) : -1;
-
-  const ref = useCallback(
-    (i: number) => (el: SVGElement | null) => {
-      els.current[i] = el;
-    },
-    [],
-  );
-  const focusIndex = (i: number) => {
-    if (count > 0) els.current[clamp(i)]?.focus();
-  };
-  const onFocus = (i: number, e: FocusEvent<SVGElement>) => {
-    setActive(i);
-    setFocused(i);
-    let visible = true;
-    try {
-      visible = e.currentTarget.matches(":focus-visible");
-    } catch {}
-    setRingVisible(visible);
-  };
-  /** True when focus left the chart entirely (not just moved to a sibling mark). */
-  const onBlur = (e: FocusEvent<SVGElement>) => {
-    const next = e.relatedTarget as SVGElement | null;
-    if (next && els.current.includes(next)) return false;
-    setFocused(null);
-    return true;
-  };
-  /** Arrow / Home / End handling; returns true when the key moved focus. */
-  const onKeyDown = (i: number, e: KeyboardEvent<SVGElement>, keys: NavKeys = ANY_ARROW) => {
-    const next = keys.prev.includes(e.key)
-      ? i - 1
-      : keys.next.includes(e.key)
-        ? i + 1
-        : e.key === "Home"
-          ? 0
-          : e.key === "End"
-            ? count - 1
-            : null;
-    if (next === null) return false;
-    e.preventDefault();
-    focusIndex(next);
-    return true;
-  };
-  return {
-    ref,
-    tabIndex: (i: number) => (i === current ? 0 : -1),
-    focusIndex,
-    onFocus,
-    onBlur,
-    onKeyDown,
-    focused,
-    ringVisible: focused !== null && ringVisible,
-  };
+/** A muted footnote line at the bottom of a tooltip. */
+export function TooltipNote({ children }: { children: ReactNode }) {
+  return <div className="mt-1 text-xs text-[var(--text-muted)]">{children}</div>;
 }
