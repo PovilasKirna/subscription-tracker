@@ -317,6 +317,35 @@ test("Trading 212 is valued from its summary and positions; a bad key keeps the 
   assert.match(after?.error ?? "", /rejected the API key/);
 });
 
+test("Trading 212 pulls show in the import log, back-to-back ones on one row", async () => {
+  const db = await getDb();
+  const t212Rows = () =>
+    all<{ inserted: number; message: string }>(db, "SELECT inserted, message FROM import_log WHERE source = 't212' ORDER BY id");
+  // The test above pulled three times in a row (3 new deposits/withdrawals, then nothing new, then a bad key).
+  let rows = await t212Rows();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].inserted, 3);
+  assert.match(rows[0].message, /^Failed: .*rejected the API key/);
+
+  t212 = (url) =>
+    url.pathname.endsWith("/equity/history/transactions")
+      ? { body: { items: [] } }
+      : url.pathname.endsWith("/equity/account/summary")
+        ? { body: { id: 7, currency: "GBP", totalValue: 850, cash: { availableToTrade: 50 }, investments: { currentValue: 800 } } }
+        : { body: [{ quantity: 3, instrument: { ticker: "VUAG_EQ", name: "Vanguard S&P 500" } }] };
+  await syncTrading212();
+  rows = await t212Rows();
+  assert.equal(rows.length, 1, "still the same day's row");
+  assert.equal(rows[0].message, "£850.00 · 1 position");
+
+  // Once something else is logged in between, the next pull gets its own row.
+  await run(db, "INSERT INTO import_log (source, inserted, updated, skipped) VALUES ('bank', 0, 0, 0)");
+  await syncTrading212();
+  rows = await t212Rows();
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1].inserted, 0);
+});
+
 test("switched-off bank accounts aren't counted", async () => {
   const db = await getDb();
   let nw = await getNetWorth();

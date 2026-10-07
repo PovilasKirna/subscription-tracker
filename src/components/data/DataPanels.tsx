@@ -22,6 +22,7 @@ import { fullDate } from "@/lib/format";
 import { useInvalidateAll } from "@/lib/query/mutations";
 import { api, statusQuery } from "@/lib/query/options";
 import type { InsertStats } from "@/lib/server/db";
+import type { DataStatusPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function ImportCard() {
@@ -91,7 +92,13 @@ export function ImportCard() {
   );
 }
 
-const importSource = (i: { source: string; message: string | null }) => (i.source === "bank" ? "Bank sync" : (i.message ?? "CSV"));
+type ImportRow = DataStatusPayload["imports"][number];
+
+const importSource = (i: ImportRow) => (i.source === "bank" ? "Bank sync" : i.source === "t212" ? "Trading 212" : (i.message ?? "CSV"));
+
+/** A Trading 212 pull: the account value (or the error) and any new deposits or withdrawals. */
+const t212Summary = (i: ImportRow) =>
+  [i.message, i.inserted > 0 && `+${i.inserted.toLocaleString("en-GB")} deposit${i.inserted === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
 
 export function ImportLog() {
   const { data } = useSuspenseQuery(statusQuery());
@@ -123,8 +130,14 @@ export function ImportLog() {
                     <span className="truncate">{importSource(i)}</span>
                   </span>
                   <span className="tabular text-xs text-muted-foreground">
-                    +{i.inserted.toLocaleString("en-GB")} new · {i.updated.toLocaleString("en-GB")} updated ·{" "}
-                    {i.skipped.toLocaleString("en-GB")} skipped
+                    {i.source === "t212" ? (
+                      t212Summary(i)
+                    ) : (
+                      <>
+                        +{i.inserted.toLocaleString("en-GB")} new · {i.updated.toLocaleString("en-GB")} updated ·{" "}
+                        {i.skipped.toLocaleString("en-GB")} skipped
+                      </>
+                    )}
                   </span>
                 </li>
               ))}
@@ -144,10 +157,18 @@ export function ImportLog() {
                   {data.imports.map((i) => (
                     <TableRow key={i.id}>
                       <TableCell className="whitespace-nowrap text-muted-foreground">{fullDate(i.at.slice(0, 10))}</TableCell>
-                      <TableCell className="w-full max-w-0 truncate">{importSource(i)}</TableCell>
-                      <TableCell className="tabular text-right">{i.inserted.toLocaleString("en-GB")}</TableCell>
-                      <TableCell className="tabular text-right">{i.updated.toLocaleString("en-GB")}</TableCell>
-                      <TableCell className="tabular text-right">{i.skipped.toLocaleString("en-GB")}</TableCell>
+                      {i.source === "t212" ? (
+                        <TableCell colSpan={4} className="w-full max-w-0 truncate">
+                          Trading 212 <span className="text-muted-foreground">· {t212Summary(i)}</span>
+                        </TableCell>
+                      ) : (
+                        <>
+                          <TableCell className="w-full max-w-0 truncate">{importSource(i)}</TableCell>
+                          <TableCell className="tabular text-right">{i.inserted.toLocaleString("en-GB")}</TableCell>
+                          <TableCell className="tabular text-right">{i.updated.toLocaleString("en-GB")}</TableCell>
+                          <TableCell className="tabular text-right">{i.skipped.toLocaleString("en-GB")}</TableCell>
+                        </>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
