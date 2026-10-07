@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutDashboardIcon, ListIcon, RepeatIcon, SettingsIcon } from "lucide-react";
+import { ChartPieIcon, LayoutDashboardIcon, ListIcon, RepeatIcon, SettingsIcon, WalletIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -10,11 +10,14 @@ import { cn } from "@/lib/utils";
 import { HoardMark } from "./HoardMark";
 
 // `railHref` is where the desktop rail goes: Settings opens its first section there, while phones get the section list.
+// `short` labels the phone tab bar, where six tabs share the width.
 const LINKS = [
-  { href: "/", railHref: "/", label: "Overview", icon: LayoutDashboardIcon },
-  { href: "/subscriptions", railHref: "/subscriptions", label: "Subscriptions", icon: RepeatIcon },
-  { href: "/transactions", railHref: "/transactions", label: "Transactions", icon: ListIcon },
-  { href: "/settings", railHref: SETTINGS_SECTIONS[0].href, label: "Settings", icon: SettingsIcon },
+  { href: "/", railHref: "/", label: "Overview", short: "Overview", icon: LayoutDashboardIcon },
+  { href: "/spending", railHref: "/spending", label: "Spending", short: "Spending", icon: ChartPieIcon },
+  { href: "/net-worth", railHref: "/net-worth", label: "Net worth", short: "Net worth", icon: WalletIcon },
+  { href: "/subscriptions", railHref: "/subscriptions", label: "Subscriptions", short: "Subs", icon: RepeatIcon },
+  { href: "/transactions", railHref: "/transactions", label: "Transactions", short: "Payments", icon: ListIcon },
+  { href: "/settings", railHref: SETTINGS_SECTIONS[0].href, label: "Settings", short: "Settings", icon: SettingsIcon },
 ] as const;
 
 const isActive = (pathname: string, href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
@@ -23,6 +26,7 @@ const isActive = (pathname: string, href: string) => (href === "/" ? pathname ==
 function pageTitle(pathname: string) {
   const section = SETTINGS_SECTIONS.find(({ href }) => pathname === href || pathname.startsWith(`${href}/`));
   if (section) return section.label;
+  if (pathname.startsWith("/investments")) return "Investments"; // reached from Net worth, not a tab of its own
   return LINKS.find(({ href }) => isActive(pathname, href))?.label;
 }
 
@@ -105,8 +109,8 @@ export function AppNav() {
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-30 border-t bg-card pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] md:hidden"
       >
-        <ul className="grid grid-cols-4">
-          {LINKS.map(({ href, label, icon: Icon }) => {
+        <ul className="grid grid-cols-6">
+          {LINKS.map(({ href, label, short, icon: Icon }) => {
             const active = isActive(pathname, href);
             return (
               <li key={href} className="min-w-0">
@@ -120,13 +124,15 @@ export function AppNav() {
                 >
                   <span
                     className={cn(
-                      "grid h-7 w-14 place-items-center rounded-full transition-colors group-hover:text-foreground",
+                      "grid h-7 w-12 place-items-center rounded-full transition-colors group-hover:text-foreground",
                       active && "bg-muted text-foreground",
                     )}
                   >
                     <Icon className="size-5" aria-hidden />
                   </span>
-                  <span className="max-w-full truncate leading-4">{label}</span>
+                  <span className="max-w-full truncate text-[11px] leading-4" title={label}>
+                    {short}
+                  </span>
                 </Link>
               </li>
             );

@@ -1,12 +1,13 @@
 import type { SchedulerStatusPayload, TickSource } from "../../types";
 import { bankConfigured, config } from "../config";
 import { getDb } from "../db";
+import { syncTrading212 } from "../netWorth";
 import { getState, setState } from "../settings";
 import { minSyncIntervalHours, syncAll } from "../sync";
 import { runNotifications } from "./run";
 import { recordTick, schedulerHealth } from "./scheduler";
 
-// One "tick" of the scheduler: sync banks that are due, then notifications. Called hourly by
+// One "tick" of the scheduler: sync banks that are due, refresh Trading 212, then notifications. Called hourly by
 // /api/cron/tick (cron-job.org, Vercel Cron) or the self-hosted timer in instrumentation.ts.
 
 type LastTick = NonNullable<SchedulerStatusPayload["lastResult"]>;
@@ -26,6 +27,7 @@ export async function tick(source: TickSource, opts: { sync?: boolean } = {}): P
       const s = await syncAll({ background: true, minIntervalHours: minSyncIntervalHours() });
       if (s.inserted || s.errors.length) console.log(`[sync] +${s.inserted} new, ${s.updated} updated, ${s.skipped} duplicates`, s.errors);
     }
+    if (opts.sync !== false) await syncTrading212(); // never throws
     await runNotifications();
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);

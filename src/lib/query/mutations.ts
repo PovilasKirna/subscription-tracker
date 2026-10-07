@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import type { CategoryId } from "../categories";
 import type { ColorChoice } from "../color";
 import type { OverrideStatus } from "../server/db";
 import type { SettingsPatch } from "../settings";
@@ -230,5 +231,30 @@ export function useMarkRead() {
       toast.error(e.message);
     },
     onSettled: () => qc.invalidateQueries({ queryKey: keys.notifications }),
+  });
+}
+
+/** "Refresh" on the Net worth page: syncs the bank (fetching balances) and Trading 212. */
+export function useRefreshNetWorth() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: () => api<{ ok: boolean; errors: string[] }>("/api/net-worth/refresh", { method: "POST" }),
+    onSuccess: (r) => {
+      if (r.errors.length) toast.error(r.errors[0]);
+      return invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+}
+
+export type CategoryInput = { txId: string; scope: "payment" | "merchant"; category: CategoryId | null };
+
+/** Sets (or resets, with null) a payment's category, for it alone or for its whole merchant. */
+export function useSetCategory() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (body: CategoryInput) => api("/api/categories", { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(e.message),
   });
 }

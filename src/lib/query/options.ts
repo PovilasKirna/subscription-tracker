@@ -10,12 +10,17 @@ import type {
   AssignOptionsPayload,
   DataStatusPayload,
   HistoryPayload,
+  HoldingDetailPayload,
+  InvestmentsPayload,
   MailStatusPayload,
+  NetWorthPayload,
   NotificationsPayload,
   PushDevicesPayload,
   ReimbursementSourcesPayload,
   SchedulerStatusPayload,
   Settings,
+  SpendingPayload,
+  SpendingRange,
   SubscriptionDetailPayload,
   SubscriptionsPayload,
   SubscriptionsTablePayload,
@@ -57,6 +62,10 @@ export const keys = {
   notifications: ["notifications"] as const,
   settings: ["settings"] as const,
   scheduler: ["scheduler"] as const,
+  netWorth: ["net-worth"] as const,
+  holding: (id: string) => ["net-worth", id] as const,
+  investments: ["investments"] as const,
+  spending: (range: string, at: string) => ["spending", range, at] as const,
 };
 
 export const subscriptionsQuery = () =>
@@ -125,3 +134,21 @@ export const settingsQuery = () => queryOptions({ queryKey: keys.settings, query
 /** Whether something is calling /api/cron/tick, for Settings → Notifications. */
 export const schedulerQuery = () =>
   queryOptions({ queryKey: keys.scheduler, queryFn: () => api<SchedulerStatusPayload>("/api/notifications/scheduler") });
+
+/** Balances of every bank and brokerage account, with the daily history. */
+export const netWorthQuery = () => queryOptions({ queryKey: keys.netWorth, queryFn: () => api<NetWorthPayload>("/api/net-worth") });
+
+/** One period of spending and income by category (`at` "" = the current period). */
+export const spendingQuery = (range: SpendingRange, at: string) =>
+  queryOptions({
+    queryKey: keys.spending(range, at),
+    queryFn: () => api<SpendingPayload>(`/api/spending?${new URLSearchParams({ range, ...(at && { at }) })}`),
+  });
+
+/** One account's page on Net worth. */
+export const holdingQuery = (id: string) =>
+  queryOptions({ queryKey: keys.holding(id), queryFn: () => api<HoldingDetailPayload>(`/api/net-worth/${encodeURIComponent(id)}`) });
+
+/** The Investments page (Trading 212). */
+export const investmentsQuery = () =>
+  queryOptions({ queryKey: keys.investments, queryFn: () => api<InvestmentsPayload>("/api/investments") });

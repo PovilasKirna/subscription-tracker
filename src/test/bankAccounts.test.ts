@@ -126,7 +126,11 @@ type Call = { url: URL };
 const calls: Call[] = [];
 globalThis.fetch = (async (input: string | URL) => {
   const url = new URL(String(input));
-  calls.push({ url });
+  if (url.pathname.endsWith("/balances")) {
+    const balances = [{ balance_amount: { amount: "100.00", currency: "EUR" }, balance_type: "ITBD" }];
+    return new Response(JSON.stringify({ balances }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  calls.push({ url }); // transaction fetches only
   const uid = decodeURIComponent(url.pathname.split("/")[2] ?? "");
   const body = {
     transactions: [

@@ -18,6 +18,10 @@ export async function GET() {
     reimbursements: await all(db, "SELECT * FROM reimbursements"),
     // Which bank accounts are switched off (their transactions are kept but hidden).
     bankAccounts: await all(db, "SELECT * FROM bank_accounts"),
+    // Net worth: bank and brokerage accounts and their daily values.
+    holdings: await all(db, "SELECT id, kind, institution, name, currency, last_sync_at FROM holdings"),
+    holdingValues: await all(db, "SELECT * FROM holding_values ORDER BY date"),
+    brokerCashFlows: await all(db, "SELECT * FROM broker_cash_flows ORDER BY date"),
   };
   return new NextResponse(JSON.stringify(body, null, 2), {
     headers: {

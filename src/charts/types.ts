@@ -1,6 +1,6 @@
 // Chart datum types, derived from the API response types so a renamed API field
 // breaks `npm run typecheck` here instead of silently rendering nothing.
-import type { HistoryPayload, Subscription, SubscriptionsPayload } from "@/lib/types";
+import type { HistoryPayload, InvestmentsPayload, NetWorthPayload, SpendingPayload, Subscription, SubscriptionsPayload } from "@/lib/types";
 
 type HistorySeries = HistoryPayload["series"][number];
 
@@ -46,3 +46,17 @@ export type Today = SubscriptionsPayload["today"];
 
 /** Typed accessor — charts take functions, never string keys. */
 export type Accessor<T, R> = (d: T) => R;
+
+/** One day of NetWorthLine. */
+export type NetWorthDay = NetWorthPayload["history"][number];
+
+type SpendingPoint = SpendingPayload["points"][number];
+/** Axis label (e.g. "5", "Mon", "Oct") and tooltip title (e.g. "5 Oct 2026") of a point. */
+type PointLabels = { label: string; title: string };
+/** One point of SpendingPace: running totals. */
+export type SpendingPacePoint = PointLabels & Pick<SpendingPoint, "spent" | "previous" | "projected">;
+/** One bar of SpendingBars: the point's own amounts. */
+export type SpendingBarPoint = PointLabels & Pick<SpendingPoint, "amount" | "previousAmount" | "projectedAmount">;
+
+/** One day of InvestmentLine (account currency). */
+export type InvestmentDay = InvestmentsPayload["history"][number];

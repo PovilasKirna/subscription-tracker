@@ -1,5 +1,6 @@
 import "server-only";
 import { cache } from "react";
+import type { CategoryId } from "../categories";
 import { type OverviewRange, rangeMonths, type SubscriptionFilters, type TransactionFilters } from "../search-params";
 import type {
   AssignOptionsPayload,
@@ -7,8 +8,11 @@ import type {
   ChargeReimbursement,
   DataStatusPayload,
   HistoryPayload,
+  HoldingDetailPayload,
   ReimbursementSourcesPayload,
   RelatedTransaction,
+  SpendingPayload,
+  SpendingRange,
   Subscription,
   SubscriptionDetailPayload,
   SubscriptionsPayload,
@@ -17,10 +21,12 @@ import type {
   TransactionsPayload,
 } from "../types";
 import { reconcileBankAccounts, visibleTransactions } from "./bankAccounts";
+import { type CategoryRules, categorizeAll, categoryFields } from "./categorize";
 import { bankConfigured, config } from "./config";
 import {
   all,
   allAssignments,
+  allCategoryRules,
   allExclusions,
   allOverrides,
   allReimbursementData,
@@ -40,8 +46,10 @@ import {
   websiteResolver,
 } from "./detect";
 import { merchantName } from "./merchant";
+import { buildNetWorth, holdingHistory, loadHoldings } from "./netWorth";
 import { applyReimbursements, chargeTotalMinor, summarizeSources } from "./reimburse";
 import { memoByVersion } from "./snapshot";
+import { buildSpending } from "./spending";
 import { querySubscriptions } from "./subscriptionTable";
 import { isSyncing, syncCutoff } from "./sync";
 import { queryTransactions } from "./transactionTable";
@@ -71,29 +79,41 @@ export const detection = cache(
       reimbursement: ReimbursementData;
       /** Payment id → reimbursement of the charge it stands for (see applyReimbursements). */
       reimbursedTx: Map<string, ChargeReimbursement>;
+      /** Payment id → spending category (see categorize.ts). */
+      categoryOf: Map<string, CategoryId>;
+      categoryRules: CategoryRules;
     }> => {
       const day = version.slice(version.indexOf("|") + 1);
       const db = await getDb();
-      const [txs, overrides, excluded, assigned, reimbursement] = await Promise.all([
+      const [txs, overrides, excluded, assigned, reimbursement, categoryRules] = await Promise.all([
         visibleTransactions(db),
         allOverrides(db),
         allExclusions(db),
         allAssignments(db),
         allReimbursementData(db),
+        allCategoryRules(db),
       ]);
       const det = detectSubscriptions(txs, overrides, day, config.baseCurrency, excluded, assigned);
       const reimbursedTx = applyReimbursements(det, txs, reimbursement, day);
-      return { txs, excluded, assigned, det, reimbursement, reimbursedTx };
+      const categoryOf = categorizeAll(txs, det.txToSub, categoryRules);
+      return { txs, excluded, assigned, det, reimbursement, reimbursedTx, categoryOf, categoryRules };
     },
   ),
 );
 
 type WebsiteOf = ReturnType<typeof websiteResolver>;
+/** What turning a stored row into a TransactionItem needs from the detection snapshot. */
+type ItemContext = { websiteOf: WebsiteOf; categoryOf: ReadonlyMap<string, CategoryId>; categoryRules: CategoryRules };
+const itemContext = (s: { det: Detection; categoryOf: ReadonlyMap<string, CategoryId>; categoryRules: CategoryRules }): ItemContext => ({
+  websiteOf: websiteResolver(s.det),
+  categoryOf: s.categoryOf,
+  categoryRules: s.categoryRules,
+});
 
 const toItem = (
   t: TxRow,
   subscriptionKey: string | null,
-  websiteOf: WebsiteOf,
+  ctx: ItemContext,
   reimbursement?: ChargeReimbursement,
   chargeMinor?: number,
 ): TransactionItem => ({
@@ -103,12 +123,13 @@ const toItem = (
   date: t.date,
   description: t.description,
   merchantKey: t.merchant_key,
-  website: websiteOf(t.merchant_key, subscriptionKey),
+  website: ctx.websiteOf(t.merchant_key, subscriptionKey),
   amount: t.amount_minor / 100,
   currency: t.currency,
   type: t.type,
   source: t.source,
   subscriptionKey,
+  ...categoryFields(t, ctx.categoryOf, ctx.categoryRules),
 });
 
 const newestFirst = (a: TxRow, b: TxRow) => b.date.localeCompare(a.date);
@@ -123,10 +144,10 @@ function relatedTransactions(
   txs: TxRow[],
   det: Detection,
   excluded: ReadonlySet<string>,
+  ctx: ItemContext,
   match: { merchants: ReadonlySet<string>; currency: string; amounts: number[]; exceptKey?: string; exceptId?: string },
 ): RelatedTransaction[] {
   const names = new Map(det.subscriptions.map((s) => [s.key, s.name]));
-  const websiteOf = websiteResolver(det);
   return txs
     .filter(
       (t) =>
@@ -142,7 +163,7 @@ function relatedTransactions(
     .map((t) => {
       const subscriptionKey = det.txToSub.get(t.id) ?? null;
       return {
-        ...toItem(t, subscriptionKey, websiteOf),
+        ...toItem(t, subscriptionKey, ctx),
         similar: match.amounts.some((a) => sameAmount(t.amount_minor, a)),
         subscriptionName: subscriptionKey ? (names.get(subscriptionKey) ?? null) : null,
       };
@@ -151,13 +172,14 @@ function relatedTransactions(
 
 /** Everything the subscription drawer shows: the subscription, its charges, excluded and related ones. */
 export async function getSubscriptionDetail(key: string): Promise<SubscriptionDetailPayload> {
-  const { txs, det, excluded, assigned, reimbursedTx } = await detection();
+  const snapshot = await detection();
+  const { txs, det, excluded, assigned, reimbursedTx } = snapshot;
   const active = det.subscriptions.find((s) => s.key === key);
   const ignored = det.ignored.find((s) => s.key === key);
   const subscription = active ?? ignored ?? null;
   const { merchantKey, currency } = parseSubKey(key);
   const counted = txs.filter((t) => det.txToSub.get(t.id) === key);
-  const websiteOf = websiteResolver(det);
+  const ctx = itemContext(snapshot);
   return {
     baseCurrency: config.baseCurrency,
     today: today(),
@@ -171,16 +193,16 @@ export async function getSubscriptionDetail(key: string): Promise<SubscriptionDe
       )
       .sort(newestFirst)
       .map((t) => {
-        if (!active) return toItem(t, null, websiteOf);
+        if (!active) return toItem(t, null, ctx);
         const r = reimbursedTx.get(t.id);
-        return toItem(t, key, websiteOf, r, r && chargeTotalMinor(t, counted, det.txToSub));
+        return toItem(t, key, ctx, r, r && chargeTotalMinor(t, counted, det.txToSub));
       }),
     excluded: txs
       .filter((t) => excluded.has(t.id) && ((t.merchant_key === merchantKey && t.currency === currency) || assigned.get(t.id) === key))
       .sort(newestFirst)
-      .map((t) => toItem(t, null, websiteOf)),
+      .map((t) => toItem(t, null, ctx)),
     related: active
-      ? relatedTransactions(txs, det, excluded, {
+      ? relatedTransactions(txs, det, excluded, ctx, {
           merchants: new Set([merchantKey, ...counted.map((t) => t.merchant_key)]),
           currency,
           amounts: counted.map((t) => t.amount_minor),
@@ -205,7 +227,9 @@ const nameFor = (t: TxRow) => merchantName(t.merchant_key, t.description);
 
 /** What the "Add to subscription" dialog offers for one payment. Null if it doesn't exist. */
 export async function getAssignOptions(txId: string): Promise<AssignOptionsPayload | null> {
-  const { txs, det, excluded } = await detection();
+  const snapshot = await detection();
+  const { txs, det, excluded } = snapshot;
+  const ctx = itemContext(snapshot);
   const tx = txs.find((t) => t.id === txId);
   if (!tx) return null;
   const currentKey = det.txToSub.get(tx.id);
@@ -219,13 +243,13 @@ export async function getAssignOptions(txId: string): Promise<AssignOptionsPaylo
     sameMerchant: s.merchantKey === tx.merchant_key,
   });
   return {
-    transaction: toItem(tx, currentKey ?? null, websiteResolver(det)),
+    transaction: toItem(tx, currentKey ?? null, ctx),
     newName: nameFor(tx),
     targets: det.subscriptions
       .filter((s) => s.currency === tx.currency && s.key !== currentKey)
       .map(toTarget)
       .sort((a, b) => Number(b.sameMerchant) - Number(a.sameMerchant) || a.name.localeCompare(b.name, "en", { sensitivity: "base" })),
-    related: relatedTransactions(txs, det, excluded, {
+    related: relatedTransactions(txs, det, excluded, ctx, {
       merchants: new Set([tx.merchant_key]),
       currency: tx.currency,
       amounts: [tx.amount_minor],
@@ -259,8 +283,8 @@ export async function getReimbursementSources(): Promise<ReimbursementSourcesPay
 
 /** Filtered, sorted, paginated page for the transactions data table (see transactionTable.ts). */
 export async function getTransactions(filters: TransactionFilters): Promise<TransactionsPayload> {
-  const { txs, det } = await detection();
-  return queryTransactions(txs, det.txToSub, filters, websiteResolver(det));
+  const { txs, det, categoryOf, categoryRules } = await detection();
+  return queryTransactions(txs, det.txToSub, filters, websiteResolver(det), { categoryOf, rules: categoryRules });
 }
 
 export async function getDataStatus(): Promise<DataStatusPayload> {
@@ -334,4 +358,33 @@ export async function getDataStatus(): Promise<DataStatusPayload> {
     }),
     imports: imports.map((i) => ({ ...i })),
   };
+}
+
+/** The Spending page for one period (`at`: a day inside it; "" = the current one). */
+export async function getSpending(range: SpendingRange, at: string): Promise<SpendingPayload> {
+  const { txs, det, categoryOf } = await detection();
+  return buildSpending({ txs, categoryOf, subscriptions: det.subscriptions, base: config.baseCurrency, range, at, today: today() });
+}
+
+/** One account of the Net worth page: its value over time and, for a bank account, its latest payments. */
+export async function getHoldingDetail(id: string): Promise<HoldingDetailPayload | null> {
+  const { today, base, holdings, values, rates } = await loadHoldings();
+  const holding = buildNetWorth({ holdings, values, rates, base, today }).holdings.find((h) => h.id === id);
+  if (!holding) return null;
+  const history = holdingHistory(
+    values.filter((v) => v.holding === id),
+    today,
+  );
+  let transactions: TransactionItem[] = [];
+  if (holding.kind === "bank") {
+    const snapshot = await detection();
+    const ctx = itemContext(snapshot);
+    const key = id.slice("bank:".length);
+    transactions = snapshot.txs
+      .filter((t) => t.source === "bank" && t.account === key)
+      .sort(newestFirst)
+      .slice(0, 30)
+      .map((t) => toItem(t, snapshot.det.txToSub.get(t.id) ?? null, ctx));
+  }
+  return { baseCurrency: base, today, holding, history, transactions };
 }
