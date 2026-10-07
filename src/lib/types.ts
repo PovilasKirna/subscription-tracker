@@ -1,6 +1,6 @@
 // Shapes shared between route handlers, server prefetching and client components.
 
-import type { CategoryId } from "./categories";
+import type { Category, CategoryId } from "./categories";
 import type { SeriesColor } from "./color";
 import type { NotificationType } from "./settings";
 
@@ -470,6 +470,14 @@ export type NetWorthPayload = {
   sources: { bankConfigured: boolean; bankConnected: boolean; trading212Configured: boolean };
 };
 
+/** Every spending category, hidden built-ins included (Settings → Categories, pickers, labels). */
+export type CategoriesPayload = { categories: Category[] };
+
+/** How much each category holds, for Settings → Categories. */
+export type CategoryUsagePayload = {
+  usage: Record<CategoryId, { payments: number; merchants: number; picked: number }>;
+};
+
 /** One category's total for a month (major units, base currency). */
 export type SpendingCategory = {
   id: CategoryId;
@@ -525,6 +533,11 @@ export type SpendingPayload = {
   upcomingSubscriptions: number;
   points: SpendingPoint[];
   income: { total: number; previous: number; categories: SpendingCategory[] };
+  /**
+   * Put aside in savings categories (money taken back out subtracts, so may be negative). Neither
+   * spending nor income, so not part of `cashflow`.
+   */
+  saved: { total: number; previous: number; categories: SpendingCategory[] };
   /** Income minus spending. */
   cashflow: number;
   /** Spending categories with activity, largest first (refunds net against spending, so may be negative). */

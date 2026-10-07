@@ -8,6 +8,8 @@ import {
 } from "../search-params";
 import type {
   AssignOptionsPayload,
+  CategoriesPayload,
+  CategoryUsagePayload,
   DataStatusPayload,
   HistoryPayload,
   HoldingDetailPayload,
@@ -66,6 +68,8 @@ export const keys = {
   holding: (id: string) => ["net-worth", id] as const,
   investments: ["investments"] as const,
   spending: (range: string, at: string) => ["spending", range, at] as const,
+  categories: ["categories"] as const,
+  categoryUsage: ["categories", "usage"] as const,
 };
 
 export const subscriptionsQuery = () =>
@@ -148,6 +152,13 @@ export const spendingQuery = (range: SpendingRange, at: string) =>
 /** One account's page on Net worth. */
 export const holdingQuery = (id: string) =>
   queryOptions({ queryKey: keys.holding(id), queryFn: () => api<HoldingDetailPayload>(`/api/net-worth/${encodeURIComponent(id)}`) });
+
+/** Every spending category (hidden built-ins included): labels, icons and pickers everywhere. */
+export const categoriesQuery = () => queryOptions({ queryKey: keys.categories, queryFn: () => api<CategoriesPayload>("/api/categories") });
+
+/** How many payments and rules each category has (Settings → Categories). */
+export const categoryUsageQuery = () =>
+  queryOptions({ queryKey: keys.categoryUsage, queryFn: () => api<CategoryUsagePayload>("/api/categories/usage") });
 
 /** The Investments page (Trading 212). */
 export const investmentsQuery = () =>

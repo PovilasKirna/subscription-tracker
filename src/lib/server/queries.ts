@@ -1,10 +1,12 @@
 import "server-only";
 import { cache } from "react";
-import type { CategoryId } from "../categories";
+import { type CategoryId, type CategoryLookup, categoryLookup } from "../categories";
 import { type OverviewRange, rangeMonths, type SubscriptionFilters, type TransactionFilters } from "../search-params";
 import type {
   AssignOptionsPayload,
   BankAccount,
+  CategoriesPayload,
+  CategoryUsagePayload,
   ChargeReimbursement,
   DataStatusPayload,
   HistoryPayload,
@@ -21,11 +23,12 @@ import type {
   TransactionsPayload,
 } from "../types";
 import { reconcileBankAccounts, visibleTransactions } from "./bankAccounts";
-import { type CategoryRules, categorizeAll, categoryFields } from "./categorize";
+import { type CategoryRules, categorizeAll, categoryFields, usableRules } from "./categorize";
 import { bankConfigured, config } from "./config";
 import {
   all,
   allAssignments,
+  allCategories,
   allCategoryRules,
   allExclusions,
   allOverrides,
@@ -71,7 +74,11 @@ type Detected = {
 type Categorized = {
   /** Payment id → spending category (see categorize.ts). */
   categoryOf: Map<string, CategoryId>;
+  /** The user's category choices that apply (see usableRules). */
   categoryRules: CategoryRules;
+  /** Every choice, including ones for hidden categories (for counting). */
+  allRules: CategoryRules;
+  categories: CategoryLookup;
 };
 
 /** Transactions and subscription detection, for one data version and day ("<version>|<day>"). */
@@ -92,8 +99,11 @@ const loadDetected = memoLatest(async (version): Promise<Detected> => {
 
 /** Spending categories on top of `detected`, for its version plus the categories' version. */
 const loadCategorized = memoLatest(async (_version, detected: Promise<Detected>): Promise<Categorized> => {
-  const [{ txs, det }, categoryRules] = await Promise.all([detected, getDb().then(allCategoryRules)]);
-  return { categoryOf: categorizeAll(txs, det.txToSub, categoryRules), categoryRules };
+  const db = await getDb();
+  const [{ txs, det }, allRules, categoryList] = await Promise.all([detected, allCategoryRules(db), allCategories(db)]);
+  const categories = categoryLookup(categoryList);
+  const categoryRules = usableRules(allRules, categories);
+  return { categoryOf: categorizeAll(txs, det.txToSub, categoryRules, categories), categoryRules, allRules, categories };
 });
 
 /**
@@ -292,6 +302,25 @@ export async function getReimbursementSources(): Promise<ReimbursementSourcesPay
   return { sources: summarizeSources([...reimbursement.sources.values()], reimbursement, det) };
 }
 
+/** Every spending category, hidden built-ins included. Read directly (no snapshot): it's one small table. */
+export async function getCategories(): Promise<CategoriesPayload> {
+  return { categories: await allCategories(await getDb()) };
+}
+
+/** Payments, merchant rules and single-payment choices per category (Settings → Categories). */
+export async function getCategoryUsage(): Promise<CategoryUsagePayload> {
+  const { categoryOf, allRules } = await detection();
+  const usage: CategoryUsagePayload["usage"] = {};
+  const of = (id: CategoryId) => {
+    usage[id] ??= { payments: 0, merchants: 0, picked: 0 };
+    return usage[id];
+  };
+  for (const id of categoryOf.values()) of(id).payments++;
+  for (const id of allRules.byMerchant.values()) of(id).merchants++;
+  for (const id of allRules.byTx.values()) of(id).picked++;
+  return { usage };
+}
+
 /** Filtered, sorted, paginated page for the transactions data table (see transactionTable.ts). */
 export async function getTransactions(filters: TransactionFilters): Promise<TransactionsPayload> {
   const { txs, det, categoryOf, categoryRules } = await detection();
@@ -377,11 +406,12 @@ export async function getDataStatus(): Promise<DataStatusPayload> {
 
 /** The Spending page for one period (`at`: a day inside it; "" = the current one). */
 export async function getSpending(range: SpendingRange, at: string): Promise<SpendingPayload> {
-  const { txs, det, categoryOf } = await detection();
+  const { txs, det, categoryOf, categories } = await detection();
   return buildSpending({
     txs,
     txToSub: det.txToSub,
     categoryOf,
+    categories,
     subscriptions: det.subscriptions,
     base: config.baseCurrency,
     range,

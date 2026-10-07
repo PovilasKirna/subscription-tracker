@@ -34,7 +34,13 @@ test("merchants, card codes and types land in the expected categories", () => {
   assert.equal(autoCategory(tx("2026-09-01", -50, "ATM", { type: "ATM" }), none), "cash");
   assert.equal(autoCategory(tx("2026-09-01", -5, "Premium plan fee", { type: "FEE" }), none), "fees");
   assert.equal(autoCategory(tx("2026-09-01", -100, "Exchanged to USD", { type: "EXCHANGE" }), none), "internal");
-  assert.equal(autoCategory(tx("2026-09-01", -200, "To EUR Savings", { type: "TRANSFER" }), none), "internal");
+  assert.equal(autoCategory(tx("2026-09-01", -200, "To EUR Savings", { type: "TRANSFER" }), none), "savings");
+  assert.equal(autoCategory(tx("2026-09-01", 50, "From Holiday pocket", { type: "TRANSFER" }), none), "savings");
+  assert.equal(
+    autoCategory(tx("2026-09-01", 200, "From EUR Current", { type: "TRANSFER", account: "Savings" }), none),
+    "internal",
+    "the savings account's side of the same move isn't counted twice",
+  );
   assert.equal(autoCategory(tx("2026-09-01", 100, "Top-up by *1234"), none), "internal");
   assert.equal(autoCategory(tx("2026-09-01", 15, "Amazon", { type: "CARD_REFUND" }), none), "refunds");
   assert.equal(autoCategory(tx("2026-09-01", -60, "Jonas Jonaitis", { type: "TRANSFER" }), none), "transfers");
@@ -71,11 +77,13 @@ test("a payment's own choice beats its merchant's rule, which beats the automati
   assert.equal(cats.get(b.id), "shopping");
 });
 
-test("spending adds money out and subtracts refunds; internal moves count for nothing", () => {
-  assert.deepEqual(flowOf({ amount_minor: -1000 }, "groceries"), { spent: 1000, earned: 0 });
-  assert.deepEqual(flowOf({ amount_minor: 300 }, "refunds"), { spent: -300, earned: 0 });
-  assert.deepEqual(flowOf({ amount_minor: 240000 }, "salary"), { spent: 0, earned: 240000 });
-  assert.deepEqual(flowOf({ amount_minor: -50000 }, "internal"), { spent: 0, earned: 0 });
+test("spending adds money out and subtracts refunds; savings count as saved; internal moves count for nothing", () => {
+  assert.deepEqual(flowOf({ amount_minor: -1000 }, "spend"), { spent: 1000, earned: 0, saved: 0 });
+  assert.deepEqual(flowOf({ amount_minor: 300 }, "spend"), { spent: -300, earned: 0, saved: 0 }, "a refund");
+  assert.deepEqual(flowOf({ amount_minor: 240000 }, "income"), { spent: 0, earned: 240000, saved: 0 });
+  assert.deepEqual(flowOf({ amount_minor: -20000 }, "savings"), { spent: 0, earned: 0, saved: 20000 });
+  assert.deepEqual(flowOf({ amount_minor: 5000 }, "savings"), { spent: 0, earned: 0, saved: -5000 }, "taken back out");
+  assert.deepEqual(flowOf({ amount_minor: -50000 }, "internal"), { spent: 0, earned: 0, saved: 0 });
 });
 
 // ---------- the Spending page ----------

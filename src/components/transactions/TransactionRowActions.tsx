@@ -14,7 +14,7 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
-import { CATEGORY_ICON } from "@/components/spending/CategoryIcon";
+import { CategoryIconOnly } from "@/components/spending/CategoryIcon";
 import { CategoryMenuItems } from "@/components/spending/CategoryPicker";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,8 +27,8 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CATEGORIES } from "@/lib/categories";
 import { useCategoryPending, useExclusion, useOverride } from "@/lib/query/mutations";
+import { useCategories } from "@/lib/query/useCategories";
 import type { TransactionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AddToSubscriptionDialog } from "./AddToSubscriptionDialog";
@@ -44,6 +44,7 @@ export function TransactionRowActions({
   /** e.g. a 44px touch target in the phone list. */
   triggerClassName?: string;
 }) {
+  const categories = useCategories();
   const override = useOverride();
   const exclusion = useExclusion();
   const savingCategory = useCategoryPending(tx);
@@ -69,9 +70,9 @@ export function TransactionRowActions({
           {/* The category, here too: on phones the table's category column isn't shown. */}
           <DropdownMenuSub>
             <DropdownMenuSubTrigger disabled={savingCategory} aria-busy={savingCategory} className="data-disabled:opacity-50">
-              {savingCategory ? <Loader2Icon className="animate-spin" aria-hidden /> : <CategoryIconFor tx={tx} />}
+              {savingCategory ? <Loader2Icon className="animate-spin" aria-hidden /> : <CategoryIconOnly id={tx.category} />}
               <span className="truncate">
-                Category: {CATEGORIES[tx.category].label}
+                Category: {categories.of(tx.category).label}
                 {savingCategory && <span className="sr-only"> (saving)</span>}
               </span>
             </DropdownMenuSubTrigger>
@@ -135,9 +136,4 @@ export function TransactionRowActions({
       {assigning && <AddToSubscriptionDialog tx={tx} onOpenChange={setAssigning} />}
     </>
   );
-}
-
-function CategoryIconFor({ tx }: { tx: TransactionItem }) {
-  const Icon = CATEGORY_ICON[tx.category];
-  return <Icon />;
 }

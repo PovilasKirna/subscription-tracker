@@ -2,6 +2,7 @@
 
 import { hashKey, type QueryClient, type QueryKey, useMutation, useMutationState, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import type { CategoryIconName, CategoryId, CategoryKind } from "../categories";
 import type { ColorChoice } from "../color";
 import type { OverrideStatus } from "../server/db";
 import type { SettingsPatch } from "../settings";
@@ -441,4 +442,40 @@ export function useCategoryPending(tx: Pick<TransactionItem, "id" | "merchantKey
       e !== undefined &&
       (e.txId === tx.id || (e.scope === "merchant" && e.merchantKey === tx.merchantKey && tx.categoryChosen !== "payment")),
   );
+}
+
+/** A category's settings: a palette slot for colour (0 = none); `kind` only for custom ones, `hidden` only for built-ins. */
+export type CategorySettingsInput = {
+  /** Omitted to add a new custom category. */
+  id?: CategoryId;
+  name?: string;
+  kind?: CategoryKind;
+  icon?: CategoryIconName;
+  color?: number;
+  hidden?: boolean;
+};
+
+/**
+ * Adds a custom category (no `id`) or changes one. Every view can show categories and their totals,
+ * so everything refreshes; errors are left to the caller (the dialog shows them by its fields).
+ */
+export function useSaveCategory() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: ({ id, ...body }: CategorySettingsInput) =>
+      id
+        ? api(`/api/categories/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) })
+        : api("/api/categories", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Deletes a custom category; its payments go back to automatic categorisation. */
+export function useDeleteCategory() {
+  const invalidate = useInvalidateAll();
+  return useMutation({
+    mutationFn: (id: CategoryId) => api(`/api/categories/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    onSuccess: invalidate,
+    onError: (e) => toast.error(e.message),
+  });
 }
