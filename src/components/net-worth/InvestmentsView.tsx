@@ -70,12 +70,15 @@ function ValueCard({ data }: { data: InvestmentsPayload }) {
   const cur = h?.currency ?? data.baseCurrency;
   const r = RANGES.find((x) => x.id === range) ?? RANGES[2];
   const points = useMemo(() => sliceRange(data.history, r, data.today), [data.history, r, data.today]);
-  // Return over the range: the change in value minus what was paid in meanwhile (deposits aren't gains).
+  // Return over the range: the change in value minus what was paid in meanwhile (deposits aren't
+  // gains). Only with the full deposit history: without it a deposit would look like profit.
   const tracked = points.filter((p) => p.value !== null);
   const start = tracked[0];
   const end = tracked.at(-1);
   const periodReturn =
-    start && end && start !== end ? (end.value ?? 0) - (start.value ?? 0) - ((end.deposits ?? 0) - (start.deposits ?? 0)) : null;
+    data.deposits.complete && start && end && start !== end && start.deposits !== null && end.deposits !== null
+      ? (end.value ?? 0) - (start.value ?? 0) - (end.deposits - start.deposits)
+      : null;
   return (
     <ChartCard
       title="Account value"
@@ -99,10 +102,17 @@ function ValueCard({ data }: { data: InvestmentsPayload }) {
           <span className="font-medium tabular-nums">{data.netDeposits !== null ? money(data.netDeposits, cur) : "—"}</span>
         </Stat>
       </div>
-      {data.deposits.error && (
+      {data.deposits.error ? (
         <p className="mb-3 flex items-center gap-1.5 text-[13px] text-[var(--text-muted)]">
           <CircleAlertIcon className="size-3.5 text-[var(--status-warning)]" aria-hidden /> {data.deposits.error}
         </p>
+      ) : (
+        data.deposits.synced &&
+        !data.deposits.complete && (
+          <p className="mb-3 text-[13px] text-[var(--text-muted)]">
+            Still reading your deposit history from Trading 212 — return and net deposits appear once it's all in.
+          </p>
+        )
       )}
       {points.length >= 2 && points.some((p) => p.value !== null) ? (
         <InvestmentLine

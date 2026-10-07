@@ -3,10 +3,11 @@
 import { RepeatIcon } from "lucide-react";
 import { compactDate } from "@/components/data-table";
 import { MerchantIcon } from "@/components/MerchantIcon";
+import { CATEGORIES } from "@/lib/categories";
 import type { TransactionItem } from "@/lib/types";
-import { merchantName, TransactionAmount, typeLabel } from "./columns";
+import { merchantName, TransactionAmount } from "./columns";
 
-/** Phone row: logo, description and amount on top; "4 Oct · Card payment" and the subscription mark below. */
+/** Phone row: logo, description and amount on top; "4 Oct · Groceries" and the subscription mark below. Change the category from the row's ⋯ menu. */
 export function TransactionMobileRow({ tx, today }: { tx: TransactionItem; today: string }) {
   return (
     <span className="flex items-center gap-3">
@@ -17,7 +18,8 @@ export function TransactionMobileRow({ tx, today }: { tx: TransactionItem; today
         <span className="col-span-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           <span className="truncate">
             <span className="tabular">{compactDate(tx.date, today)}</span>
-            {typeLabel(tx) && <> · {typeLabel(tx)}</>}
+            {" · "}
+            {CATEGORIES[tx.category].label}
           </span>
           {tx.subscriptionKey && (
             <>

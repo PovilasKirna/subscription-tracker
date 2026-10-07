@@ -90,7 +90,8 @@ function Plot({
     const lo = Math.min(...values);
     const hi = Math.max(...values);
     const pad = Math.max((hi - lo) * 0.12, Math.abs(hi) * 0.02, 1);
-    return scaleLinear<number>({ domain: [Math.max(0, lo - pad), hi + pad], range: [yMax, 0], nice: true });
+    // Down to zero at most, unless net deposits went negative (more withdrawn than paid in).
+    return scaleLinear<number>({ domain: [lo < 0 ? lo - pad : Math.max(0, lo - pad), hi + pad], range: [yMax, 0], nice: true });
   }, [data, yMax]);
 
   const x = (d: InvestmentDay) => xScale(toTime(d.date)) ?? 0;
@@ -204,6 +205,18 @@ function Plot({
           style={{ outline: "none" }}
         />
       </svg>
+      {/* Keyboard steps move only the tooltip, so the selected point is announced here. */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {active
+          ? [
+              formatDateLong(active.date),
+              active.value !== null && `account value ${formatValue(active.value)}`,
+              active.deposits !== null && `net deposits ${formatValue(active.deposits)}`,
+            ]
+              .filter(Boolean)
+              .join(", ")
+          : ""}
+      </div>
       {active && (
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
           <TooltipRow label={formatDateLong(active.date)} value="" strong />

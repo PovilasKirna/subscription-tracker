@@ -334,3 +334,78 @@ test("accounts are grouped by the bank's account type, else their name", () => {
   assert.equal(holdingGroup({ kind: "bank", subtype: null, name: "Savings vault" }), "savings");
   assert.equal(holdingGroup({ kind: "broker", subtype: null, name: "Portfolio" }), "investments");
 });
+
+test("all positions are kept, not just the largest 50", () => {
+  const many = Array.from({ length: 60 }, (_, i) => ({
+    quantity: 1,
+    instrument: { ticker: `T${i}`, name: `Stock ${i}` },
+    walletImpact: { currentValue: i + 1, totalCost: i, unrealizedProfitLoss: 1 },
+  }));
+  const s = summarize({ id: 1, currency: "EUR", totalValue: 2000 }, many);
+  assert.equal(s.detail.positions?.length, 60);
+  assert.equal(s.detail.positions?.[59].ticker, "T0", "smallest last");
+});
+
+// ---------- deposit backfill ----------
+
+/** `n` pages, newest first; each holds one interest payment, and the oldest also the first deposit. */
+function interestPages(n: number) {
+  const pages: Record<string, { items: unknown[]; nextPagePath: string | null }> = {};
+  for (let i = 0; i < n; i++) {
+    const day = String(28 - i).padStart(2, "0");
+    const items: unknown[] = [
+      { reference: `int-${i}`, type: "INTEREST_ON_FREE_CASH", amount: 0.1, currency: "GBP", dateTime: `2026-05-${day}T10:00:00Z` },
+    ];
+    if (i === n - 1) items.push({ reference: "first", type: "DEPOSIT", amount: 500, currency: "GBP", dateTime: "2026-05-01T10:00:00Z" });
+    pages[i === 0 ? "top" : `p${i}`] = { items, nextPagePath: i < n - 1 ? `/api/v0/equity/history/transactions?cursor=p${i + 1}` : null };
+  }
+  return pages;
+}
+
+test("a long deposit history is read over several runs, even when its newest pages hold only interest", async () => {
+  const db = await getDb();
+  await run(db, "DELETE FROM broker_cash_flows");
+  await run(db, "DELETE FROM settings WHERE key = 'state.t212.cashFlows'");
+  const pages = interestPages(12); // more than the 10 pages a run reads
+  const summary = { body: { id: 7, currency: "GBP", totalValue: 850, cash: { availableToTrade: 50 }, investments: { currentValue: 800 } } };
+  t212 = (url) =>
+    url.pathname.endsWith("/equity/history/transactions")
+      ? { body: pages[url.searchParams.get("cursor") ?? "top"] }
+      : url.pathname.endsWith("/equity/account/summary")
+        ? summary
+        : { body: [] };
+  const historyCalls = () => calls.filter((u) => u.pathname.endsWith("/history/transactions")).map((u) => u.searchParams.get("cursor"));
+
+  calls.length = 0;
+  await syncTrading212();
+  assert.equal(historyCalls().length, 10, "the first run stops at its page budget");
+  let inv = await getInvestments();
+  assert.equal(inv.deposits.complete, false);
+  assert.equal(inv.netDeposits, null, "a partial history isn't shown as all-time net deposits");
+  assert.equal(inv.returnAmount, null, "nor turned into a return");
+
+  calls.length = 0;
+  await syncTrading212();
+  // Catch up from the top (already seen after one page), then resume where the backfill stopped.
+  assert.deepEqual(historyCalls(), [null, "p10", "p11"]);
+  inv = await getInvestments();
+  assert.equal(inv.deposits.complete, true);
+  assert.equal(inv.netDeposits, 500);
+  assert.equal(inv.returnAmount, 350);
+
+  calls.length = 0;
+  await syncTrading212();
+  assert.deepEqual(historyCalls(), [null], "once complete, one page is enough to see nothing's new");
+});
+
+test("withdrawing more than was paid in gives no rate of return", async () => {
+  const db = await getDb();
+  await run(db, "DELETE FROM broker_cash_flows");
+  await run(
+    db,
+    "INSERT INTO broker_cash_flows (holding, reference, date, type, amount_minor, currency) VALUES ('t212', 'w', '2026-06-01', 'WITHDRAW', -100000, 'GBP')",
+  );
+  const inv = await getInvestments();
+  assert.equal(inv.netDeposits, -1000);
+  assert.equal(inv.returnRate, null);
+});

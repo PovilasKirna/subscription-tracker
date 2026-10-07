@@ -7,8 +7,8 @@ import { ParentSize } from "@visx/responsive";
 import { scaleBand, scaleLinear } from "@visx/scale";
 import { Bar, BarRounded } from "@visx/shape";
 import { useMemo } from "react";
-import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
-import { axisLabel, marks, seriesColor, tokens } from "./palette";
+import { ChartTooltip, TooltipRow, useChartTooltip, useRovingFocus } from "./ChartTooltip";
+import { axisLabel, focusRing, marks, seriesColor, tokens } from "./palette";
 import { Difference } from "./SpendingPace";
 import type { SpendingBarPoint } from "./types";
 
@@ -28,7 +28,8 @@ type Props = {
 
 /**
  * What was spent on each day (or month) of the period. Days still to come show what's expected,
- * faintly. The period before only appears in the tooltip.
+ * faintly; a day with more refunds than spending goes below zero. The period before only appears
+ * in the tooltip. One tab stop: the arrow keys move between named bars (roving focus).
  */
 export function SpendingBars(props: Props) {
   const height = props.height ?? 260;
@@ -48,9 +49,17 @@ function Plot({ data, label, previousLabel, formatValue, formatAxisValue, width,
   const keys = useMemo(() => Array.from({ length: count }, (_, i) => i), [count]);
   const xScale = useMemo(() => scaleBand<number>({ domain: keys, range: [0, xMax], padding: 0.25 }), [keys, xMax]);
   const yScale = useMemo(() => {
-    const max = Math.max(1, ...data.flatMap((d) => [d.amount ?? 0, d.projectedAmount ?? 0]));
-    return scaleLinear<number>({ domain: [0, max], range: [yMax, 0], nice: true });
+    const values = data.flatMap((d) => [d.amount ?? 0, d.projectedAmount ?? 0]);
+    return scaleLinear<number>({ domain: [Math.min(0, ...values), Math.max(1, ...values)], range: [yMax, 0], nice: true });
   }, [data, yMax]);
+  const zero = yScale(0) ?? yMax;
+  const roving = useRovingFocus(
+    count,
+    Math.max(
+      0,
+      data.findLastIndex((d) => d.amount !== null),
+    ),
+  );
   const barWidth = Math.min(marks.maxBar, xScale.bandwidth());
   const step = xScale.step();
   const every = Math.max(1, Math.round(data.length / 6));
@@ -61,19 +70,32 @@ function Plot({ data, label, previousLabel, formatValue, formatAxisValue, width,
     const d = data[i];
     const v = d.amount ?? d.projectedAmount ?? 0;
     const left = (xScale(i) ?? 0) + margin.left + xScale.bandwidth() / 2;
-    showTooltip({ tooltipData: i, tooltipLeft: left, tooltipTop: (yScale(v) ?? 0) + margin.top });
+    showTooltip({ tooltipData: i, tooltipLeft: left, tooltipTop: (yScale(Math.max(0, v)) ?? 0) + margin.top });
   };
   const active = tooltipOpen && tooltipData !== undefined ? data[tooltipData] : null;
+  /** A bar's accessible name: "5 Oct 2026: October €42.10, September €38.00". */
+  const nameOf = (d: SpendingBarPoint) => {
+    const value =
+      d.amount !== null
+        ? `${label} ${formatValue(d.amount)}`
+        : d.projectedAmount !== null
+          ? `expected ${formatValue(d.projectedAmount)}`
+          : "nothing yet";
+    const before = d.previousAmount !== null ? `, ${previousLabel} ${formatValue(d.previousAmount)}` : "";
+    return `${d.title}: ${value}${before}`;
+  };
+  const focused = roving.ringVisible && roving.focused !== null ? roving.focused : null;
 
   return (
     <div className="relative" ref={containerRef}>
+      {/* biome-ignore lint/a11y/useSemanticElements: an <svg> cannot be a <fieldset>; group names a chart of focusable marks */}
       <svg
         width={width}
         height={height}
         viewBox={`0 0 ${width} ${height}`}
         style={FLUID}
-        role="img"
-        aria-label={`${label} spending per period`}
+        role="group"
+        aria-label={`${label} spending. Use the arrow keys to move between bars.`}
       >
         <Group left={margin.left} top={margin.top}>
           <GridRows scale={yScale} width={xMax} numTicks={4} stroke={tokens.grid} strokeWidth={1} />
@@ -90,56 +112,81 @@ function Plot({ data, label, previousLabel, formatValue, formatAxisValue, width,
           )}
           {data.map((d, i) => {
             const value = d.amount ?? d.projectedAmount;
-            if (!value || value <= 0) return null;
+            if (!value) return null;
+            // Signed around zero: a refund-heavy day hangs below the line, rounded at its far end.
             const y = yScale(value) ?? 0;
+            const below = value < 0;
             return (
               <BarRounded
                 key={`b-${d.title}`}
+                aria-hidden
                 x={(xScale(i) ?? 0) + (xScale.bandwidth() - barWidth) / 2}
-                y={y}
+                y={below ? zero : y}
                 width={barWidth}
-                height={Math.max(0, yMax - y)}
+                height={Math.abs(zero - y)}
                 radius={marks.radius}
-                top
+                top={!below}
+                bottom={below}
                 fill={BAR}
                 fillOpacity={d.amount === null ? 0.3 : 1}
               />
             );
           })}
+          {/* Hit targets: the whole band, full height. One roving tab stop. */}
           {keys.map((i) => (
             <Bar
               key={`hit-${data[i].title}`}
+              innerRef={roving.ref(i)}
               x={(xScale(i) ?? 0) - (step - xScale.bandwidth()) / 2}
               y={0}
               width={step}
               height={yMax}
               fill="transparent"
-              tabIndex={0}
-              aria-label={`${data[i].title}: ${formatValue(data[i].amount ?? data[i].projectedAmount ?? 0)}`}
+              tabIndex={roving.tabIndex(i)}
+              role="img"
+              aria-label={nameOf(data[i])}
               onMouseMove={() => show(i)}
               onMouseLeave={hideTooltip}
-              onFocus={() => show(i)}
-              onBlur={hideTooltip}
+              onFocus={(e) => {
+                roving.onFocus(i, e);
+                show(i);
+              }}
+              onBlur={(e) => roving.onBlur(e) && hideTooltip()}
+              onKeyDown={(e) => (e.key === "Escape" ? hideTooltip() : roving.onKeyDown(i, e))}
               style={{ outline: "none" }}
             />
           ))}
-          <AxisLeft
-            scale={yScale}
-            numTicks={4}
-            hideAxisLine
-            hideTicks
-            tickFormat={(v) => formatAxisValue(Number(v))}
-            tickLabelProps={() => ({ ...axisLabel, textAnchor: "end", dx: -6, dy: 3 })}
-          />
-          <AxisBottom
-            top={yMax}
-            scale={xScale}
-            tickValues={tickValues}
-            stroke={tokens.axis}
-            hideTicks
-            tickFormat={(i) => data[Number(i)]?.label ?? ""}
-            tickLabelProps={() => ({ ...axisLabel, textAnchor: "middle", dy: 4 })}
-          />
+          {/* Keyboard focus ring around the focused band: SVG marks get no native outline. */}
+          {focused !== null && (
+            <Bar
+              aria-hidden
+              x={(xScale(focused) ?? 0) - (step - xScale.bandwidth()) / 2 + 1}
+              y={1}
+              width={Math.max(0, step - 2)}
+              height={Math.max(0, yMax - 2)}
+              rx={6}
+              {...focusRing}
+            />
+          )}
+          <g aria-hidden>
+            <AxisLeft
+              scale={yScale}
+              numTicks={4}
+              hideAxisLine
+              hideTicks
+              tickFormat={(v) => formatAxisValue(Number(v))}
+              tickLabelProps={() => ({ ...axisLabel, textAnchor: "end", dx: -6, dy: 3 })}
+            />
+            <AxisBottom
+              top={yMax}
+              scale={xScale}
+              tickValues={tickValues}
+              stroke={tokens.axis}
+              hideTicks
+              tickFormat={(i) => data[Number(i)]?.label ?? ""}
+              tickLabelProps={() => ({ ...axisLabel, textAnchor: "middle", dy: 4 })}
+            />
+          </g>
         </Group>
       </svg>
       {active && (

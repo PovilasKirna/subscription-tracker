@@ -239,6 +239,58 @@ test("a year runs January to December against last year and is projected to Dece
   assert.equal(s.points[11].projectedAmount, 300);
 });
 
+test("an impossible date falls back to the current period instead of failing", () => {
+  for (const at of ["2026-00", "2026-13-01", "2026-02-30", "garbage"]) {
+    const s = buildSpending({ txs: [], categoryOf: new Map(), subscriptions: [], base: "EUR", range: "1m", at, today: "2026-10-07" });
+    assert.equal(s.period.start, "2026-10-01", at);
+  }
+});
+
+test("on the 31st, a month compares with all of the shorter month before", () => {
+  const txs = [tx("2026-09-30", -100, "Lidl Vilnius"), tx("2026-10-31", -40, "Lidl Vilnius")];
+  const categoryOf = categorizeAll(txs, new Map(), { byTx: new Map(), byMerchant: new Map() });
+  const s = buildSpending({ txs, categoryOf, subscriptions: [], base: "EUR", range: "1m", at: "", today: "2026-10-31" });
+  assert.equal(s.previousComparable, 100, "September up to its last day, not zero");
+});
+
+test("6 months compare with the same day 6 months before, not the whole aligned month", () => {
+  const txs = [
+    tx("2026-04-05", -30, "Lidl Vilnius"), // within the comparison (up to 7 April)
+    tx("2026-04-20", -70, "Lidl Vilnius"), // after the same day 6 months earlier
+    tx("2026-10-02", -50, "Lidl Vilnius"),
+  ];
+  const categoryOf = categorizeAll(txs, new Map(), { byTx: new Map(), byMerchant: new Map() });
+  const s = buildSpending({ txs, categoryOf, subscriptions: [], base: "EUR", range: "6m", at: "", today: "2026-10-07" });
+  assert.equal(s.previousComparable, 30);
+  assert.equal(s.previousTotal, 100);
+});
+
+test("a subscription relabelled by the user is still projected once, on its due day", () => {
+  // Rent is a detected subscription the user moved to Housing: it must not also count as usual spending.
+  const rent = (m: string) => tx(`${m}-03`, -650, "Rent landlord", { type: "TRANSFER" });
+  const txs = [...["2026-07", "2026-08", "2026-09"].map(rent), tx("2026-10-03", -650, "Rent landlord", { type: "TRANSFER" })];
+  const txToSub = new Map(txs.map((t) => [t.id, "rent-landlord|EUR"]));
+  const categoryOf = categorizeAll(txs, txToSub, {
+    byTx: new Map(),
+    byMerchant: new Map<string, CategoryId>([["rent-landlord", "housing"]]),
+  });
+  const subscriptions = [sub({ key: "rent-landlord|EUR", name: "Rent", amount: 650, nextCharge: "2026-11-03" })];
+  // Looking at the 2nd: rent on the 3rd is due once (as the subscription), not twice.
+  const s = buildSpending({ txs, txToSub, categoryOf, subscriptions, base: "EUR", range: "1m", at: "", today: "2026-10-02" });
+  assert.equal(s.projected, 0);
+  const before = buildSpending({
+    txs: txs.slice(0, 3),
+    txToSub,
+    categoryOf,
+    subscriptions: [sub({ key: "rent-landlord|EUR", name: "Rent", amount: 650, nextCharge: "2026-10-03" })],
+    base: "EUR",
+    range: "1m",
+    at: "",
+    today: "2026-10-02",
+  });
+  assert.equal(before.projected, 650);
+});
+
 test("months shift across years", () => {
   assert.equal(shiftMonth("2026-01", -1), "2025-12");
   assert.equal(shiftMonth("2025-12", 1), "2026-01");

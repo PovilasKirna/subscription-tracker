@@ -363,7 +363,16 @@ export async function getDataStatus(): Promise<DataStatusPayload> {
 /** The Spending page for one period (`at`: a day inside it; "" = the current one). */
 export async function getSpending(range: SpendingRange, at: string): Promise<SpendingPayload> {
   const { txs, det, categoryOf } = await detection();
-  return buildSpending({ txs, categoryOf, subscriptions: det.subscriptions, base: config.baseCurrency, range, at, today: today() });
+  return buildSpending({
+    txs,
+    txToSub: det.txToSub,
+    categoryOf,
+    subscriptions: det.subscriptions,
+    base: config.baseCurrency,
+    range,
+    at,
+    today: today(),
+  });
 }
 
 /** One account of the Net worth page: its value over time and, for a bank account, its latest payments. */

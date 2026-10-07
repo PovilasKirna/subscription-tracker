@@ -105,8 +105,8 @@ export function summarize(summary: T212Summary, positions: T212Position[] | null
           cost: p.walletImpact?.totalCost ?? (p.averagePricePaid !== undefined ? p.quantity * p.averagePricePaid : null),
           profitLoss: p.walletImpact?.unrealizedProfitLoss ?? null,
         }))
+        // All of them: the page limits what it shows, and shares are worked out against the whole portfolio.
         .sort((a, b) => b.value - a.value)
-        .slice(0, 50)
     : null;
   return {
     accountId: String(summary.id),

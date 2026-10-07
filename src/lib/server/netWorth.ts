@@ -131,71 +131,84 @@ async function doSyncTrading212(): Promise<void> {
   await syncCashFlows(db);
 }
 
-/** How far the deposit history has been read (settings state). */
-type CashFlowState = { complete: boolean; cursor: string | null; error: string | null; at: string };
+/**
+ * How far the deposit history has been read (settings state). `latestSeen` is the newest movement
+ * ever read, of any type (interest and fees too, though only deposits, withdrawals and transfers
+ * are stored), so catching up never depends on which rows happened to be stored.
+ */
+type CashFlowState = { complete: boolean; cursor: string | null; latestSeen: string | null; error: string | null; at: string };
 const CASH_FLOW_STATE = "state.t212.cashFlows" as const;
 /** Pages read per run (the API allows 20 requests a minute); a long history is finished over a few runs. */
 const MAX_PAGES = 10;
 
 /**
- * Reads deposits and withdrawals, newest first. Once the whole history is in, a run stops at the
- * first page it already has. Until then each run continues from where the last one stopped.
- * Never throws: without the "History" permission the Investments page just has no deposits line.
+ * Reads deposits and withdrawals, newest first, in two steps sharing one page budget:
+ * 1. from the top until reaching movements already read (`latestSeen`), or the end;
+ * 2. while the history isn't complete, onwards from where the previous run stopped (`cursor`).
+ * The very first run's step 1 is the start of the backfill. Never throws: without the "History"
+ * permission the Investments page just has no deposits line.
  */
 async function syncCashFlows(db: Db): Promise<void> {
   const state = await getState<CashFlowState>(db, CASH_FLOW_STATE);
-  const save = (s: Omit<CashFlowState, "at">) => setState(db, CASH_FLOW_STATE, { ...s, at: new Date().toISOString() });
+  const seenBefore = state?.latestSeen ?? null;
+  let complete = state?.complete ?? false;
+  let cursor = state?.cursor ?? null;
+  let latestSeen = seenBefore;
+  const save = (error: string | null) =>
+    setState(db, CASH_FLOW_STATE, { complete, cursor, latestSeen, error, at: new Date().toISOString() });
+  const read = async (path: string | null) => {
+    const r = await fetchCashFlowPage(path);
+    await insertCashFlows(db, r.items);
+    for (const f of r.items) if (!latestSeen || f.dateTime > latestSeen) latestSeen = f.dateTime;
+    return r;
+  };
   try {
-    // Catch up on new movements from the top, then (while incomplete) resume the backfill.
+    let budget = MAX_PAGES;
     let next: string | null = null;
-    let resumed = false;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const r = await fetchCashFlowPage(next);
-      const known = await insertCashFlows(db, r.items);
+    while (budget > 0) {
+      const r = await read(next);
+      budget--;
       next = r.nextPagePath ?? null;
-      if (!next || (known && state?.complete)) {
-        if (!next) return save({ complete: true, cursor: null, error: null });
+      if (seenBefore && r.items.some((f) => f.dateTime <= seenBefore)) break; // caught up
+      if (!next) {
+        // Read all the way down from the top: the whole history is in.
+        complete = true;
+        cursor = null;
         break;
       }
-      if (known && state?.cursor && !resumed) {
-        next = state.cursor; // the newest part is in; jump to where the backfill stopped
-        resumed = true;
-      }
+      if (!seenBefore) cursor = next; // the first pass is the backfill itself
     }
-    await save({ complete: Boolean(state?.complete), cursor: state?.complete ? null : next, error: null });
+    while (!complete && cursor && budget > 0) {
+      const r = await read(cursor);
+      budget--;
+      cursor = r.nextPagePath ?? null;
+      if (!cursor) complete = true;
+    }
+    await save(null);
   } catch (e) {
     const message =
       e instanceof Trading212Error && e.status === 403
         ? "Give the API key the “History” permission to see your deposits and return."
         : (e as Error).message;
-    await save({ complete: Boolean(state?.complete), cursor: state?.cursor ?? null, error: message }).catch(() => undefined);
+    await save(message).catch(() => undefined);
   }
 }
 
-/** Stores a page of movements (deposits, withdrawals, transfers only); true if any was already stored. */
-async function insertCashFlows(db: Db, items: Awaited<ReturnType<typeof fetchCashFlowPage>>["items"]): Promise<boolean> {
+/** Stores a page's deposits, withdrawals and transfers (interest and fees are returns, not deposits). */
+async function insertCashFlows(db: Db, items: Awaited<ReturnType<typeof fetchCashFlowPage>>["items"]): Promise<void> {
   const flows = items.flatMap((f) => {
     const amount = depositAmount(f);
     return amount === null ? [] : [{ ...f, amount }];
   });
-  if (!items.length) return false;
-  const refs = items.map((f) => f.reference);
-  const existing = await all<{ reference: string }>(
-    db,
-    `SELECT reference FROM broker_cash_flows WHERE holding = ? AND reference IN (${refs.map(() => "?").join(",")})`,
-    [T212_HOLDING_ID, ...refs],
+  if (!flows.length) return;
+  await db.batch(
+    flows.map((f) => ({
+      sql: `INSERT INTO broker_cash_flows (holding, reference, date, type, amount_minor, currency) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(holding, reference) DO NOTHING`,
+      args: [T212_HOLDING_ID, f.reference, f.dateTime.slice(0, 10), f.type, Math.round(f.amount * 100), f.currency.toUpperCase()],
+    })),
+    "write",
   );
-  if (flows.length) {
-    await db.batch(
-      flows.map((f) => ({
-        sql: `INSERT INTO broker_cash_flows (holding, reference, date, type, amount_minor, currency) VALUES (?, ?, ?, ?, ?, ?)
-              ON CONFLICT(holding, reference) DO NOTHING`,
-        args: [T212_HOLDING_ID, f.reference, f.dateTime.slice(0, 10), f.type, Math.round(f.amount * 100), f.currency.toUpperCase()],
-      })),
-      "write",
-    );
-  }
-  return existing.length > 0;
 }
 
 // ---------- reading ----------
@@ -408,8 +421,10 @@ export async function getInvestments(): Promise<InvestmentsPayload> {
     ),
     getState<CashFlowState>(db, CASH_FLOW_STATE),
   ]);
-  // Deposits in another currency than the account's can't be added up honestly; leave them out.
-  const own = holding?.currency ? flows.filter((f) => f.currency === holding.currency) : flows;
+  // Deposits count only once the whole history is in: a partial total would show the missing early
+  // deposits as profit. Ones in another currency than the account's can't be added up honestly.
+  const complete = Boolean(state?.complete);
+  const own = !complete ? [] : holding?.currency ? flows.filter((f) => f.currency === holding.currency) : flows;
   const history = investmentHistory(
     values.filter((v) => v.holding === T212_HOLDING_ID),
     own,
@@ -417,6 +432,7 @@ export async function getInvestments(): Promise<InvestmentsPayload> {
   );
   const netDeposits = own.length ? own.reduce((s, f) => s + Number(f.amount_minor), 0) / 100 : null;
   const returnAmount = holding?.value != null && netDeposits !== null ? round2(holding.value - netDeposits) : null;
+  // A rate needs something paid in to be a rate of (after withdrawing more than you put in, it isn't).
   return {
     baseCurrency: base,
     today,
@@ -425,7 +441,7 @@ export async function getInvestments(): Promise<InvestmentsPayload> {
     history,
     netDeposits,
     returnAmount,
-    returnRate: returnAmount !== null && netDeposits ? returnAmount / netDeposits : null,
-    deposits: { synced: Boolean(state && !state.error), complete: Boolean(state?.complete), error: state?.error ?? null },
+    returnRate: returnAmount !== null && netDeposits !== null && netDeposits > 0 ? returnAmount / netDeposits : null,
+    deposits: { synced: Boolean(state && !state.error), complete, error: state?.error ?? null },
   };
 }

@@ -58,10 +58,31 @@ export function previousPeriod(range: SpendingRange, p: Period): Period {
   return periodOf(range, range === "1w" ? addDays(p.start, -7) : addDays(p.start, -1));
 }
 
-type Rec = { date: string; category: CategoryId; spent: number; earned: number };
+type Rec = { date: string; category: CategoryId; spent: number; earned: number; inSubscription: boolean };
+
+/** A real calendar date (YYYY-MM-DD) or month (YYYY-MM, its first day), else null. Pure. */
+export function validDate(value: string): string | null {
+  if (!/^\d{4}-\d{2}(-\d{2})?$/.test(value)) return null;
+  const date = value.length === 7 ? `${value}-01` : value;
+  const t = time(date);
+  return Number.isNaN(t) || isoDate(t) !== date ? null : date;
+}
+
+/** The same day `months` earlier, clamped to that month's last day (31 Oct → 30 Sep). */
+function sameDayMonthsBefore(date: string, months: number): string {
+  const month = shiftMonth(date.slice(0, 7), -months);
+  return `${month}-${String(Math.min(Number(date.slice(8, 10)), daysIn(month))).padStart(2, "0")}`;
+}
+
+/** The previous period's equivalent of `date`: a week before, or the same day of the month in the months before. */
+export function previousCutoff(range: SpendingRange, date: string): string {
+  return range === "1w" ? addDays(date, -7) : sameDayMonthsBefore(date, range === "1m" ? 1 : range === "6m" ? 6 : 12);
+}
 
 export function buildSpending(input: {
   txs: readonly TxRow[];
+  /** Payment id → subscription it belongs to (subscriptions are projected on their own, not as usual spending). */
+  txToSub?: ReadonlyMap<string, string>;
   categoryOf: ReadonlyMap<string, CategoryId>;
   subscriptions: readonly Subscription[];
   base: string;
@@ -71,7 +92,7 @@ export function buildSpending(input: {
   today: string;
 }): SpendingPayload {
   const { base, today, range } = input;
-  const at = /^\d{4}-\d{2}(-\d{2})?$/.test(input.at) ? (input.at.length === 7 ? `${input.at}-01` : input.at) : today;
+  const at = validDate(input.at) ?? today;
   const period = periodOf(range, at > today ? today : at);
   const prev = previousPeriod(range, period);
   const isCurrent = period.start <= today && today <= period.end;
@@ -89,7 +110,7 @@ export function buildSpending(input: {
     }
     const category = input.categoryOf.get(tx.id) ?? "general";
     const { spent, earned } = flowOf(tx, category);
-    if (spent || earned) recs.push({ date: tx.date, category, spent, earned });
+    if (spent || earned) recs.push({ date: tx.date, category, spent, earned, inSubscription: input.txToSub?.has(tx.id) ?? false });
   }
 
   const bucket = (p: Period, date: string) => (p.unit === "day" ? date : date.slice(0, 7));
@@ -138,7 +159,8 @@ export function buildSpending(input: {
       for (const r of recs) {
         if (!paceUsed.includes(r.date.slice(0, 7))) continue;
         usualMonth += r.spent;
-        if (r.category !== "subscriptions") usualDay[Number(r.date.slice(8, 10))] += r.spent;
+        // By membership, not label: a subscription relabelled "Housing" is still projected on its due day.
+        if (!r.inSubscription) usualDay[Number(r.date.slice(8, 10))] += r.spent;
       }
       usualMonth = Math.max(0, Math.round(usualMonth / paceUsed.length));
       for (let date = addDays(today, 1); date <= dailyEnd; date = addDays(date, 1)) {
@@ -182,10 +204,12 @@ export function buildSpending(input: {
   });
   // A period ending with the current month (6M) still expects the rest of this month.
   const projectedTotal = proj + pending;
-  const lastIndex = lastReached ? period.keys.indexOf(lastReached) : -1;
   // The whole previous period, even when it has more days than this one (31 days before a 30-day month).
   const previousTotal = [...prevSpent.values()].reduce((s, v) => s + v, 0);
-  const comparable = isCurrent ? Math.round((points[lastIndex]?.previous ?? 0) * 100) : previousTotal;
+  // The previous period up to the same date (not the plotted point, which a shorter month may lack, and
+  // which for 6M/1Y would include that whole month).
+  const prevCutoff = previousCutoff(range, cutoff);
+  const comparable = isCurrent ? recs.reduce((s, r) => (r.date >= prev.start && r.date <= prevCutoff ? s + r.spent : s), 0) : previousTotal;
 
   // Categories and income over the period (to today) against the whole period before.
   const tally = (p: Period, until: string) => {

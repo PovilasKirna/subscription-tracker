@@ -173,6 +173,12 @@ function Plot({
           style={{ outline: "none" }}
         />
       </svg>
+      {/* Keyboard steps move only the tooltip, so the selected point is announced here. */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {active
+          ? `${formatDateLong(active.date)}: ${formatValue(active.total)}${split ? `, bank accounts ${formatValue(active.bank)}, investments ${formatValue(active.broker)}` : ""}`
+          : ""}
+      </div>
       {active && (
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
           <TooltipRow label={formatDateLong(active.date)} value={formatValue(active.total)} strong />

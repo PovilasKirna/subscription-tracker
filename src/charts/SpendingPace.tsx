@@ -6,7 +6,7 @@ import { GridRows } from "@visx/grid";
 import { Group } from "@visx/group";
 import { ParentSize } from "@visx/responsive";
 import { scaleLinear } from "@visx/scale";
-import { AreaClosed, Bar, Line, LinePath } from "@visx/shape";
+import { Area, Bar, Line, LinePath } from "@visx/shape";
 import { type KeyboardEvent, type PointerEvent, useId, useMemo } from "react";
 import { ChartTooltip, TooltipRow, useChartTooltip } from "./ChartTooltip";
 import { axisLabel, marks, seriesColor, tokens } from "./palette";
@@ -78,8 +78,9 @@ function Plot({
 
   const xScale = useMemo(() => scaleLinear<number>({ domain: [0, Math.max(1, last)], range: [0, xMax] }), [last, xMax]);
   const yScale = useMemo(() => {
-    const max = Math.max(1, ...data.flatMap((d) => [d.spent ?? 0, d.previous ?? 0, d.projected ?? 0]), ...endLabels.map((l) => l.value));
-    return scaleLinear<number>({ domain: [0, max], range: [yMax, 0], nice: true });
+    const values = [...data.flatMap((d) => [d.spent ?? 0, d.previous ?? 0, d.projected ?? 0]), ...endLabels.map((l) => l.value)];
+    // Refunds before any purchases can take a running total below zero; keep those points in view.
+    return scaleLinear<number>({ domain: [Math.min(0, ...values), Math.max(1, ...values)], range: [yMax, 0], nice: true });
   }, [data, endLabels, yMax]);
 
   const x = (i: number) => xScale(i) ?? 0;
@@ -137,7 +138,8 @@ function Plot({
           {activeIndex !== null && (
             <Line from={{ x: x(activeIndex), y: 0 }} to={{ x: x(activeIndex), y: yMax }} stroke={tokens.axis} strokeWidth={1} />
           )}
-          <AreaClosed<P> data={spent} x={(d) => x(d.i)} y={ySpent} yScale={yScale} fill={`url(#${id}-fade)`} />
+          {/* Filled between the line and zero (not the plot's bottom, which is below zero after refunds). */}
+          <Area<P> data={spent} x={(d) => x(d.i)} y0={() => yScale(0) ?? yMax} y1={ySpent} fill={`url(#${id}-fade)`} />
           <LinePath<P>
             data={previous}
             x={(d) => x(d.i)}
@@ -218,6 +220,19 @@ function Plot({
           style={{ outline: "none" }}
         />
       </svg>
+      {/* Keyboard steps move only the tooltip, so the selected point is announced here. */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {active
+          ? [
+              active.title,
+              active.spent !== null && `${label} ${formatValue(active.spent)}`,
+              active.spent === null && active.projected !== null && `projected ${formatValue(active.projected)}`,
+              active.previous !== null && `${previousLabel} ${formatValue(active.previous)}`,
+            ]
+              .filter(Boolean)
+              .join(", ")
+          : ""}
+      </div>
       {active && (
         <ChartTooltip Portal={TooltipInPortal} left={tooltipLeft} top={tooltipTop}>
           <TooltipRow label={active.title} value="" strong />
